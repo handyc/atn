@@ -68,6 +68,8 @@ static void usage(FILE *o) {
 "               (cron-friendly; --no-learn to query a corpus read-only)\n"
 "  --score      per stdin line, print surprisal (bits/byte) under the brain\n"
 "               (low = fits the corpus; high = novel/off-topic)\n"
+"  --map-bits N  per-map entry cap = 2^N (default 22; higher = more fidelity on\n"
+"               big/diverse corpora, more RAM). Use the same N for train+query.\n"
 "  -x    hex + ASCII dump\n"
 "  -s    extract printable strings\n\n"
 "Filesystem scan:\n"
@@ -143,6 +145,7 @@ int main(int argc, char **argv) {
         {"ask", no_argument,        0, 1011},
         {"no-learn", no_argument,   0, 1012},
         {"score", no_argument,      0, 1013},
+        {"map-bits", required_argument, 0, 1014},
         {"attn", no_argument,       0, 'Z'},
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
@@ -191,6 +194,7 @@ int main(int argc, char **argv) {
             case 1011: do_ask = true; break;
             case 1012: no_learn = true; break;
             case 1013: do_score = true; break;
+            case 1014: lm_set_map_cap(atoi(optarg)); break;
             case 'c': do_chat = true; break;
             case 'o': outfile = optarg; break;
             case 'h': usage(stdout); return 0;

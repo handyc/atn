@@ -331,6 +331,21 @@ text that scores low under today's brain but high under last week's is *newly
 prominent*. So the interesting use isn't "search the news" (it would remix and
 hallucinate) but "is this typical of / novel to this slice of the news."
 
+**`trend.sh`** does exactly that diff — score phrases under two brains and sort
+by what's rising:
+
+```
+printf '%s\n' "the election results" "the flood waters rose" \
+  | ./trend.sh today.brain yesterday.brain
+#  delta   new    old    phrase
+# +4.000   0.77   4.76  the election results       <- surged today
+# -3.891   4.67   0.78  the flood waters rose       <- faded
+```
+
+For big or noisy corpora (OCR'd news), `--map-bits N` raises the per-map entry
+cap to 2^N (default 22) for higher fidelity at the cost of RAM and a bigger
+weights file — use the same `N` for training and querying.
+
 #### Building a news corpus (e.g. 1934)
 
 `atn` ships no data. For historical newspapers, the **Library of Congress

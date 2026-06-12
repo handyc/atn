@@ -41,8 +41,18 @@ static double rng_unit(void) { return (double)(rng_u64() >> 11) / (double)(1ull 
 /* ---- open-addressing uint64 -> uint32 count map ---- */
 typedef struct { uint64_t *k; uint32_t *v; char *used; size_t cap; } u64map;
 
-static bool map_init(u64map *m, size_t want) {
-    size_t cap = 1; while (cap < want * 2 && cap < MAP_CAP) cap <<= 1;
+static size_t g_map_cap = MAP_CAP;     /* runtime-tunable via --map-bits */
+void lm_set_map_cap(int bits) {
+    if (bits < 16) bits = 16;
+    if (bits > 27) bits = 27;
+    g_map_cap = (size_t)1 << bits;
+}
+
+/* maxcap = 0 uses the tunable global cap; otherwise a hard cap (load uses the
+ * exact entry count so a saved brain always reloads in full). */
+static bool map_init_cap(u64map *m, size_t want, size_t maxcap) {
+    size_t lim = maxcap ? maxcap : g_map_cap;
+    size_t cap = 1; while (cap < want * 2 && cap < lim) cap <<= 1;
     if (cap < 16) cap = 16;
     m->k = malloc(cap * sizeof(uint64_t));
     m->v = calloc(cap, sizeof(uint32_t));
@@ -51,6 +61,7 @@ static bool map_init(u64map *m, size_t want) {
     if (!m->k || !m->v || !m->used) { free(m->k); free(m->v); free(m->used); m->cap = 0; return false; }
     return true;
 }
+static bool map_init(u64map *m, size_t want) { return map_init_cap(m, want, 0); }
 static void map_free(u64map *m) { free(m->k); free(m->v); free(m->used); m->cap = 0; }
 static void map_add(u64map *m, uint64_t key) {
     if (!m->cap) return;
@@ -617,7 +628,7 @@ static bool load_weights(model *M, uint64_t expect_tlen, const char *path) {
             uint64_t live;
             if (fread(&live, 8, 1, f) != 1) { model_free(M); fclose(f); return false; }
             u64map *mp = pass ? &M->tot[o] : &M->cnt[o];
-            map_init(mp, live ? live : 16);
+            map_init_cap(mp, live ? live : 16, (size_t)1 << 27);  /* hold all saved */
             for (uint64_t i = 0; i < live; i++) {
                 uint64_t k; uint32_t v;
                 if (fread(&k, 8, 1, f) != 1 || fread(&v, 4, 1, f) != 1) { model_free(M); fclose(f); return false; }

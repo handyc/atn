@@ -35,6 +35,14 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-12 ("trending / map-bits")
+- [x] trend.sh: score phrases under TWO brains (today vs yesterday) and sort by
+      rising surprisal-drop. Demoed: election phrases +4.0 (rising), flood phrases
+      -3.9 (fading), neutral ~0. The day-vs-day timeliness diff.
+- [x] --map-bits N: runtime-tunable per-map entry cap (2^N, default 22) for
+      fidelity-vs-RAM on big corpora. load_weights sizes maps to the exact saved
+      entry count, so a brain reloads fully regardless of the query-time cap.
+
 ## Session 2026-06-12 ("score / news corpus / probe fix")
 - [x] `--score`: per stdin line, print surprisal (bits/byte) under the brain
       (gpt.c score_query). Low = fits the corpus, high = novel/off-topic. Demoed
