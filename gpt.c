@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define MODEL_CAP (16u << 20)   /* model is built from up to this many bytes */
 #define MAP_CAP   (1u << 22)    /* max entries per hash map                  */
@@ -647,7 +648,102 @@ static bool skip_name(const char *path) {
     return false;
 }
 
-static void train_walk(const char *path, FILE *bw, uint64_t *files, uint64_t *bytes, int depth) {
+/* ---- optional HTML -> text cleaner (for --strip-html) ---- */
+static size_t find_ci(const unsigned char *d, size_t n, size_t from, const char *pat) {
+    size_t pl = strlen(pat);
+    for (size_t i = from; i + pl <= n; i++) {
+        size_t k = 0;
+        for (; k < pl; k++) if (tolower(d[i+k]) != tolower((unsigned char)pat[k])) break;
+        if (k == pl) return i;
+    }
+    return n;
+}
+/* Decode an HTML entity at s (len avail). Writes ASCII into out; returns input
+ * bytes consumed, or 0 if s is not a well-formed entity. */
+static int decode_entity(const unsigned char *s, size_t avail, char *out) {
+    if (avail < 3 || s[0] != '&') return 0;
+    size_t semi = 0;
+    for (size_t k = 1; k < avail && k < 12; k++) {
+        if (s[k] == ';') { semi = k; break; }
+        if (!isalnum(s[k]) && s[k] != '#') break;
+    }
+    if (!semi) return 0;
+    if (s[1] == '#') {
+        long c = (s[2]=='x'||s[2]=='X') ? strtol((const char*)s+3,NULL,16) : strtol((const char*)s+2,NULL,10);
+        const char *r = " ";
+        char tmp[2];
+        if (c==8216||c==8217||c==39) r="'";
+        else if (c==8220||c==8221||c==34) r="\"";
+        else if (c==8211) r="-";
+        else if (c==8212) r="--";
+        else if (c==8230) r="...";
+        else if (c==160) r=" ";
+        else if (c>=32 && c<127) { tmp[0]=(char)c; tmp[1]=0; r=tmp; }
+        strcpy(out, r); return (int)(semi + 1);
+    }
+    char name[12]; size_t nl = semi - 1;
+    if (nl == 0 || nl >= sizeof(name)) return 0;
+    memcpy(name, s+1, nl); name[nl] = 0;
+    static const struct { const char *n, *r; } E[] = {
+        {"amp","&"},{"lt","<"},{"gt",">"},{"quot","\""},{"apos","'"},{"nbsp"," "},
+        {"mdash","--"},{"ndash","-"},{"rsquo","'"},{"lsquo","'"},{"rdquo","\""},
+        {"ldquo","\""},{"hellip","..."},{"copy","(c)"},{"deg"," deg "},{NULL,NULL}
+    };
+    for (int i = 0; E[i].n; i++) if (!strcmp(name, E[i].n)) { strcpy(out, E[i].r); return (int)(semi+1); }
+    out[0] = 0; return (int)(semi + 1);   /* unknown named entity -> drop */
+}
+static unsigned char *html_to_text(const unsigned char *d, size_t n, size_t *outlen) {
+    unsigned char *out = malloc(n + 1);
+    if (!out) { *outlen = 0; return NULL; }
+    size_t o = 0, i = 0;
+    while (i < n) {
+        unsigned char c = d[i];
+        if (c == '<') {
+            if (i+7 <= n && strncasecmp((const char*)d+i, "<script", 7) == 0) {
+                size_t e = find_ci(d, n, i, "</script>"); i = e < n ? e + 9 : n;
+            } else if (i+6 <= n && strncasecmp((const char*)d+i, "<style", 6) == 0) {
+                size_t e = find_ci(d, n, i, "</style>"); i = e < n ? e + 8 : n;
+            } else {
+                size_t j = i + 1; while (j < n && d[j] != '>') j++; i = j < n ? j + 1 : n;
+            }
+            if (o > 0 && out[o-1] != ' ' && out[o-1] != '\n') out[o++] = ' ';
+        } else if (c == '&') {
+            char rep[8]; int adv = decode_entity(d+i, n-i, rep);
+            if (adv > 0) { for (char *p = rep; *p; p++) out[o++] = (unsigned char)*p; i += adv; }
+            else { out[o++] = '&'; i++; }
+        } else { out[o++] = c; i++; }
+    }
+    /* collapse: spaces->1, drop space before newline, cap blank-line runs at 1 */
+    size_t w = 0; int nl = 0; bool sp = false;
+    for (size_t r = 0; r < o; r++) {
+        unsigned char c = out[r];
+        if (c == '\r') continue;
+        if (c == ' ' || c == '\t') { if (sp || (w && out[w-1] == '\n')) continue; out[w++] = ' '; sp = true; }
+        else if (c == '\n') { if (w && out[w-1] == ' ') w--; nl++; if (nl <= 2) out[w++] = '\n'; sp = false; }
+        else { out[w++] = c; sp = false; nl = 0; }
+    }
+    out[w] = 0; *outlen = w;
+    return out;
+}
+
+/* Append one file's text to the brain (texty check + optional HTML strip).
+ * Returns bytes written. */
+static size_t ingest_file(FILE *bw, const unsigned char *d, size_t n, bool strip) {
+    if (!is_texty(d, n)) return 0;
+    if (strip) {
+        size_t cl; unsigned char *c = html_to_text(d, n, &cl);
+        if (!c) return 0;
+        fwrite(c, 1, cl, bw);
+        if (cl && c[cl-1] != '\n') fputc('\n', bw);
+        free(c);
+        return cl;
+    }
+    fwrite(d, 1, n, bw);
+    if (n && d[n-1] != '\n') fputc('\n', bw);
+    return n;
+}
+
+static void train_walk(const char *path, FILE *bw, uint64_t *files, uint64_t *bytes, int depth, bool strip) {
     DIR *dp = opendir(path);
     if (!dp) return;
     struct dirent *de;
@@ -658,19 +754,15 @@ static void train_walk(const char *path, FILE *bw, uint64_t *files, uint64_t *by
         if (nw <= 0 || (size_t)nw >= sizeof(child)) continue;
         struct stat st;
         if (lstat(child, &st) != 0 || S_ISLNK(st.st_mode)) continue;
-        if (S_ISDIR(st.st_mode)) { if (depth < 64) train_walk(child, bw, files, bytes, depth + 1); continue; }
+        if (S_ISDIR(st.st_mode)) { if (depth < 64) train_walk(child, bw, files, bytes, depth + 1, strip); continue; }
         if (!S_ISREG(st.st_mode) || skip_name(child)) continue;
 
         FILE *f = fopen(child, "rb");
         if (!f) continue;
         blob b;
         if (read_stream(f, &b)) {
-            if (is_texty(b.data, b.len)) {
-                fwrite(b.data, 1, b.len, bw);
-                if (b.len && b.data[b.len-1] != '\n') fputc('\n', bw);
-                (*files)++; *bytes += b.len;
-                printf("  + %-50s %zu bytes\n", child, b.len);
-            }
+            size_t w = ingest_file(bw, b.data, b.len, strip);
+            if (w) { (*files)++; *bytes += w; printf("  + %-50s %zu bytes\n", child, w); }
             free(b.data);
         }
         fclose(f);
@@ -678,24 +770,25 @@ static void train_walk(const char *path, FILE *bw, uint64_t *files, uint64_t *by
     closedir(dp);
 }
 
-void autotrain(const char *dir, const char *brainpath) {
+void autotrain(const char *dir, const char *brainpath, bool strip_html) {
     FILE *bw = fopen(brainpath, "ab");
     if (!bw) { fprintf(stderr, "atn: cannot open brain %s\n", brainpath); return; }
 
-    fprintf(stderr, "atn: training on %s -> %s\n", dir, brainpath);
+    fprintf(stderr, "atn: training on %s -> %s%s\n", dir, brainpath, strip_html ? " (stripping HTML)" : "");
     uint64_t files = 0, bytes = 0;
     struct stat st;
     if (stat(dir, &st) == 0 && S_ISREG(st.st_mode)) {
         FILE *f = fopen(dir, "rb");
-        if (f) { blob b; if (read_stream(f, &b)) { if (is_texty(b.data, b.len)) {
-            fwrite(b.data, 1, b.len, bw); if (b.len && b.data[b.len-1]!='\n') fputc('\n', bw);
-            files = 1; bytes = b.len; } free(b.data); } fclose(f); }
+        if (f) { blob b; if (read_stream(f, &b)) {
+            size_t w = ingest_file(bw, b.data, b.len, strip_html);
+            if (w) { files = 1; bytes = w; printf("  + %-50s %zu bytes\n", dir, w); }
+            free(b.data); } fclose(f); }
     } else {
-        train_walk(dir, bw, &files, &bytes, 0);
+        train_walk(dir, bw, &files, &bytes, 0, strip_html);
     }
     fclose(bw);
 
-    /* Rebuild the model from the whole brain and refresh the weights cache. */
+    /* Rebuild the model from the whole brain, refresh weights, report learnability. */
     FILE *bf = fopen(brainpath, "rb");
     if (bf) {
         blob brain;
@@ -704,18 +797,22 @@ void autotrain(const char *dir, const char *brainpath) {
             char wpath[4200]; snprintf(wpath, sizeof(wpath), "%s.weights", brainpath);
             save_weights(&M, (uint64_t)brain.len, wpath);
             model_free(&M);
-            size_t used = brain.len > MODEL_CAP ? MODEL_CAP : brain.len;
             printf("atn: ingested %" PRIu64 " files, %" PRIu64 " bytes; brain now %zu bytes",
                    files, bytes, brain.len);
-            if (brain.len > MODEL_CAP)
-                printf(" (model uses first %zu)", used);
+            if (brain.len > MODEL_CAP) printf(" (model uses first %u MiB)", MODEL_CAP >> 20);
             printf("\n");
+            double bpb = model_bpb_online(&brain);
+            histogram h; hist_build(&brain, &h); double e0 = hist_entropy(&h);
+            printf("atn: learnability %.3f bits/byte under the model (order-0 entropy %.3f; "
+                   "lower = more predictable corpus)\n", bpb, e0);
             free(brain.data);
         }
         fclose(bf);
     }
-    printf("atn: done. chat with it:  atn -c%s%s\n",
-           strstr(brainpath, "atn.brain") ? "" : " --brain ", strstr(brainpath, "atn.brain") ? "" : brainpath);
+    bool dflt = strstr(brainpath, "atn.brain") != NULL;
+    printf("atn: done. query it:  echo \"hi\" | atn --ask%s%s    (or chat:  atn -c%s%s)\n",
+           dflt ? "" : " --brain ", dflt ? "" : brainpath,
+           dflt ? "" : " --brain ", dflt ? "" : brainpath);
 }
 
 void chat_session(const char *brainpath, double temp) {
@@ -784,6 +881,60 @@ void chat_session(const char *brainpath, double temp) {
     model_free(&M);
     free(T);
     fputs("\n", stdout);
+}
+
+/* One-shot turn: read ONE line from stdin, print ONE reply line, exit.
+ * Designed for cron / spare-cycle use — a whole "conversation" can run as
+ * independent invocations (one turn per hour), the brain carrying state
+ * between them. By default it also learns from the input (set learn=false
+ * to query a corpus read-only). */
+void chat_once(const char *brainpath, double temp, bool learn) {
+    if (temp <= 0) temp = 0.7;
+    char line[8192];
+    if (!fgets(line, sizeof(line), stdin)) return;      /* no input -> silent */
+    size_t len = strlen(line);
+
+    unsigned char *T = NULL; size_t Tn = 0, Tcap = 1 << 16;
+    T = malloc(Tcap); if (!T) return;
+    FILE *bf = fopen(brainpath, "rb");
+    if (bf) {
+        size_t got;
+        while ((got = fread(T + Tn, 1, Tcap - Tn, bf)) > 0) {
+            Tn += got;
+            if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
+        }
+        fclose(bf);
+    }
+
+    char wpath[4200]; snprintf(wpath, sizeof(wpath), "%s.weights", brainpath);
+    model M;
+    if (!load_weights(&M, (uint64_t)Tn, wpath)) {
+        blob b0 = { T, Tn }; model_build_reserve(&M, &b0, 1u << 18);
+    }
+    rng_seed(0xC0FFEEull ^ (uint64_t)Tn ^ (uint64_t)len ^ ((uint64_t)Tn << 17));
+
+    /* ingest the input (append + train) so the conversation accumulates */
+    if (learn) {
+        FILE *bw = fopen(brainpath, "ab");
+        for (size_t i = 0; i < len; i++) {
+            if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
+            T[Tn] = (unsigned char)line[i]; model_observe(&M, T, Tn); Tn++;
+        }
+        if (bw) { fwrite(line, 1, len, bw); fclose(bw); }
+    } else {
+        /* read-only: seed generation from the input without persisting it */
+        for (size_t i = 0; i < len; i++) {
+            if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
+            T[Tn++] = (unsigned char)line[i];
+        }
+    }
+
+    char reply[256];
+    int rn = gen_text(&M, T, Tn, temp, reply, 200);
+    fwrite(reply, 1, rn, stdout); fputc('\n', stdout);
+
+    if (learn) save_weights(&M, (uint64_t)Tn, wpath);
+    model_free(&M); free(T);
 }
 
 /* ---------------------------------------------------------------- */

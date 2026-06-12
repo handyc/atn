@@ -275,15 +275,40 @@ Point `--train` at a directory (or file) of text and it ingests everything
 (recursively, skipping non-text), then you chat with the result:
 
 ```
-atn --train ./tinystories --brain tiny.brain     # train on a folder of stories
-atn -c --brain tiny.brain --temp 0.4             # then chat in that style
+atn --train ./tinystories --brain tiny.brain        # train on a folder of stories
+atn --train book.htm --brain book.brain --strip-html # clean HTML -> prose first
+atn -c --brain tiny.brain --temp 0.4                # then chat in that style
 ```
+
+`--strip-html` removes tags, script/style blocks, and common entities so a
+Gutenberg-style HTML book trains on prose, not markup. After training it prints
+a **learnability** number — the model's bits/byte vs the corpus's order-0
+entropy — so you can compare how predictable different corpora are.
 
 Trained on a few MB of clean simple text (e.g. TinyStories), the byte model
 produces surprisingly fluent story-like replies — *"Once upon a time, there was
 a little girl named Lily. She said, 'Thank you!'"* It's still a Markov-style
 remixer with no understanding, but it shows how much the same machinery picks up
 from a good corpus. The model reads up to 16 MiB of the brain.
+
+### One-shot queries (cron-friendly) — `--ask`
+
+`--ask` reads **one line** from stdin and prints **one line**, then exits — a
+single chat turn per process. The brain carries state between invocations, so a
+whole conversation can be run as independent calls spread over time (e.g. one
+turn per hour from `cron`, using only spare cycles):
+
+```
+echo "Once upon a time" | atn --ask --brain tiny.brain --temp 0.4
+echo "$msg" | nice -n19 atn --ask --brain conv.brain        # gentle on the CPU
+echo "continue this:" | atn --ask --no-learn --brain corpus.brain  # read-only
+```
+
+By default `--ask` also *learns* from the input (the conversation accumulates in
+the brain); `--no-learn` queries a corpus without modifying it. A `cron` entry
+like `0 * * * * echo "..." | nice -19 atn --ask --brain ~/atn.brain` runs one
+turn an hour at idle priority — the cycles it uses are ones that would otherwise
+be wasted.
 
 ## The filesystem as a GPT corpus (`--corpus`)
 

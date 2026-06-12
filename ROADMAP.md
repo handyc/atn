@@ -35,6 +35,16 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-12 ("one-shot / cron / strip-html")
+- [x] `--ask`: one stdin line -> one reply line -> exit (gpt.c chat_once). For
+      cron/spare-cycle use; brain carries state across invocations (one turn per
+      hour). Learns by default; `--no-learn` queries a corpus read-only.
+- [x] `--strip-html`: with --train, strip tags/script/style/entities so HTML
+      books (Gutenberg) train on prose. autotrain now also prints a learnability
+      number (model bits/byte vs order-0 entropy).
+- Idea noted (not built): a wrapper could learn idle hours and schedule the
+  hourly turns then — but that's an OS/cron layer, not core atn.
+
 ## Session 2026-06-12 ("autotrain / weights")
 - [x] AUTOTRAIN `atn --train DIR` (gpt.c): recursively ingest every text file
       under DIR into the brain (skips non-text via printable-ratio check),

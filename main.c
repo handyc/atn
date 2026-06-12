@@ -63,6 +63,9 @@ static void usage(FILE *o) {
 "  -c        chat: a minimal terminal chat that learns from what you type\n"
 "            (persists a 'brain' next to the atn binary; --brain FILE to override)\n"
 "  --train DIR  ingest every text file under DIR into the brain (then -c to chat)\n"
+"  --strip-html with --train, strip HTML tags/entities (clean prose corpora)\n"
+"  --ask        one-shot: read one line from stdin, print one reply, exit\n"
+"               (cron-friendly; --no-learn to query a corpus read-only)\n"
 "  -x    hex + ASCII dump\n"
 "  -s    extract printable strings\n\n"
 "Filesystem scan:\n"
@@ -134,12 +137,16 @@ int main(int argc, char **argv) {
         {"decompress", no_argument, 0, 1007},
         {"brain", required_argument,0, 1008},
         {"train", required_argument,0, 1009},
+        {"strip-html", no_argument, 0, 1010},
+        {"ask", no_argument,        0, 1011},
+        {"no-learn", no_argument,   0, 1012},
         {"attn", no_argument,       0, 'Z'},
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
     };
 
     bool do_compress = false, do_decompress = false, do_chat = false;
+    bool do_ask = false, strip_html = false, no_learn = false;
     const char *outfile = NULL, *brainfile = NULL, *traindir = NULL;
     int opt;
     while ((opt = getopt_long(argc, argv, "ASECTFPMKDZBXxsRvcw:n:m:g:o:qhV", longopts, NULL)) != -1) {
@@ -177,6 +184,9 @@ int main(int argc, char **argv) {
             case 1007: do_decompress = true; break;
             case 1008: brainfile = optarg; break;
             case 1009: traindir = optarg; break;
+            case 1010: strip_html = true; break;
+            case 1011: do_ask = true; break;
+            case 1012: no_learn = true; break;
             case 'c': do_chat = true; break;
             case 'o': outfile = optarg; break;
             case 'h': usage(stdout); return 0;
@@ -187,9 +197,10 @@ int main(int argc, char **argv) {
     if (o.min_str == 0) o.min_str = 1;
     if (o.window == 0) o.window = 256;
 
-    /* Chat / train: the brain file sits next to the atn binary by default
-     * (override with --brain). --train ingests a directory first; -c chats. */
-    if (do_chat || traindir) {
+    /* Chat / train / one-shot ask: the brain sits next to the atn binary by
+     * default (override with --brain). --train ingests first; --ask is one
+     * stdin line -> one reply line -> exit; -c is the interactive loop. */
+    if (do_chat || traindir || do_ask) {
         char def[4096];
         const char *bp = brainfile;
         if (!bp) {
@@ -201,8 +212,9 @@ int main(int argc, char **argv) {
             else snprintf(def, sizeof(def), "atn.brain");   /* fallback: cwd */
             bp = def;
         }
-        if (traindir) autotrain(traindir, bp);
-        if (do_chat)  chat_session(bp, o.temp);
+        if (traindir) autotrain(traindir, bp, strip_html);
+        if (do_ask)        chat_once(bp, o.temp, !no_learn);
+        else if (do_chat)  chat_session(bp, o.temp);
         return 0;
     }
 

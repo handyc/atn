@@ -102,8 +102,10 @@ int  lm_decompress_file(const blob *in, const char *outpath);
 
 /* minimal learning chat (gpt.c): learns from what you type, persists a brain */
 void chat_session(const char *brainpath, double temp);
+/* one-shot: one line of stdin -> one line of reply, then exit (cron-friendly) */
+void chat_once(const char *brainpath, double temp, bool learn);
 /* autotrain (gpt.c): ingest every text file under a directory into the brain */
-void autotrain(const char *dir, const char *brainpath);
+void autotrain(const char *dir, const char *brainpath, bool strip_html);
 
 /* context-mixing coder (cm.c) */
 void cm_report(const blob *b);
