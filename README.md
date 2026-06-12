@@ -348,10 +348,29 @@ by rise, so it surfaces the day's emerging topics on its own:
 
 ```
 TOPN=12 ./autotrend.sh today.brain yesterday.brain
-#  delta   new    old    phrase
-# +4.62   0.66   5.28  election results came      <- today's news, alien yesterday
-# +4.23   0.84   5.08  polls closed at
+#  score   rise    freq  new   old    phrase
+# +13.33  +4.629   758  0.62  5.25  election results came   <- frequent AND rising
+# +12.06  +4.213   728  0.99  5.21  polls closed at
 # ...
+```
+
+`score = rise × log10(freq+1)`, so a phrase that is both frequent today and
+newly fitting outranks a rare-but-rising one.
+
+**`where.sh`** then shows *where* a trending phrase occurs — each match located
+by line (= article index, as `--train` stores one article per line) with
+context, so you can read the actual passages:
+
+```
+./where.sh today.brain "election results came"
+# "election results came" — in 758 article(s)/line(s) of today.brain
+#   line 1     …the election results came in tonight…
+#   line 17    …the election results came in tonight…
+
+# trending topics AND their locations, together:
+TOPN=5 ./autotrend.sh today.brain yest.brain | tail -n +2 \
+  | awk '{$1=$2=$3=$4=$5=""; sub(/^ +/,""); print}' \
+  | while read -r p; do ./where.sh today.brain "$p"; done
 ```
 
 For big or noisy corpora (OCR'd news), `--map-bits N` raises the per-map entry

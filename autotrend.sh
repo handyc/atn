@@ -23,8 +23,8 @@ NEW="$1"; OLD="$2"; SRC="${3:-$1}"
 K="${TOPN:-40}"; MIN="${MINCOUNT:-3}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
-# 1. mine candidate phrases: most frequent 3-word "content" sequences in SRC
-python3 - "$SRC" "$K" "$MIN" > "$tmp/cands" <<'PY'
+# 1. mine candidate phrases (most frequent content trigrams) -> "count<TAB>phrase"
+python3 - "$SRC" "$K" "$MIN" > "$tmp/cf" <<'PY'
 import sys, re, collections
 text = open(sys.argv[1], errors='ignore').read().lower()
 K, MIN = int(sys.argv[2]), int(sys.argv[3])
@@ -40,17 +40,21 @@ for i in range(len(words) - 2):
     tri[' '.join(g)] += 1
 for ph, c in tri.most_common(K * 4):
     if c < MIN: break
-    print(ph)
+    print(f"{c}\t{ph}")
 PY
-head -n "$((K * 3))" "$tmp/cands" > "$tmp/c" && mv "$tmp/c" "$tmp/cands"
-[ -s "$tmp/cands" ] || { echo "(no candidate phrases mined from $SRC)"; exit 0; }
+head -n "$((K * 3))" "$tmp/cf" > "$tmp/c" && mv "$tmp/c" "$tmp/cf"
+[ -s "$tmp/cf" ] || { echo "(no candidate phrases mined from $SRC)"; exit 0; }
+cut -f1 "$tmp/cf" > "$tmp/cnt"
+cut -f2 "$tmp/cf" > "$tmp/cands"
 
 # 2. score the candidates under each brain (one batch load each)
 "$A" --score --brain "$NEW" < "$tmp/cands" | awk '{print $1}' > "$tmp/new"
 "$A" --score --brain "$OLD" < "$tmp/cands" | awk '{print $1}' > "$tmp/old"
 
-# 3. rank by rise (old surprisal - new surprisal), show the top K
-printf ' %-7s %-6s %-6s  %s\n' delta new old phrase
-paste "$tmp/new" "$tmp/old" "$tmp/cands" \
-  | awk -F'\t' '{ d = $2 - $1; printf "%+7.3f %6.2f %6.2f  %s\n", d, $1, $2, $3 }' \
+# 3. rank by a FREQUENCY-WEIGHTED rise: (old-new) * log10(freq+1), so a phrase
+#    that is both frequent today and newly fitting beats a rare-but-rising one.
+printf ' %-7s %-7s %-5s %-5s %-5s  %s\n' score rise freq new old phrase
+paste "$tmp/new" "$tmp/old" "$tmp/cnt" "$tmp/cands" \
+  | awk -F'\t' '{ d=$2-$1; w=d*log($3+1)/log(10);
+                  printf "%+7.2f %+7.3f %5d %5.2f %5.2f  %s\n", w, d, $3, $1, $2, $4 }' \
   | sort -rn | head -n "$K"

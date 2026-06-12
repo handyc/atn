@@ -35,6 +35,16 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-13 ("auto-trending / locate")
+- [x] autotrend.sh: mines frequent content trigrams from today's corpus and
+      ranks by FREQUENCY-WEIGHTED rise (score = rise * log10(freq+1)), so
+      frequent+rising beats rare+rising. No phrases needed from the user.
+- [x] where.sh: concordance — locate where a (trending) phrase occurs in the
+      corpus/brain (line = article index + context window). Composes with
+      autotrend: top trends AND where each one appears, in one pipeline.
+- Note: this gives textual "where" (which articles). Geographic "where" (which
+  paper/state) would need keeping article metadata during corpus building.
+
 ## Session 2026-06-12 ("trending / map-bits")
 - [x] trend.sh: score phrases under TWO brains (today vs yesterday) and sort by
       rising surprisal-drop. Demoed: election phrases +4.0 (rising), flood phrases
