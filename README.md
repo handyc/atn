@@ -256,11 +256,34 @@ that is just the byte language model running in generative mode.
 ```
 atn -c                    # chat; learns as you go; Ctrl-D to leave
 atn -c --brain mybrain    # keep a separate brain file
+atn -c --temp 0.4         # lower temperature = more faithful recall
 ```
 
 It trains only on *your* words (the human is the reality term), not on its own
 output — which would just feed back on itself. Human unpredictability is the
 feature: it's where the new information comes from.
+
+Alongside the brain it writes `atn.brain.weights` — a binary cache of the
+trained n-gram tables, so it reloads instantly next session instead of
+rebuilding from the transcript. (For this model the weights are derived from
+the transcript, so the cache is a consolidation/speed artifact, not separate
+information; it's rebuilt automatically if the brain changes.)
+
+### Autotrain on a corpus
+
+Point `--train` at a directory (or file) of text and it ingests everything
+(recursively, skipping non-text), then you chat with the result:
+
+```
+atn --train ./tinystories --brain tiny.brain     # train on a folder of stories
+atn -c --brain tiny.brain --temp 0.4             # then chat in that style
+```
+
+Trained on a few MB of clean simple text (e.g. TinyStories), the byte model
+produces surprisingly fluent story-like replies — *"Once upon a time, there was
+a little girl named Lily. She said, 'Thank you!'"* It's still a Markov-style
+remixer with no understanding, but it shows how much the same machinery picks up
+from a good corpus. The model reads up to 16 MiB of the brain.
 
 ## The filesystem as a GPT corpus (`--corpus`)
 

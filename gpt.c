@@ -15,14 +15,15 @@
 #include "atn.h"
 
 #include <ctype.h>
+#include <dirent.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define MODEL_CAP (2u << 20)    /* model is built from up to this many bytes */
-#define MAP_CAP   (1u << 20)    /* max entries per hash map                  */
+#define MODEL_CAP (16u << 20)   /* model is built from up to this many bytes */
+#define MAP_CAP   (1u << 22)    /* max entries per hash map                  */
 
 /* ---- deterministic PRNG (xorshift64) ---- */
 static uint64_t rng_state = 0x9E3779B97F4A7C15ull;
@@ -621,6 +622,100 @@ static bool load_weights(model *M, uint64_t expect_tlen, const char *path) {
     }
     fclose(f);
     return true;
+}
+
+/* ---- autotrain: ingest a whole directory of text into the brain ---- */
+
+static bool is_texty(const unsigned char *d, size_t n) {
+    if (n == 0) return false;
+    size_t check = n < 8192 ? n : 8192, printable = 0, nul = 0;
+    for (size_t i = 0; i < check; i++) {
+        unsigned char c = d[i];
+        if (c == 0) nul++;
+        if (isprint(c) || c == '\n' || c == '\r' || c == '\t') printable++;
+    }
+    return nul == 0 && (double)printable / (double)check > 0.90;
+}
+
+static bool skip_name(const char *path) {
+    size_t L = strlen(path);
+    const char *exts[] = { ".brain", ".weights", ".atcm", ".atnz", ".o", NULL };
+    for (int i = 0; exts[i]; i++) {
+        size_t e = strlen(exts[i]);
+        if (L >= e && strcmp(path + L - e, exts[i]) == 0) return true;
+    }
+    return false;
+}
+
+static void train_walk(const char *path, FILE *bw, uint64_t *files, uint64_t *bytes, int depth) {
+    DIR *dp = opendir(path);
+    if (!dp) return;
+    struct dirent *de;
+    char child[4096];
+    while ((de = readdir(dp))) {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+        int nw = snprintf(child, sizeof(child), "%s/%s", strcmp(path, "/") ? path : "", de->d_name);
+        if (nw <= 0 || (size_t)nw >= sizeof(child)) continue;
+        struct stat st;
+        if (lstat(child, &st) != 0 || S_ISLNK(st.st_mode)) continue;
+        if (S_ISDIR(st.st_mode)) { if (depth < 64) train_walk(child, bw, files, bytes, depth + 1); continue; }
+        if (!S_ISREG(st.st_mode) || skip_name(child)) continue;
+
+        FILE *f = fopen(child, "rb");
+        if (!f) continue;
+        blob b;
+        if (read_stream(f, &b)) {
+            if (is_texty(b.data, b.len)) {
+                fwrite(b.data, 1, b.len, bw);
+                if (b.len && b.data[b.len-1] != '\n') fputc('\n', bw);
+                (*files)++; *bytes += b.len;
+                printf("  + %-50s %zu bytes\n", child, b.len);
+            }
+            free(b.data);
+        }
+        fclose(f);
+    }
+    closedir(dp);
+}
+
+void autotrain(const char *dir, const char *brainpath) {
+    FILE *bw = fopen(brainpath, "ab");
+    if (!bw) { fprintf(stderr, "atn: cannot open brain %s\n", brainpath); return; }
+
+    fprintf(stderr, "atn: training on %s -> %s\n", dir, brainpath);
+    uint64_t files = 0, bytes = 0;
+    struct stat st;
+    if (stat(dir, &st) == 0 && S_ISREG(st.st_mode)) {
+        FILE *f = fopen(dir, "rb");
+        if (f) { blob b; if (read_stream(f, &b)) { if (is_texty(b.data, b.len)) {
+            fwrite(b.data, 1, b.len, bw); if (b.len && b.data[b.len-1]!='\n') fputc('\n', bw);
+            files = 1; bytes = b.len; } free(b.data); } fclose(f); }
+    } else {
+        train_walk(dir, bw, &files, &bytes, 0);
+    }
+    fclose(bw);
+
+    /* Rebuild the model from the whole brain and refresh the weights cache. */
+    FILE *bf = fopen(brainpath, "rb");
+    if (bf) {
+        blob brain;
+        if (read_stream(bf, &brain)) {
+            model M; model_build_reserve(&M, &brain, brain.len);
+            char wpath[4200]; snprintf(wpath, sizeof(wpath), "%s.weights", brainpath);
+            save_weights(&M, (uint64_t)brain.len, wpath);
+            model_free(&M);
+            size_t used = brain.len > MODEL_CAP ? MODEL_CAP : brain.len;
+            printf("atn: ingested %" PRIu64 " files, %" PRIu64 " bytes; brain now %zu bytes",
+                   files, bytes, brain.len);
+            if (brain.len > MODEL_CAP)
+                printf(" (model uses first %zu)", used);
+            printf("\n");
+            free(brain.data);
+        }
+        fclose(bf);
+    }
+    printf("atn: done. chat with it:  atn -c%s%s\n",
+           strstr(brainpath, "atn.brain") ? "" : " --brain ", strstr(brainpath, "atn.brain") ? "" : brainpath);
 }
 
 void chat_session(const char *brainpath, double temp) {

@@ -35,6 +35,20 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-12 ("autotrain / weights")
+- [x] AUTOTRAIN `atn --train DIR` (gpt.c): recursively ingest every text file
+      under DIR into the brain (skips non-text via printable-ratio check),
+      rebuild the model, save weights. Then `atn -c` chats. Tested on a 6 MB
+      TinyStories slice -> fluent simple-story replies.
+- [x] WEIGHTS CACHE: chat now saves atn.brain.weights (binary n-gram tables) and
+      reloads it if the transcript matches (else rebuilds). map_put() added.
+      NOTE: weights are derived from the transcript (consolidation/speed cache).
+- [x] FIX: chat sized hash maps for the initial brain size, dropping n-grams as a
+      session grew -> lossy model/weights. model_build_reserve() adds headroom;
+      load-from-weights now == rebuild-from-text (verified).
+- [x] chat respects --temp; default brain now sits next to the binary; raised
+      MODEL_CAP to 16 MiB and MAP_CAP to 4 M so real corpora train fully.
+
 ## Session 2026-06-12 ("chat / reality port")
 - [x] CHAT MODE `atn -c` (gpt.c chat_session): minimal terminal chat, plain
       stdin/stdout, Ctrl-D or /q to exit, drops back to shell. The chat is the
