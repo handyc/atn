@@ -1,0 +1,325 @@
+# atn
+
+A C utility that looks very closely at files — both at the macro level (what
+*kind* of thing is this, numerically?) and the micro level (what specific
+patterns, routines, and anomalies live inside this exact file?).
+
+It answers three questions about any file:
+
+1. **What is it?** — type identification from magic bytes, plus a
+   structural breakdown of the recognized type.
+2. **What is it *like*, numerically?** — entropy, randomness tests,
+   self-similarity, noise, and a windowed entropy map.
+3. **What's *in* it worth noticing?** — embedded files, opcode/routine
+   patterns, known signatures, and structural anomalies.
+
+## Build
+
+```sh
+make            # produces ./atn   (needs a C11 compiler + libm)
+make install    # to $PREFIX/bin (default /usr/local)
+./demo.sh       # narrated tour of the whole "files -> GPT attention -> working transformer" arc
+./explore.sh F  # interactive menu to poke at every feature on a file
+```
+
+See **[PREDICTION.md](PREDICTION.md)** for a focused guide to the prediction
+features (`-Z` attention/LM, `-B` feedback loop, `-X` compression, `--corpus`).
+
+## Usage
+
+```
+atn [sections] [tunables] FILE...      ('-' reads stdin)
+```
+
+With no section flags you get the basic report (size, perms, type, entropy).
+Add section flags to go deeper, or `-A` for everything.
+
+### Sections
+
+| flag | section | what it tells you |
+|------|---------|-------------------|
+| `-S` | statistics | mean/median/std-dev byte, Shannon entropy, estimated compressibility, RLE redundancy, chi-square vs. uniform, serial correlation, Monte-Carlo π, noise (mean adjacent-byte delta) |
+| `-E` | entropy map | per-window entropy as a sparkline + flagged high-entropy regions and boundaries (finds embedded/compressed/encrypted blobs, à la binwalk) |
+| `-C` | self-similarity | strongest repetition period (record/block size), candidate block sizes, and the most-repeated 8-byte chunks |
+| `-T` | structure | type-specific parse: PNG/JPEG/GIF/BMP, WAV/RIFF, gzip, ELF, ZIP central directory, **PE sections**, **MP4/ISO-BMFF box tree**, **PDF objects/streams/actions** |
+| `-F` | embedded | carve known file signatures appearing anywhere past the header |
+| `-P` | patterns | routine/opcode byte patterns: `INT 21h`, `INT 80h`, `SYSCALL`, function prologues, NOP sleds, GetPC, `RDTSC`, … — each hit is **cross-checked against the disassembler** and marked when it lands on a real instruction boundary |
+| `-M` | signatures | EICAR test file, common packer/protector markers (UPX, Themida, …); load more with `--sigs` |
+| `-K` | anomalies | extension/type mismatch, truncation, trailing/appended data, invalid UTF-8, mixed line endings, large uniform padding |
+| `-D` | disassembly | linear x86/x86-64 disassembly of the ELF `.text` (or whole file); also powers opcode verification under `-P` |
+| `-Z` | attention | a hand-wired, **unlearned** transformer over the bytes: self-attention map, stacked layers (feedback loop), induction predictor + 2-layer induction circuit, an n-gram language model with **bits-per-byte** + **temperature-sampled generation**, and generation by the attention softmax itself |
+| `-B` | feedback | **predictive feedback loop**: online Bayesian mixing of nested backoff experts whose weights are updated by prediction error each byte (a transformer's gradient feedback, deterministic), plus a model-based **surprisal map** locating a file's information-dense / anomalous regions |
+| `-X` | compression | a **context-mixing** coder (7 bit-models + an online-trained logistic mixer + SSE) driving an arithmetic coder, with a verified **lossless round-trip** — the feedback loop made load-bearing, and it **beats gzip -9** on text, code, and binaries |
+| `-x` | hex dump | classic hex + ASCII |
+| `-s` | strings | printable runs with offsets |
+| `-A` | — | all of the above |
+
+`--yara FILE` runs a (subset) YARA scan as its own section; `--sigs FILE`
+adds custom byte signatures to `-M`.
+
+### Filesystem scan
+
+```
+atn -R DIR        recursively scan a tree, then print aggregate statistics
+atn -R -v DIR     also print one summary line per file as it goes
+atn -R /          scan the whole filesystem (skips /proc /sys /dev /run,
+                  never follows symlinks)
+atn -R -P -K DIR  run the per-file opcode + anomaly sections on every file,
+                  then the aggregate (combine with any section flag)
+```
+
+The aggregate report covers: file/dir/byte totals, text-vs-binary split, mean
+entropy and an entropy histogram, a type-distribution table, counts of flagged
+files (anomalies, embedded signatures, EICAR/packer hits), and the largest /
+highest-entropy files.
+
+By default up to 16 MiB is read per file for the aggregate metrics (true size
+still comes from `stat`). When you combine `-R` with section flags (`-S -E -P
+-T -D --yara`, …), each file is read in full and the requested sections are
+printed per file, followed by the aggregate — e.g. `atn -R --yara rules.yar /`
+runs a YARA sweep over the whole filesystem, or `atn -R -P /usr/bin`
+disassembly-verifies opcode patterns in every binary.
+
+### Tunables
+
+```
+-w N      window size for -E / -C        (default 256)
+-n N      bytes shown in hex dump, 0=all (default 256)
+-m N      minimum string length for -s   (default 4)
+--bits N  force 32 or 64 for -D / -P     (default: auto-detect from ELF/PE)
+-g PAT    search for a pattern: 'CD21', 'cd 21', '\xCD\x21', or ASCII text
+--sigs F  load extra 'name:hexpattern' signatures for -M
+--yara F  scan with a (subset) YARA rule file
+-q        quiet: drop the basic report (keep requested sections)
+-v        with -R, print one line per file
+-h, -V    help, version
+```
+
+## Reading the numbers (the `-S` section)
+
+- **entropy** — bits/byte, 0–8. `~8.0` with a low chi-square means random /
+  encrypted / well-compressed. Mid (4–6) is typical structured binary.
+- **chi-square** (`z` vs uniform) — near 0 ⇒ byte distribution looks uniform
+  (random-like). Huge `z` ⇒ strongly structured.
+- **serial correlation** — 0 means each byte is independent of the previous;
+  toward ±1 means the next byte is predictable from the last.
+- **Monte-Carlo π** — uses the bytes as coordinates; a small π-error is another
+  independent randomness signal.
+- **noise (mad)** — mean absolute difference between adjacent bytes; high in
+  busy/random data, low in smooth/repetitive data.
+
+## Custom signatures
+
+`--sigs FILE` reads one rule per line, `name:pattern`, where `pattern` is hex
+(`DEADBEEF`), spaced hex (`de ad be ef`), `\xNN` escapes, or literal ASCII.
+Lines starting with `#` are comments.
+
+```
+# my-sigs.txt
+suspicious-marker:DEADC0DE
+my-magic:\x7f\x4d\x59
+banner:Hello World
+```
+
+## Examples
+
+```sh
+atn report.pdf                 # quick: type + entropy
+atn -A firmware.bin            # everything
+atn -E -w 1024 disk.img        # entropy map to spot embedded partitions/blobs
+atn -C capture.dat             # find a fixed record size in a binary log
+atn -P -g CD21 game.com        # opcode scan + highlight every INT 21h
+atn -T -K photo.jpg            # structure + truncation/trailing-data checks
+atn -M -s sample.exe           # signature scan + strings
+atn -D firmware.bin            # linear x86 disassembly
+atn --yara rules.yar a.bin     # subset-YARA scan
+atn -R -v ~/Downloads          # scan a tree, line per file + aggregate stats
+atn -R /                       # whole-filesystem survey
+cat stream | atn -S -          # stats on a pipe
+```
+
+## The attention head (`-Z`)
+
+`-Z` turns the self-similarity idea into the transformer's actual mechanism,
+with hand-built (not learned) projections. It runs the swept bytes through the
+whole transformer loop, in order:
+
+- **Soft self-attention.** Each byte position becomes a token with a fixed
+  content embedding plus a sinusoidal positional encoding (from *Attention Is
+  All You Need*). It runs scaled dot-product attention with a causal mask and
+  softmax over a window, then prints the attention map and its statistics
+  (mean attention distance, attention entropy, strongest attend-back).
+- **Stacked layers (the feedback loop).** The attention output is added back
+  to the representation (residual stream), layer-normalised, and fed in again,
+  layer after layer — exactly how depth works in a transformer. The per-layer
+  `delta` shows the representation settling as it iterates.
+- **Induction head.** The mechanism behind in-context learning: for each
+  position it finds earlier positions whose preceding context matches the
+  current one and predicts the byte that followed — i.e. it does GPT's job,
+  next-byte prediction, as a hard top-1 attention over exact context matches.
+  Accuracy is a real, comparable number.
+- **2-layer induction circuit (by construction).** The actual circuit from the
+  induction-heads literature, hand-wired with no learning: a *previous-token
+  head* (layer 0, a clean sub-diagonal) feeds an *induction head* (layer 1, the
+  causal triangle), both printed side by side. It shows in-context learning
+  *emerging from composing two attention heads* — periodic 100%, ELF ~82%,
+  text ~21%, random 0%.
+- **Language model + bits-per-byte.** An n-gram-with-backoff byte model (the
+  role a trained transformer plays: a next-byte distribution) is scored
+  *online/prequentially* — each byte predicted only from preceding bytes — to
+  give an honest cross-entropy in bits/byte. Below the order-0 entropy means it
+  found structure; random data correctly lands at ~8 bpb (matching gzip).
+- **Generation.** Two generators feed their output back, autoregressively:
+  temperature sampling from the n-gram distribution (`--temp`, `--gen`;
+  deterministic PRNG, so reproducible), and generation by the **attention
+  softmax itself** (fuzzy multi-byte context matching via embeddings — no
+  tables). Low temperature copies coherent spans; high temperature dissolves
+  into noise, exactly like a real model.
+
+The induction accuracy and bits-per-byte are predictability signals that vary
+enormously by content:
+
+| file | order-8 induction acc. | online bits/byte |
+|------|------------------------|------------------|
+| English text | ~65% | ~2.4 (large corpus) |
+| periodic data | 100% | ~0.15 |
+| random bytes | ~0.4% (1/256 floor) | ~8.05 (≈ gzip) |
+
+Nothing is trained — it stays deterministic, like the rest of `atn` — but it
+reproduces *why* a transformer can model structured data and not noise.
+
+## Compression: the fake transformer that works (`-X`)
+
+`-X` proves the model is real by using it to compress, with the feedback loop
+load-bearing. A bit-level **context-mixing** predictor — 7 context models
+(orders 0..8), a **match model** (an induction head: recall what followed this
+context last time), a logistic mixer trained online by prediction error, and an
+SSE refinement — drives a binary arithmetic coder; the decoder runs the
+*identical* online predictor in lockstep, so the round-trip is provably
+lossless. It compresses better than `gzip -9` on text, code, and binaries, and
+correctly refuses to shrink random data.
+
+```
+atn -X corpus.txt                      # -> ~1.98 bits/byte, lossless round-trip
+atn --compress big.log -o big.atcm     # real on-disk compressed file
+atn --decompress big.atcm -o restored  # auto-detects .atcm / .atnz
+```
+
+| file | atn `-X` | gzip -9 |
+|------|----------|---------|
+| 144 KB text corpus | 1.98 bpb | 2.40 bpb |
+| ELF binary | 3.31 bpb | 3.83 bpb |
+| periodic data | 0.06 bpb | 0.10 bpb |
+| random bytes | ~8.0 (refuses) | ~8.0 (refuses) |
+
+**This is not a new compression algorithm — see the honest note below.**
+
+## Prior art & honest limitations
+
+`atn`'s compressor is a small, faithful re-implementation of **context mixing**,
+a technique that has existed since ~2002. It is *not* novel, and beating `gzip`
+on ratio is expected, not a breakthrough.
+
+- **Lineage.** Context mixing is Matt Mahoney's **PAQ** family and its smaller
+  relatives **lpaq** and **zpaq**; `cm.c` is closest to lpaq. The components here
+  — bit-level context models, a logistic mixer trained online, SSE/APM, and a
+  match model — are all standard, named pieces from that literature. These
+  compressors are well known for topping ratio benchmarks (the Large Text
+  Compression Benchmark, the Hutter Prize).
+- **gzip is old and fast, not strong.** DEFLATE (1991) optimises for speed with a
+  32 KB window. `bzip2`, `xz`/LZMA, `zstd`, and `brotli` all beat it on ratio
+  too. On the source corpus above `atn` also edges out `xz -9` and `bzip2 -9`,
+  but that corpus is highly repetitive and small — on other data the ranking
+  shifts, and a real PAQ8/cmix would beat `atn` comfortably.
+- **The trade is speed and scale.** `atn` codes bit-by-bit with ~8 hash lookups
+  per bit: it is **orders of magnitude slower** than gzip/zstd, uses ~120 MB of
+  model RAM, is **capped at 16 MiB**, single-threaded, and has a fragile homemade
+  container — a teaching implementation, not a production tool.
+- **The real (also not-new) idea** is the equivalence at the heart of the whole
+  project: *a good predictor is a good compressor* (Shannon; the basis of the
+  Hutter Prize). Everything `atn` builds as a "fake transformer" — attention, the
+  induction head, online error-feedback mixing — is a prediction engine, so it
+  compresses. `atn` makes that idea tangible; it doesn't discover it.
+
+## Chat (`-c`) — the model that learns from you
+
+`atn -c` starts a minimal terminal chat. It's plain stdin/stdout — no screen
+clearing, no modes — and you drop back to the shell with Ctrl-D (or `/q`). The
+twist: the chat *is* the model's reality port. It starts knowing nothing (its
+first "hello" is literal noise), trains online on **what you type**, replies by
+sampling a continuation from what it has learned, and persists the whole
+conversation as a plain-text "brain" (`atn.brain`, kept next to the binary, or
+`--brain FILE`). Next session it remembers. Talk to it for a while and it starts completing your
+sentences in your own style — a tiny, deterministic, learns-from-you chatbot
+that is just the byte language model running in generative mode.
+
+```
+atn -c                    # chat; learns as you go; Ctrl-D to leave
+atn -c --brain mybrain    # keep a separate brain file
+```
+
+It trains only on *your* words (the human is the reality term), not on its own
+output — which would just feed back on itself. Human unpredictability is the
+feature: it's where the new information comes from.
+
+## The filesystem as a GPT corpus (`--corpus`)
+
+This is "attention to the files in the filesystem" meeting GPT attention:
+`--corpus DIR` builds one byte language-model over the whole tree, then scores
+every file's **surprisal** under it (held-out, two-fold, so no file is scored
+by a model that memorised it). Files that fit the corpus score low bits/byte;
+alien files — encrypted, compressed, a foreign language, the wrong type — score
+near 8 and rise to the top as outliers. It also generates "in the style of the
+directory."
+
+```
+atn --corpus ~/src     # ranks files by how well the corpus model predicts them
+```
+
+So the same surprisal number is, at the byte level, a language-model loss and,
+at the tree level, a content-grounded anomaly score.
+
+## YARA subset
+
+`--yara FILE` understands a practical subset of the YARA language:
+
+- text strings `$a = "abc"` with `nocase` and `wide` modifiers;
+- hex strings `$a = { DE AD ?? BE [2-4] EF }` with nibble wildcards (`??`,
+  `?A`, `A?`) and jumps (`[n]`, `[n-m]`, `[n-]`);
+- conditions: `and` / `or` / `not` / parentheses, `$a`, `#a <op> N` (match
+  count), `all|any|N of them`, `all|any|N of ($a*)`, and `filesize <op> N`.
+
+Not handled (such terms evaluate to false, with a note): regex strings,
+positional operators (`$a at X`, `$a in (…)`), `uintN(…)` reads, modules.
+
+## Layout
+
+```
+main.c       CLI + orchestration
+util.c       histogram, sparkline, pattern parsing, byte search
+magic.c      type identification + embedded-signature carving
+stats.c      statistics, entropy map, self-similarity
+structure.c  per-type structural parsers (incl. PE / MP4 / PDF)
+scan.c       opcode patterns, signatures, anomalies, grep
+disasm.c     x86 / x86-64 length disassembler + linear sweep
+attn.c       hand-wired attention head (soft self-attention + induction + soft-attn generation)
+gpt.c        n-gram language model: bits/byte, temperature generation, range-coder compression, corpus API
+yara.c       subset-YARA parser and matcher
+fleet.c      recursive directory scan + aggregate statistics
+dump.c       basic report, hex dump, strings
+atn.h        shared declarations
+```
+
+## Caveats
+
+- The disassembler decodes the standard x86/x86-64 instruction space and was
+  validated to reproduce `objdump`'s `.text` instruction boundaries exactly on
+  real ELF binaries. It does **not** decode VEX/EVEX (AVX) encodings, which can
+  cause a linear sweep through AVX-heavy code to desync locally.
+- Under `-P`, a hit marked "at instr boundary" was confirmed by the
+  disassembler; an unmarked hit is a coincidental byte match (e.g. a `CD 21`
+  inside an immediate or displacement), not an `INT 21h` instruction.
+- The signature and YARA scans are indicators, **not** a substitute for a real
+  antivirus engine.
+- Single-file inspection reads the whole file into memory; `-R` reads up to
+  16 MiB per file for its metrics.

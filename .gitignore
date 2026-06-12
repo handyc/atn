@@ -1,0 +1,22 @@
+# build artifacts
+*.o
+atn
+
+# model / training state (the "brain" and its weight cache)
+*.brain
+*.brain.weights
+*.weights
+
+# compressed outputs
+*.atcm
+*.atnz
+
+# training data / corpora (not source)
+*.htm
+*.html
+*.txt
+*Zone.Identifier
+Hamlet*
+
+# local editor / tool config
+.claude/
