@@ -35,6 +35,18 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-12 ("score / news corpus / probe fix")
+- [x] `--score`: per stdin line, print surprisal (bits/byte) under the brain
+      (gpt.c score_query). Low = fits the corpus, high = novel/off-topic. Demoed
+      on a 16 MB 1934-news brain: "the President said" 1.7 bpb vs "instagram
+      selfie" 3.6 vs gibberish 6.0. This is the fit/novelty/"timeliness" signal.
+- [x] PERF FIX: bounded linear probing (MAP_PROBE=128). A saturated hash map on a
+      high-diversity corpus (news + OCR noise) was degrading to O(cap) per lookup
+      and hanging training. Now bounded; excess n-grams drop gracefully. 16 MB
+      news trains in ~24s. Raised MODEL_CAP to 64 MiB so 16-32 MB corpora are read.
+- News corpus method: dell-research-harvard/AmericanStories on HF (Chronicling
+  America OCR by year). ~2.8 MB article text/day in 1934 -> 16 MB ~= a week.
+
 ## Session 2026-06-12 ("one-shot / cron / strip-html")
 - [x] `--ask`: one stdin line -> one reply line -> exit (gpt.c chat_once). For
       cron/spare-cycle use; brain carries state across invocations (one turn per

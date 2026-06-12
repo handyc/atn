@@ -23,8 +23,12 @@
 #include <string.h>
 #include <strings.h>
 
-#define MODEL_CAP (16u << 20)   /* model is built from up to this many bytes */
-#define MAP_CAP   (1u << 22)    /* max entries per hash map                  */
+#define MODEL_CAP (64u << 20)   /* model is built from up to this many bytes */
+#define MAP_CAP   (1u << 22)    /* max entries per hash map (caps RAM ~300MB) */
+#define MAP_PROBE 128           /* bounded linear probing: never scan more than */
+                                /* this many slots, so a saturated map (diverse  */
+                                /* corpus) degrades gracefully instead of going  */
+                                /* O(cap) per lookup. Excess n-grams are dropped. */
 
 /* ---- deterministic PRNG (xorshift64) ---- */
 static uint64_t rng_state = 0x9E3779B97F4A7C15ull;
@@ -51,20 +55,20 @@ static void map_free(u64map *m) { free(m->k); free(m->v); free(m->used); m->cap 
 static void map_add(u64map *m, uint64_t key) {
     if (!m->cap) return;
     size_t s = (key * 1099511628211ull) & (m->cap - 1), pr = 0;
-    while (m->used[s] && pr < m->cap) { if (m->k[s] == key) { m->v[s]++; return; } s = (s+1)&(m->cap-1); pr++; }
+    while (m->used[s] && pr < MAP_PROBE) { if (m->k[s] == key) { m->v[s]++; return; } s = (s+1)&(m->cap-1); pr++; }
     if (!m->used[s]) { m->used[s] = 1; m->k[s] = key; m->v[s] = 1; }
 }
 static uint32_t map_get(const u64map *m, uint64_t key) {
     if (!m->cap) return 0;
     size_t s = (key * 1099511628211ull) & (m->cap - 1), pr = 0;
-    while (m->used[s] && pr < m->cap) { if (m->k[s] == key) return m->v[s]; s = (s+1)&(m->cap-1); pr++; }
+    while (m->used[s] && pr < MAP_PROBE) { if (m->k[s] == key) return m->v[s]; s = (s+1)&(m->cap-1); pr++; }
     return 0;
 }
 /* Insert a key with a given count (used when restoring saved weights). */
 static void map_put(u64map *m, uint64_t key, uint32_t val) {
     if (!m->cap) return;
     size_t s = (key * 1099511628211ull) & (m->cap - 1), pr = 0;
-    while (m->used[s] && pr < m->cap) { if (m->k[s] == key) { m->v[s] = val; return; } s = (s+1)&(m->cap-1); pr++; }
+    while (m->used[s] && pr < MAP_PROBE) { if (m->k[s] == key) { m->v[s] = val; return; } s = (s+1)&(m->cap-1); pr++; }
     if (!m->used[s]) { m->used[s] = 1; m->k[s] = key; m->v[s] = val; }
 }
 
@@ -930,6 +934,41 @@ void chat_once(const char *brainpath, double temp, bool learn) {
 
     if (bw) fclose(bw);
     if (learn && dirty) save_weights(&M, (uint64_t)Tn, wpath);  /* save once */
+    model_free(&M); free(T);
+}
+
+/* Score mode: for each stdin line, print its surprisal (bits/byte) under the
+ * brain, then the line. Low = the line fits the corpus's statistics ("typical
+ * of this corpus"); high = novel / off-topic / foreign. Read-only. This is the
+ * "does this belong to today's news / how surprising is it" signal. */
+void score_query(const char *brainpath) {
+    unsigned char *T = NULL; size_t Tn = 0, Tcap = 1 << 16;
+    T = malloc(Tcap); if (!T) return;
+    FILE *bf = fopen(brainpath, "rb");
+    if (bf) {
+        size_t got;
+        while ((got = fread(T + Tn, 1, Tcap - Tn, bf)) > 0) {
+            Tn += got;
+            if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
+        }
+        fclose(bf);
+    }
+    char wpath[4200]; snprintf(wpath, sizeof(wpath), "%s.weights", brainpath);
+    model M;
+    if (!load_weights(&M, (uint64_t)Tn, wpath)) {
+        blob b0 = { T, Tn }; model_build_reserve(&M, &b0, 1u << 18);
+    }
+    char line[8192];
+    while (fgets(line, sizeof(line), stdin)) {
+        size_t len = strlen(line);
+        while (len && (line[len-1] == '\n' || line[len-1] == '\r')) len--;
+        if (len == 0) { putchar('\n'); continue; }
+        double bits = 0;
+        for (size_t i = 0; i < len; i++)
+            bits += -log2(model_prob(&M, (const unsigned char*)line, i, (unsigned char)line[i]));
+        printf("%6.3f\t%.*s\n", bits / (double)len, (int)len, line);
+        fflush(stdout);
+    }
     model_free(&M); free(T);
 }
 

@@ -104,6 +104,8 @@ int  lm_decompress_file(const blob *in, const char *outpath);
 void chat_session(const char *brainpath, double temp);
 /* one-shot: one line of stdin -> one line of reply, then exit (cron-friendly) */
 void chat_once(const char *brainpath, double temp, bool learn);
+/* score: per stdin line, print surprisal (bits/byte) under the brain + the line */
+void score_query(const char *brainpath);
 /* autotrain (gpt.c): ingest every text file under a directory into the brain */
 void autotrain(const char *dir, const char *brainpath, bool strip_html);
 

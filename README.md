@@ -311,6 +311,41 @@ like `0 * * * * echo "..." | nice -19 atn --ask --brain ~/atn.brain` runs one
 turn an hour at idle priority — the cycles it uses are ones that would otherwise
 be wasted.
 
+### Surprisal scoring — `--score`
+
+`--score` prints, for each stdin line, its **surprisal** (bits/byte) under the
+brain, then the line. Low = the text fits the corpus's statistics; high = novel,
+off-topic, or foreign. It's read-only. This is what the model actually does
+well — measure *fit*, not retrieve documents:
+
+```
+printf '%s\n' "the President said" "post a selfie to instagram" \
+  | atn --score --brain news1934.brain
+#  2.6  the President said            <- typical of 1934 news, low surprisal
+#  4.8  post a selfie to instagram    <- out of place, high surprisal
+```
+
+Train one brain per day/week and the **same** number becomes a timeliness
+signal: a phrase whose surprisal drops sharply vs an earlier brain is *trending*;
+text that scores low under today's brain but high under last week's is *newly
+prominent*. So the interesting use isn't "search the news" (it would remix and
+hallucinate) but "is this typical of / novel to this slice of the news."
+
+#### Building a news corpus (e.g. 1934)
+
+`atn` ships no data. For historical newspapers, the **Library of Congress
+"Chronicling America"** OCR is the public-domain source; the easiest access is
+the HuggingFace mirror **`dell-research-harvard/AmericanStories`**, one
+`faro_YEAR.tar.gz` per year. The 1934 file is ~1.09 GB (the whole national press
+for the year ≈ **~2.8 MB of article text per day**), so stream a slice and pull
+the `full articles[].article` text — ~16 MB ≈ a week, ~32 MB ≈ ~11 days:
+
+```
+curl -sL ".../resolve/main/faro_1934.tar.gz" | head -c 18000000 > slice.tgz
+tar -xzf slice.tgz && python3 -c "..."   # extract article text -> corpus.txt
+atn --train corpus.txt --brain news1934.brain
+```
+
 ### Performance (rough, one laptop core)
 
 | corpus | `--train` | brain.weights | per query |
