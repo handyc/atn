@@ -293,15 +293,16 @@ from a good corpus. The model reads up to 16 MiB of the brain.
 
 ### One-shot queries (cron-friendly) — `--ask`
 
-`--ask` reads **one line** from stdin and prints **one line**, then exits — a
-single chat turn per process. The brain carries state between invocations, so a
-whole conversation can be run as independent calls spread over time (e.g. one
-turn per hour from `cron`, using only spare cycles):
+`--ask` answers stdin **line by line**: one piped line gives one reply line and
+exits (a single turn); many piped lines are answered as a batch with the brain
+loaded just once. The brain carries state between separate invocations too, so a
+conversation can run as independent calls spread over time (e.g. one turn per
+hour from `cron`, using only spare cycles):
 
 ```
-echo "Once upon a time" | atn --ask --brain tiny.brain --temp 0.4
-echo "$msg" | nice -n19 atn --ask --brain conv.brain        # gentle on the CPU
-echo "continue this:" | atn --ask --no-learn --brain corpus.brain  # read-only
+echo "Once upon a time" | atn --ask --brain tiny.brain --temp 0.4   # one turn
+seq 100 | sed 's/^/prompt /' | atn --ask --no-learn --brain c.brain  # 100 at once
+echo "$msg" | nice -n19 atn --ask --brain conv.brain                 # gentle
 ```
 
 By default `--ask` also *learns* from the input (the conversation accumulates in
@@ -309,6 +310,18 @@ the brain); `--no-learn` queries a corpus without modifying it. A `cron` entry
 like `0 * * * * echo "..." | nice -19 atn --ask --brain ~/atn.brain` runs one
 turn an hour at idle priority — the cycles it uses are ones that would otherwise
 be wasted.
+
+### Performance (rough, one laptop core)
+
+| corpus | `--train` | brain.weights | per query |
+|--------|-----------|---------------|-----------|
+| ~180 KB (a play) | ~0.2 s | ~4 MB | ~0.05 s |
+| ~6 MB (TinyStories) | ~15 s | ~20 MB | ~1.9 s standalone, ~0.1 s in a batch |
+
+Per query is dominated by loading the weights file (≈3× the corpus size). Running
+many queries as **one piped batch** loads it once and then costs ~0.1 s each, so
+N queries take roughly `load + N × 0.1 s` instead of `N × (load + 0.1 s)`. The
+training time is mostly the one-time learnability pass over the corpus.
 
 ## The filesystem as a GPT corpus (`--corpus`)
 

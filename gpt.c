@@ -883,16 +883,13 @@ void chat_session(const char *brainpath, double temp) {
     fputs("\n", stdout);
 }
 
-/* One-shot turn: read ONE line from stdin, print ONE reply line, exit.
- * Designed for cron / spare-cycle use — a whole "conversation" can run as
- * independent invocations (one turn per hour), the brain carrying state
- * between them. By default it also learns from the input (set learn=false
- * to query a corpus read-only). */
+/* Ask mode: for EACH line on stdin, print one reply line. One piped line is a
+ * single one-shot turn (cron / spare-cycle use); many piped lines are answered
+ * in a batch with the brain loaded just once, so N queries cost one load plus
+ * N cheap generations. By default it learns from the input (the conversation
+ * accumulates and persists); learn=false queries a corpus read-only. */
 void chat_once(const char *brainpath, double temp, bool learn) {
     if (temp <= 0) temp = 0.7;
-    char line[8192];
-    if (!fgets(line, sizeof(line), stdin)) return;      /* no input -> silent */
-    size_t len = strlen(line);
 
     unsigned char *T = NULL; size_t Tn = 0, Tcap = 1 << 16;
     T = malloc(Tcap); if (!T) return;
@@ -908,32 +905,31 @@ void chat_once(const char *brainpath, double temp, bool learn) {
 
     char wpath[4200]; snprintf(wpath, sizeof(wpath), "%s.weights", brainpath);
     model M;
-    if (!load_weights(&M, (uint64_t)Tn, wpath)) {
+    if (!load_weights(&M, (uint64_t)Tn, wpath)) {       /* load once */
         blob b0 = { T, Tn }; model_build_reserve(&M, &b0, 1u << 18);
     }
-    rng_seed(0xC0FFEEull ^ (uint64_t)Tn ^ (uint64_t)len ^ ((uint64_t)Tn << 17));
+    rng_seed(0xC0FFEEull ^ (uint64_t)Tn ^ ((uint64_t)Tn << 17));
 
-    /* ingest the input (append + train) so the conversation accumulates */
-    if (learn) {
-        FILE *bw = fopen(brainpath, "ab");
+    FILE *bw = learn ? fopen(brainpath, "ab") : NULL;
+    char line[8192], reply[256];
+    bool dirty = false;
+    while (fgets(line, sizeof(line), stdin)) {          /* one reply per line */
+        size_t len = strlen(line);
         for (size_t i = 0; i < len; i++) {
             if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
-            T[Tn] = (unsigned char)line[i]; model_observe(&M, T, Tn); Tn++;
+            T[Tn] = (unsigned char)line[i];
+            if (learn) model_observe(&M, T, Tn);        /* train (or just seed) */
+            Tn++;
         }
-        if (bw) { fwrite(line, 1, len, bw); fclose(bw); }
-    } else {
-        /* read-only: seed generation from the input without persisting it */
-        for (size_t i = 0; i < len; i++) {
-            if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
-            T[Tn++] = (unsigned char)line[i];
-        }
+        if (bw) { fwrite(line, 1, len, bw); fflush(bw); dirty = true; }
+
+        int rn = gen_text(&M, T, Tn, temp, reply, 200);
+        fwrite(reply, 1, rn, stdout); fputc('\n', stdout);
+        fflush(stdout);
     }
 
-    char reply[256];
-    int rn = gen_text(&M, T, Tn, temp, reply, 200);
-    fwrite(reply, 1, rn, stdout); fputc('\n', stdout);
-
-    if (learn) save_weights(&M, (uint64_t)Tn, wpath);
+    if (bw) fclose(bw);
+    if (learn && dirty) save_weights(&M, (uint64_t)Tn, wpath);  /* save once */
     model_free(&M); free(T);
 }
 
