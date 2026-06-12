@@ -377,20 +377,25 @@ For big or noisy corpora (OCR'd news), `--map-bits N` raises the per-map entry
 cap to 2^N (default 22) for higher fidelity at the cost of RAM and a bigger
 weights file — use the same `N` for training and querying.
 
-#### Building a news corpus (e.g. 1934)
+#### Building a news corpus (e.g. 1934) — `build-corpus.sh`
 
 `atn` ships no data. For historical newspapers, the **Library of Congress
 "Chronicling America"** OCR is the public-domain source; the easiest access is
 the HuggingFace mirror **`dell-research-harvard/AmericanStories`**, one
-`faro_YEAR.tar.gz` per year. The 1934 file is ~1.09 GB (the whole national press
-for the year ≈ **~2.8 MB of article text per day**), so stream a slice and pull
-the `full articles[].article` text — ~16 MB ≈ a week, ~32 MB ≈ ~11 days:
+`faro_YEAR.tar.gz` per year (~1.09 GB for 1934 = the whole national press ≈
+**~2.8 MB of article text per day**, so 16 MB ≈ a week). `build-corpus.sh`
+streams a slice and writes two line-aligned files — the corpus text and a
+metadata sidecar (date / state / paper per article):
 
 ```
-curl -sL ".../resolve/main/faro_1934.tar.gz" | head -c 18000000 > slice.tgz
-tar -xzf slice.tgz && python3 -c "..."   # extract article text -> corpus.txt
-atn --train corpus.txt --brain news1934.brain
+./build-corpus.sh 1934 news1934 16000000   # -> news1934.txt + news1934.meta
+./atn --train news1934.txt --brain news1934.brain
+./where.sh news1934.txt "the president"     # context + by-state + by-date
 ```
+
+That `.meta` sidecar is what lets `where.sh` report *where* (which state) and
+*when* (which date) a phrase appears — on real 1934 data "the president"
+concentrates in the District of Columbia and clusters on particular dates.
 
 ### Performance (rough, one laptop core)
 

@@ -42,8 +42,10 @@ sleep). Everything is on disk and tested.
 - [x] where.sh: concordance — locate where a (trending) phrase occurs in the
       corpus/brain (line = article index + context window). Composes with
       autotrend: top trends AND where each one appears, in one pipeline.
-- Note: this gives textual "where" (which articles). Geographic "where" (which
-  paper/state) would need keeping article metadata during corpus building.
+- [x] GEOGRAPHIC/TEMPORAL "where": build-corpus.sh writes a PREFIX.meta sidecar
+      (date<TAB>state<TAB>paper per article, line-aligned with PREFIX.txt) from
+      AmericanStories. where.sh detects the sidecar and reports by-state +
+      by-date distribution. Demoed on real 1934: "the president" -> DC/Indiana/MD.
 
 ## Session 2026-06-12 ("trending / map-bits")
 - [x] trend.sh: score phrases under TWO brains (today vs yesterday) and sort by

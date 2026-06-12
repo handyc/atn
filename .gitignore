@@ -15,6 +15,9 @@ atn
 *.htm
 *.html
 *.txt
+*.meta
+*.tgz
+*.tar.gz
 *Zone.Identifier
 Hamlet*
 
