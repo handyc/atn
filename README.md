@@ -342,6 +342,18 @@ printf '%s\n' "the election results" "the flood waters rose" \
 # -3.891   4.67   0.78  the flood waters rose       <- faded
 ```
 
+**`autotrend.sh`** goes one step further: you don't supply phrases at all. It
+mines the most frequent content phrases from *today's* corpus and ranks *those*
+by rise, so it surfaces the day's emerging topics on its own:
+
+```
+TOPN=12 ./autotrend.sh today.brain yesterday.brain
+#  delta   new    old    phrase
+# +4.62   0.66   5.28  election results came      <- today's news, alien yesterday
+# +4.23   0.84   5.08  polls closed at
+# ...
+```
+
 For big or noisy corpora (OCR'd news), `--map-bits N` raises the per-map entry
 cap to 2^N (default 22) for higher fidelity at the cost of RAM and a bigger
 weights file — use the same `N` for training and querying.
