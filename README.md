@@ -22,6 +22,10 @@ patterns, routines, and anomalies live inside this exact file?).
 > the close call being first-order logic vs lambda calculus, which share a surface
 > shape (binder + variables + parens) yet still split once ∀ and λ are tokenized.
 > See [GA.md](GA.md) for the mixture-of-experts they build.
+> `./demo-meta.sh` then trains on the previous trainings: it pools those runs'
+> corpora and evolves one meta-population spanning all of them, so a query of any
+> kind — a 1920s headline, a Dutch sentence, a C snippet, a logic formula — routes
+> to its region.
 
 It answers three questions about any file:
 
