@@ -423,15 +423,20 @@ script each (all just orchestrate `--score` and the corpora):
   *real* passages that followed that context, with provenance `[brain:line]`.
   Grounded source text (the surface-level cousin of a kNN-LM datastore), not a
   remix — so no hallucination.
-- **`bundle.sh BRAIN_DIR out.txt`** — the actual path to a real model: merge the
-  brains' transcripts and de-duplicate into one clean corpus, then fine-tune a
-  neural model on `out.txt`. The counts are discarded; the *text* is the asset
-  the trainer relearns and surpasses.
+- **`bundle.sh BRAIN_DIR out.txt [--novel]`** — the actual path to a real model:
+  merge the brains' transcripts and de-duplicate into one clean corpus, then
+  fine-tune a neural model on `out.txt`. The counts are discarded; the *text* is
+  the asset the trainer relearns and surpasses. With **`--novel`** it leaves each
+  brain out in turn, scores its lines under a model of the *rest*, and keeps only
+  the surprising (distinctive) ones — so boilerplate and stories shared across
+  brains are dropped and the corpus keeps more signal per byte (`NOVEL_BPB` sets
+  the threshold, default 3.0).
 
 ```
 route.sh ./brains "the federal reserve raised rates"   # -> finance (1.4 bpb)
 recall.sh ./brains "the federal reserve"               # -> the real passages
 bundle.sh ./brains corpus.txt                          # -> a training set
+bundle.sh ./brains corpus.txt --novel                  # -> distinctive lines only
 ```
 
 ## The filesystem as a GPT corpus (`--corpus`)
