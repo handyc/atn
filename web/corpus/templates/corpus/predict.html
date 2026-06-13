@@ -1,0 +1,57 @@
+{% extends "corpus/base.html" %}
+{% block title %}next-byte prediction · atn atlas{% endblock %}
+{% block content %}
+  <h1>Next-byte prediction — watch the model guess</h1>
+  <p class="sub">Type a context. The chart is the model's probability distribution
+     over <em>the next character</em> — exactly what it would sample from to
+     continue. This is the other half of the heatmap: the heatmap shows surprise
+     at text it has <em>seen</em>; this shows the bet it makes <em>before</em> seeing it.</p>
+
+  <form class="qbox" method="get" action="{% url 'predict' %}" style="flex-wrap:wrap">
+    <input type="text" name="text" value="{{ text }}" autofocus style="flex:1 1 100%"
+           placeholder="a context, e.g. 'the ' or 'def ' or '∀x '">
+    <select name="expert" style="padding:10px;border:1px solid var(--line);border-radius:8px">
+      <option value="">auto-route to best expert</option>
+      {% for e in experts %}
+        <option value="{{ e.pk }}" {% if e.pk == sel_pk %}selected{% endif %}>
+          expert {{ e.expert_id }}{% if e.label %} — {{ e.label }}{% endif %}
+        </option>
+      {% endfor %}
+    </select>
+    <button type="submit">Predict</button>
+  </form>
+
+  {% if expert %}
+    <div class="meta">
+      predicted by expert {{ expert.expert_id }}{% if expert.label %} ({{ expert.label }}){% endif %}
+      {% if not sel_pk %} · auto-routed{% endif %} · next byte after “{{ text }}”
+    </div>
+    <div class="card"><canvas id="dist" height="150"></canvas></div>
+    <div class="note">
+      Switch experts (dropdown): after “the ” an English expert bets on
+      <code>d/e/s/…</code>; after “∀x ” the formal expert bets on <code>(</code>
+      and predicate letters. The whole model is in that one bar chart — a
+      conditional distribution over the next byte, nothing more.
+    </div>
+
+    <script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js"></script>
+    <script>
+      const preds = {{ preds_json|safe }};
+      new Chart(document.getElementById("dist"), {
+        type: "bar",
+        data: {
+          labels: preds.map(p => p.char),
+          datasets: [{label: "P(next byte)", data: preds.map(p => p.prob), backgroundColor: "#3b5bdb"}],
+        },
+        options: {
+          plugins: {legend: {display: false},
+                    tooltip: {callbacks: {label: c => "p = " + c.raw.toFixed(4)}}},
+          scales: {y: {title: {display: true, text: "probability"}},
+                   x: {title: {display: true, text: "next character"}}},
+        },
+      });
+    </script>
+  {% else %}
+    <p class="sub">No experts (is a run imported?).</p>
+  {% endif %}
+{% endblock %}

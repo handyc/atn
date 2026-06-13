@@ -1072,6 +1072,49 @@ void score_query_bytes(const char *brainpath) {
     model_free(&M); free(T);
 }
 
+/* Next-byte PREDICTION: for each stdin line of context, print the model's top-K
+ * most-likely next bytes as "prob<TAB>byteval" lines, then a blank separator.
+ * This exposes the distribution the model would sample from — the "watch the LM
+ * predict" view (vs --score-bytes, which shows surprisal of bytes it already saw). */
+static const double *g_pred;
+static int cmp_pred(const void *a, const void *b) {
+    double d = g_pred[*(const int *)b] - g_pred[*(const int *)a];
+    return d < 0 ? -1 : d > 0 ? 1 : (*(const int *)a - *(const int *)b);
+}
+void predict_query(const char *brainpath, int topk) {
+    unsigned char *T = NULL; size_t Tn = 0, Tcap = 1 << 16;
+    T = malloc(Tcap); if (!T) return;
+    FILE *bf = fopen(brainpath, "rb");
+    if (bf) {
+        size_t got;
+        while ((got = fread(T + Tn, 1, Tcap - Tn, bf)) > 0) {
+            Tn += got;
+            if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
+        }
+        fclose(bf);
+    }
+    char wpath[4200]; snprintf(wpath, sizeof(wpath), "%s.weights", brainpath);
+    model M;
+    if (!load_weights(&M, (uint64_t)Tn, wpath)) {
+        blob b0 = { T, Tn }; model_build_reserve(&M, &b0, 1u << 18);
+    }
+    if (topk < 1) topk = 1;
+    if (topk > 256) topk = 256;
+    char line[8192];
+    double p[256];
+    int idx[256];
+    while (fgets(line, sizeof(line), stdin)) {
+        size_t len = strlen(line);
+        while (len && (line[len-1] == '\n' || line[len-1] == '\r')) len--;
+        model_dist(&M, (const unsigned char *)line, len, p);   /* distribution AFTER the context */
+        for (int i = 0; i < 256; i++) idx[i] = i;
+        g_pred = p; qsort(idx, 256, sizeof(int), cmp_pred);
+        for (int r = 0; r < topk; r++) printf("%.5f\t%d\n", p[idx[r]], idx[r]);
+        putchar('\n'); fflush(stdout);
+    }
+    model_free(&M); free(T);
+}
+
 /* ---------------------------------------------------------------- */
 /* Public model API (used by the filesystem-corpus mode in fleet.c)  */
 /* ---------------------------------------------------------------- */

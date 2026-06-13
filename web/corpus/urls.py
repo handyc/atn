@@ -6,6 +6,7 @@ urlpatterns = [
     path("", views.atlas, name="atlas"),
     path("overview/", views.overview, name="overview"),
     path("heatmap/", views.heatmap, name="heatmap"),
+    path("predict/", views.predict, name="predict"),
     path("query/", views.query, name="query"),
     path("graph/", views.graph_view, name="graph"),
     path("api/graph.json", views.graph_json, name="graph_json"),

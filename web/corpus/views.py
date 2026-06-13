@@ -3,7 +3,7 @@ import json
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 
-from .helpers import score_chars, score_query
+from .helpers import predict_next, score_chars, score_query
 from .models import Expert, Run
 
 
@@ -101,4 +101,27 @@ def heatmap(request):
     return render(request, "corpus/heatmap.html", {
         "run": run, "experts": experts, "text": text, "expert": expert,
         "cells": cells, "mean": mean, "sel_pk": int(pk) if pk else None,
+    })
+
+
+def predict(request):
+    """Live next-byte prediction: type a context, see the model's distribution
+    over the next character as a bar chart — 'watch the LM predict'."""
+    run = _run(request)
+    text = request.GET.get("text", "the ")
+    pk = request.GET.get("expert")
+    experts = list(run.experts.all()) if run else []
+    expert = None
+    if run and experts:
+        if pk:
+            expert = get_object_or_404(Expert, pk=pk, run=run)
+        elif text.strip():                      # auto-route on the context
+            ranked = score_query(run, text)
+            expert = ranked[0][1] if ranked else experts[0]
+        else:
+            expert = experts[0]
+    preds = predict_next(run, expert, text) if expert else []
+    return render(request, "corpus/predict.html", {
+        "run": run, "experts": experts, "text": text, "expert": expert,
+        "preds_json": json.dumps(preds), "sel_pk": int(pk) if pk else None,
     })

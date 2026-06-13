@@ -34,6 +34,11 @@ G2=$(printf 'seed test\n' | ./atn --ask --brain "$TMP/b.brain" --no-learn --seed
 G3=$(printf 'seed test\n' | ./atn --ask --brain "$TMP/b.brain" --no-learn --seed 222 2>/dev/null)
 [ "$G1" = "$G2" ] && [ "$G1" != "$G3" ] && ok "--seed reproducible yet varies" || bad "--seed behaviour"
 
+# 4. --predict emits a top-k next-byte distribution
+PK=$(printf 'the \n' | ./atn --predict --topk 5 --brain "$TMP/b.brain" 2>/dev/null \
+     | awk -F'\t' 'NF==2 && $1+0==$1 {n++} END{print n+0}')
+[ "${PK:-0}" -ge 1 ] && ok "--predict emits a next-byte distribution" || bad "--predict output"
+
 echo "== text vs binary (is_texty) =="
 mkdir -p "$TMP/mix"
 printf 'plain english training text for the ingest check here today.\n' > "$TMP/mix/a.txt"

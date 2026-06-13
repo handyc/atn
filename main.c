@@ -71,6 +71,8 @@ static void usage(FILE *o) {
 "  --score      per stdin line, print surprisal (bits/byte) under the brain\n"
 "               (low = fits the corpus; high = novel/off-topic)\n"
 "  --score-bytes per stdin line, print space-separated PER-BYTE surprisal (bits)\n"
+"  --predict     per stdin line of context, print the top-K (--topk, default 20)\n"
+"                next-byte candidates as 'prob<TAB>byteval' (the model's bet)\n"
 "  --orders CSV  context orders for the model, e.g. 2,4,7 (each 1-7, up to 6)\n"
 "  --prep [files] clean + dedup (exact + near-dup) + quality-filter text for LLM\n"
 "               training; streams to stdout, no model trained (~100s of MB/s)\n"
@@ -163,6 +165,8 @@ int main(int argc, char **argv) {
         {"nn-sig", required_argument, 0, 1020},
         {"nn-dfmax", required_argument, 0, 1021},
         {"seed", required_argument, 0, 1022},
+        {"predict", no_argument,    0, 1023},
+        {"topk", required_argument, 0, 1024},
         {"attn", no_argument,       0, 'Z'},
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
@@ -170,6 +174,7 @@ int main(int argc, char **argv) {
 
     bool do_compress = false, do_decompress = false, do_chat = false;
     bool do_ask = false, strip_html = false, no_learn = false, do_score = false, do_score_bytes = false;
+    bool do_predict = false; int topk = 20;
     bool do_prep = false, do_neighbors = false;
     const char *outfile = NULL, *brainfile = NULL, *traindir = NULL;
     const char *nn_index = NULL, *nn_sig = "minhash";
@@ -216,6 +221,8 @@ int main(int argc, char **argv) {
             case 1013: do_score = true; break;
             case 1014: lm_set_map_cap(atoi(optarg)); break;
             case 1016: do_score_bytes = true; break;
+            case 1023: do_predict = true; break;
+            case 1024: topk = atoi(optarg); break;
             case 1017: lm_set_orders(optarg); break;
             case 1022: lm_set_seed(strtoull(optarg, NULL, 10)); break;
             case 1015: do_prep = true; break;
@@ -236,7 +243,7 @@ int main(int argc, char **argv) {
     /* Chat / train / one-shot ask: the brain sits next to the atn binary by
      * default (override with --brain). --train ingests first; --ask is one
      * stdin line -> one reply line -> exit; -c is the interactive loop. */
-    if (do_chat || traindir || do_ask || do_score || do_score_bytes) {
+    if (do_chat || traindir || do_ask || do_score || do_score_bytes || do_predict) {
         char def[4096];
         const char *bp = brainfile;
         if (!bp) {
@@ -251,6 +258,7 @@ int main(int argc, char **argv) {
         if (traindir) autotrain(traindir, bp, strip_html, o.quiet);
         if (do_score)      score_query(bp);
         else if (do_score_bytes) score_query_bytes(bp);
+        else if (do_predict) predict_query(bp, topk);
         else if (do_ask)   chat_once(bp, o.temp, !no_learn);
         else if (do_chat)  chat_session(bp, o.temp);
         return 0;

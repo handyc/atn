@@ -65,6 +65,10 @@ project's own loader — nothing about the export depends on this app.
   red = surprising). Auto-routes to the best-fit expert, or pick one — the same
   Dutch line is green under the Dutch expert and red under the Chinese one, which
   *is* the routing signal made visible. (atn `--score-bytes` under the hood.)
+- **Predict** (`/predict/`) — the other half: type a context and see the model's
+  probability distribution over the *next* character as a bar chart (atn
+  `--predict`). After "the " an English expert bets on `d/e/s…`; after "∀x " the
+  formal expert bets on `(`. The whole model is that one conditional distribution.
 - **Territory** (`/expert/<id>/`) — one expert in detail: terms, sample passages,
   related experts from the routing graph.
 - **Live query** (`/query/`) — type text; every expert scores its surprisal

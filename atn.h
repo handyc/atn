@@ -108,6 +108,9 @@ void chat_once(const char *brainpath, double temp, bool learn);
 void score_query(const char *brainpath);
 /* score-bytes: per stdin line, print space-separated PER-BYTE surprisal (bits) */
 void score_query_bytes(const char *brainpath);
+/* predict: per stdin line of context, print the top-K next-byte candidates as
+ * "prob<TAB>byteval" lines + a blank separator (the model's next-byte distribution) */
+void predict_query(const char *brainpath, int topk);
 /* tune the per-map entry cap to 1<<bits (more = higher fidelity, more RAM) */
 void lm_set_map_cap(int bits);
 /* set the context orders from a CSV like "2,4,7" (each 1..7, up to 6 orders) */

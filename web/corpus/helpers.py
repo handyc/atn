@@ -96,3 +96,38 @@ def score_chars(run, expert, text, timeout=30):
         bpb = sum(chunk) / len(chunk) if chunk else 0.0
         out.append({"ch": ch, "bpb": round(bpb, 2), "color": bpb_color(bpb)})
     return out
+
+
+def _byte_label(b):
+    if b == 32:
+        return "␣"          # space
+    if b in (10, 13):
+        return "⏎"          # newline
+    if 32 < b < 127:
+        return chr(b)
+    return f"·{b:02x}"       # other / multibyte fragment
+
+
+def predict_next(run, expert, context, topk=20, timeout=30):
+    """The model's next-byte distribution after `context` under one expert
+    (atn --predict): [{byte, char, prob}, ...], highest first. The distribution
+    the model would sample from — 'what comes next', made visible."""
+    try:
+        r = subprocess.run(
+            [run.atn_path, "--predict", "--topk", str(topk), "--brain", expert.brain_abspath,
+             "--map-bits", str(expert.mapbits), "--orders", expert.orders],
+            input=(context + "\n").encode("utf-8", "ignore"),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout,
+        )
+    except Exception:
+        return []
+    out = []
+    for ln in r.stdout.decode("utf-8", "ignore").splitlines():
+        if not ln.strip():
+            break
+        try:
+            prob, b = ln.split("\t"); b = int(b)
+            out.append({"byte": b, "char": _byte_label(b), "prob": round(float(prob), 4)})
+        except ValueError:
+            continue
+    return out
