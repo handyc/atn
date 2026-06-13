@@ -21,5 +21,11 @@ atn
 *Zone.Identifier
 Hamlet*
 
+# scraped news working tree (data, never source)
+newsdata/
+
 # local editor / tool config
 .claude/
+
+# ...but DO track the text manual (overrides *.txt above)
+!MANUAL.txt
