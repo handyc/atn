@@ -4,6 +4,12 @@ A C utility that looks very closely at files — both at the macro level (what
 *kind* of thing is this, numerically?) and the micro level (what specific
 patterns, routines, and anomalies live inside this exact file?).
 
+> **Try the whole thing in one command** (clean clone, no data needed):
+> `./demo-news.sh` streams 1920–1940 news from the AmericanStories archive,
+> cleans it, evolves a population of GA "brains" over it, then runs example
+> classify / novelty / mixture queries — end to end in ~5 minutes. See
+> [GA.md](GA.md) for the evolutionary mixture-of-experts it builds.
+
 It answers three questions about any file:
 
 1. **What is it?** — type identification from magic bytes, plus a

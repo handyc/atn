@@ -37,3 +37,6 @@ ga-run/
 # python bytecode
 __pycache__/
 *.pyc
+
+# demo output
+demo-run/
