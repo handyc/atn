@@ -63,9 +63,13 @@ The same loop, pointed at enwik8 (the standard 100 MB Wikipedia benchmark) —
 48 brains, 16 generations:
 
 ```
+# positional (contiguous loci)
 python3 atn-ga.py run --corpus enwik8 --out wiki --pop 48 --gens 16 \
     --span-mb 0.6 --eval-frac 0.01
-python3 atn-ga.py mixture --out wiki
+# content loci at document granularity (LSH index, topical signature)
+python3 atn-ga.py run --corpus enwik8 --out wikic --pop 48 --gens 12 \
+    --locus content --chunk-kb 4 --df-max 0.2 --span-mb 0.6 --eval-frac 0.01
+python3 atn-ga.py mixture --out wikic
 ```
 
 - **It scales:** 100 MB (20× the toy corpus) indexed and evolved in **3.5 min**,
@@ -74,16 +78,23 @@ python3 atn-ga.py mixture --out wiki
   fixed-share mixture **2.44 bpb** (−22%), which here even **beats the hindsight
   per-line oracle (2.68)** — real Wikipedia lines benefit from blending different
   experts *within* a line, which one-expert-per-line routing can't capture.
-- **Honest finding — the GA needs exploitable structure.** Coverage did *not*
-  improve over generations on enwik8: the best tiling was generation 1's uniform
-  spread (2.78 bpb), and evolution drifted slightly worse. enwik8 is articles in
-  **dump order** (not topically sorted), so a contiguous positional region is an
-  unrelated grab-bag — there is no coherent territory for the GA to discover, and
-  a uniform spread is already near-optimal. This is the same homogeneity wall the
-  news corpus hit. The lever for unsorted data is **`--locus content`** (gather
-  topically-similar chunks regardless of position) — but it wants chunks at
-  *document* granularity, which at 100 MB needs LSH instead of the current
-  brute-force neighbor table (see limits).
+- **Positional evolution stalls on dump-ordered text.** With contiguous loci,
+  coverage did *not* improve over generations — the best tiling was generation 1's
+  uniform spread (2.78 bpb) and evolution drifted slightly worse. enwik8 is
+  articles in **dump order** (not topically sorted), so a contiguous region is an
+  unrelated grab-bag: there is no coherent territory for the GA to discover, and a
+  uniform spread is already near-optimal. Same wall the news corpus hit.
+- **Document-granularity content loci unstall it (LSH).** With `--locus content
+  --chunk-kb 4` (≈document-sized chunks, 22,808 of them, indexed by **LSH** since
+  brute-force O(n²) would be 520M comparisons) the GA *does* improve generation
+  over generation — 2.80 → 2.78 → **2.76 bpb**, beating the positional best.
+  Experts now evolve toward topical clusters gathered by word-MinHash regardless
+  of position. The margin over positional is small (~0.4%) because enwik8's
+  per-chunk topical signal is genuinely weak (topical-word Jaccard of LSH
+  neighbors ≈ 2.3× random) — topic is a far subtler signal than language. But the
+  mechanism is proven and scales: content addressing is what gives the
+  evolutionary search traction on unsorted data. Its mixture reaches **2.45 bpb**
+  (20% under the best single brain, again beating the hindsight oracle 2.70).
 
 The takeaway: the evolutionary search pays off when position correlates with
 content (languages, topics, sorted/sharded data); when it doesn't, the *mixture*
@@ -112,6 +123,8 @@ python3 atn-ga.py mixture --out RUNDIR
 | `--span-mb` | 0.5 | target training bytes per brain |
 | `--span-chunks` | 8 | initial span (in chunks) of each gene |
 | `--locus` | positional | `positional` (contiguous region) or `content` (gather MinHash-similar chunks) |
+| `--chunk-kb` | (derived) | chunk size in KB; set small (e.g. 4) for document-granularity content loci |
+| `--df-max` | 0.5 | content: drop words in >this fraction of chunks (sharpens the topical signature) |
 | `--eval-frac` | 0.05 | fraction of lines held out for scoring |
 | `--replace-frac` | 0.3 | worst fraction replaced each generation |
 | `--elite` | 4 | (legacy; steady-state keeps survivors) |
@@ -153,12 +166,15 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
   positional coverage degraded to 2.74 bpb, while content **recovered to 2.69** —
   better even than positional on the *unshuffled* corpus (2.72), because it builds
   pure same-language training sets (top-8 neighbors are 90% same-language) instead
-  of regions that straddle boundaries. Content mode currently builds a brute-force
-  O(n²) neighbor table, fine for hundreds–thousands of chunks; at document
-  granularity over 100 MB+ it needs LSH (the bands in `prep.c`) instead. At coarse
-  chunk sizes it does *not* help (each chunk is a multi-topic grab-bag, so the
-  signature blurs) — on enwik8 with 78 KB chunks it scored 2.82 vs positional's
-  2.78. Content addressing is a document-granularity tool.
+  of regions that straddle boundaries. Content mode auto-selects its index:
+  exact brute-force for ≤2500 chunks, **banded MinHash LSH** beyond (validated at
+  22,808 chunks). The signature uses **document-frequency filtering** (`--df-max`):
+  dropping corpus-universal words (stopwords/markup) sharpens topic discrimination
+  in mono-lingual data, while keeping enough to preserve language discrimination.
+  Granularity matters — coarse chunks are multi-topic grab-bags whose signatures
+  blur (enwik8 at 78 KB: content 2.82 ≥ positional 2.78), while document-sized
+  chunks (`--chunk-kb 4`) let the GA find topical territory (enwik8: 2.76 <
+  positional 2.78). Content addressing is a *document-granularity* tool.
 - **Soft mixture (`mixture` command, implemented).** Coverage uses a hard
   per-line argmin. The deployable router can't peek at the answer, so `mixture`
   runs an **online fixed-share** predictor over the eval stream: each byte is

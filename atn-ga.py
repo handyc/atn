@@ -27,7 +27,7 @@ RNG => fully reproducible runs.
 This is corpus-agnostic: point --corpus at 25MB of news now, or a Wikipedia /
 Library-of-Congress dump later. Only the addressed slices are ever read.
 """
-import argparse, json, os, random, re, subprocess, tempfile
+import argparse, json, os, random, re, subprocess, tempfile, zlib
 from concurrent.futures import ThreadPoolExecutor
 try:
     import numpy as np
@@ -35,47 +35,98 @@ except ImportError:
     np = None
 
 # ----------------------------------------------------------------------------
-# content addressing: per-chunk MinHash signatures + nearest-neighbor table
-# (used by --locus content, so a gene gathers SIMILAR chunks, not contiguous ones)
+# content addressing: per-chunk MinHash signatures, with an LSH index so a gene
+# can gather topically-SIMILAR chunks (not contiguous ones) even when there are
+# tens of thousands of document-granularity chunks (brute-force O(n^2) would die).
 # ----------------------------------------------------------------------------
 NH = 32                                            # MinHash slots per chunk
 MASK = (1 << 64) - 1
-MULT = [(0x9E3779B97F4A7C15 * (2 * i + 1)) & MASK for i in range(NH)]  # fixed, deterministic
-_WORD = re.compile(r"[a-zÀ-ɏ']+")
+_MULT = None
+_WORD = re.compile(r"[a-zà-ÿ0-9']+")
 
-def _fnv(s):
-    h = 1469598103934665603
-    for b in s.encode("utf-8", "ignore"):
-        h = ((h ^ b) * 1099511628211) & MASK
-    return h
+def _mult():
+    global _MULT
+    if _MULT is None:
+        _MULT = np.array([(0x9E3779B97F4A7C15 * (2 * i + 1)) & MASK for i in range(NH)],
+                         dtype=np.uint64)
+    return _MULT
+
+def _minhash(word_hashes):
+    if word_hashes.size < 4:
+        return np.full(NH, MASK, dtype=np.uint64)
+    m = word_hashes[:, None] * _mult()[None, :]    # uint64 multiply wraps mod 2^64
+    m ^= m >> np.uint64(29)
+    return m.min(axis=0)
 
 def chunk_signature(text):
-    # MinHash over the WORD SET (vocabulary overlap), not phrase shingles. This
-    # captures topical/language similarity — same-language chunks share function
-    # words heavily — whereas 4-word shingles would only catch near-duplicates.
-    mins = [MASK] * NH
-    seen = set()
-    for w in _WORD.findall(text.lower()):
-        if w in seen:
-            continue
-        seen.add(w)
-        hw = _fnv(w)
-        for h in range(NH):
-            v = (hw * MULT[h]) & MASK
-            v ^= v >> 29
-            if v < mins[h]:
-                mins[h] = v
-    return mins
+    """MinHash over a chunk's word set (no df filter; used by quick probes)."""
+    ws = set(_WORD.findall(text.lower()))
+    hs = np.fromiter((zlib.crc32(w.encode("utf-8")) for w in ws), dtype=np.uint64, count=len(ws))
+    return _minhash(hs)
 
-def build_neighbors(chunk_texts):
-    """Return neigh[i] = chunk ids sorted by MinHash similarity to i (i first)."""
-    sigs = np.array([chunk_signature(t) for t in chunk_texts], dtype=np.uint64)
-    n = len(sigs)
-    neigh = []
-    for i in range(n):
-        sim = (sigs == sigs[i]).mean(axis=1)        # fraction of matching MinHash slots
-        neigh.append(np.argsort(-sim, kind="stable").astype(int).tolist())
-    return neigh
+def build_signatures(chunk_texts, df_max=0.5, min_df=2):
+    """Per-chunk MinHash signatures, with document-frequency filtering: drop words
+    in >df_max of all chunks (corpus-universal stopwords / markup — they swamp the
+    topical signal) and words in <min_df chunks (noise). What's left is the topical
+    vocabulary, so 'similar' means same TOPIC, not just same language. df_max=1
+    disables the filter (keeps language-discriminating function words)."""
+    from collections import Counter
+    toks, df = [], Counter()
+    for t in chunk_texts:
+        ws = set(_WORD.findall(t.lower())); toks.append(ws); df.update(ws)
+    n = len(chunk_texts); hi = df_max * n if df_max < 1 else n + 1
+    sigs = np.empty((n, NH), dtype=np.uint64)
+    for i, ws in enumerate(toks):
+        kept = [w for w in ws if min_df <= df[w] <= hi]
+        hs = np.fromiter((zlib.crc32(w.encode("utf-8")) for w in kept), dtype=np.uint64, count=len(kept))
+        sigs[i] = _minhash(hs)
+    return sigs
+
+class LSHIndex:
+    """Banded MinHash LSH. neighbors(i) returns chunks sharing a band-bucket with
+    chunk i, ranked by full-signature similarity — O(bucket) per query, not O(n)."""
+    def __init__(self, sigs, bands=16, cap=400):
+        self.sigs = sigs; self.n = len(sigs); self.cap = cap
+        self.B = bands; self.R = max(1, NH // bands)
+        self.buckets = [dict() for _ in range(self.B)]
+        for i in range(self.n):
+            for b in range(self.B):
+                key = self._key(i, b)
+                self.buckets[b].setdefault(key, []).append(i)
+        self._cache = {}
+
+    def _key(self, i, b):
+        return zlib.crc32(self.sigs[i, b * self.R:(b + 1) * self.R].tobytes())
+
+    def neighbors(self, i):
+        r = self._cache.get(i)
+        if r is not None:
+            return r
+        cand = set()
+        for b in range(self.B):
+            cand.update(self.buckets[b].get(self._key(i, b), ()))
+        cand.discard(i); cand = list(cand)
+        if cand:
+            sim = (self.sigs[cand] == self.sigs[i]).mean(axis=1)
+            order = np.argsort(-sim, kind="stable")[:self.cap]
+            res = [i] + [cand[j] for j in order]
+        else:
+            res = [i]
+        self._cache[i] = res
+        return res
+
+class ExactNeighbors:
+    """Brute-force exact neighbor ranking — for small chunk counts where O(n^2) is
+    fine and we want exact (not approximate) results."""
+    def __init__(self, sigs):
+        self.sigs = sigs; self.n = len(sigs); self._cache = {}
+    def neighbors(self, i):
+        r = self._cache.get(i)
+        if r is None:
+            sim = (self.sigs == self.sigs[i]).mean(axis=1)
+            r = np.argsort(-sim, kind="stable").astype(int).tolist()
+            self._cache[i] = r
+        return r
 
 # ----------------------------------------------------------------------------
 # corpus indexing: split into territory (trainable) + a held-out eval sample
@@ -152,29 +203,37 @@ def clamp(g, mode, nchunks, span_min, span_max):
 # train / score via the atn binary (cached by gene signature)
 # ----------------------------------------------------------------------------
 class Engine:
-    def __init__(self, atn, out, territory, chunks, jobs, mode="positional"):
+    def __init__(self, atn, out, territory, chunks, jobs, mode="positional", df_max=0.5):
         self.atn = atn
         self.out = out
         self.terr = territory
         self.chunks = chunks
         self.jobs = jobs
         self.mode = mode
+        self.df_max = df_max
         self.cache_dir = os.path.join(out, "brains")
         os.makedirs(self.cache_dir, exist_ok=True)
         self._fp = open(territory, "rb")
-        self.neigh = None
+        self.nn = None                                   # neighbor provider (content mode)
         if mode == "content":
             if np is None:
                 raise SystemExit("--locus content needs numpy")
-            texts = [self._read(o, l) for (o, l) in chunks]
-            self.neigh = build_neighbors([t.decode("utf-8", "ignore") for t in texts])
+            texts = [self._read(o, l).decode("utf-8", "ignore") for (o, l) in chunks]
+            sigs = build_signatures(texts, df_max=df_max)
+            exact = len(chunks) <= 2500                  # exact for small, LSH at scale
+            self.nn = ExactNeighbors(sigs) if exact else LSHIndex(sigs, bands=16)
+            print(f"[index] content index: {'exact O(n^2)' if exact else 'LSH (16 bands)'} "
+                  f"over {len(chunks)} chunks")
 
     def _read(self, off, length):
         self._fp.seek(off); return self._fp.read(length)
 
+    def neighbors(self, seed):
+        return self.nn.neighbors(seed)
+
     def chunk_ids(self, g):
         if self.mode == "content":                       # seed + its nearest neighbors
-            return self.neigh[g.start][:g.span]
+            return self.nn.neighbors(g.start)[:g.span]
         return list(range(g.start, min(g.start + g.span, len(self.chunks))))  # contiguous
 
     def slice_bytes(self, g):
@@ -273,10 +332,10 @@ def crossover(a, b, rng):
 def clone(g):
     return Gene(g.start, g.span, g.mapbits)
 
-def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, neigh=None):
+def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, eng=None):
     if mode == "content":
-        if rng.random() < 0.6 and neigh:                 # hop to a near neighbor of the seed
-            nb = neigh[g.start]
+        if rng.random() < 0.6 and eng:                   # hop to a near neighbor of the seed
+            nb = eng.neighbors(g.start)
             g.start = nb[rng.randint(1, min(6, len(nb) - 1))] if len(nb) > 1 else g.start
         elif rng.random() < 0.2:
             g.start = rng.randrange(nchunks)             # occasional long jump
@@ -294,23 +353,31 @@ def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, neigh=None):
 # ----------------------------------------------------------------------------
 def cmd_run(a):
     rng = random.Random(a.seed)
-    chunk_bytes = int(a.span_mb * 1024 * 1024 / max(1, a.span_chunks))
+    # chunk size: explicit --chunk-kb (document granularity for content mode), else
+    # derive from the per-brain budget / initial span.
+    if a.chunk_kb:
+        chunk_bytes = int(a.chunk_kb * 1024)
+        init_span = max(1, round(a.span_mb * 1024 / a.chunk_kb))   # chunks to hit span_mb
+    else:
+        chunk_bytes = int(a.span_mb * 1024 * 1024 / max(1, a.span_chunks))
+        init_span = a.span_chunks
     print(f"[index] {a.corpus} -> {a.out}  (eval_frac={a.eval_frac}, chunk≈{chunk_bytes}B)")
     chunks = build_index(a.corpus, a.out, a.eval_frac, chunk_bytes, a.seed)
     nchunks = len(chunks)
     eval_path = os.path.join(a.out, "eval.txt")
     M = sum(1 for _ in open(eval_path, errors="ignore"))
     print(f"[index] territory chunks={nchunks}, eval lines={M}")
-    span_min, span_max = 1, max(1, nchunks // 3)
+    span_min, span_max = 1, max(1, nchunks // 2)
 
-    print(f"[index] locus mode = {a.locus}")
-    eng = Engine(a.atn, a.out, os.path.join(a.out, "territory.txt"), chunks, a.jobs, mode=a.locus)
+    print(f"[index] locus mode = {a.locus}, init span = {init_span} chunks")
+    eng = Engine(a.atn, a.out, os.path.join(a.out, "territory.txt"), chunks, a.jobs,
+                 mode=a.locus, df_max=a.df_max)
 
     # init: spread P loci (positional start, or content seed) across territory
     pop = []
     for i in range(a.pop):
         start = round(i * nchunks / a.pop)
-        g = Gene(start + rng.randint(-1, 1), a.span_chunks, a.mapbits)
+        g = Gene(start + rng.randint(-1, 1), init_span, a.mapbits)
         pop.append(clamp(g, a.locus, nchunks, span_min, span_max))
 
     hist = open(os.path.join(a.out, "history.tsv"), "w")
@@ -344,7 +411,7 @@ def cmd_run(a):
                 child = crossover(rng.choice(survivors), rng.choice(survivors), rng)
             else:
                 child = clone(rng.choice(survivors))               # local search on a survivor
-            nxt.append(mutate(child, rng, a.locus, nchunks, span_min, span_max, a.jitter, eng.neigh))
+            nxt.append(mutate(child, rng, a.locus, nchunks, span_min, span_max, a.jitter, eng))
         pop = nxt
 
     print(f"[best] coverage={best_cov:.4f} bpb (finalizing this population)")
@@ -510,8 +577,12 @@ def main():
     r.add_argument("--gens", type=int, default=15)
     r.add_argument("--span-mb", type=float, default=0.5, help="target training bytes per brain (MB)")
     r.add_argument("--span-chunks", type=int, default=8, help="initial span in chunks")
+    r.add_argument("--chunk-kb", type=float, default=None,
+                   help="chunk size in KB (set small for document-granularity content loci)")
     r.add_argument("--locus", choices=["positional", "content"], default="positional",
                    help="positional: contiguous region; content: gather MinHash-similar chunks")
+    r.add_argument("--df-max", type=float, default=0.5,
+                   help="content: drop words in >this fraction of chunks (topical signature)")
     r.add_argument("--eval-frac", type=float, default=0.05)
     r.add_argument("--elite", type=int, default=4)
     r.add_argument("--jitter", type=int, default=3)
