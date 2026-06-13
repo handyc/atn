@@ -70,6 +70,7 @@ static void usage(FILE *o) {
 "  --score      per stdin line, print surprisal (bits/byte) under the brain\n"
 "               (low = fits the corpus; high = novel/off-topic)\n"
 "  --score-bytes per stdin line, print space-separated PER-BYTE surprisal (bits)\n"
+"  --orders CSV  context orders for the model, e.g. 2,4,7 (each 1-7, up to 6)\n"
 "  --prep [files] clean + dedup (exact + near-dup) + quality-filter text for LLM\n"
 "               training; streams to stdout, no model trained (~100s of MB/s)\n"
 "  --map-bits N  per-map entry cap = 2^N (default 22; higher = more fidelity on\n"
@@ -151,6 +152,7 @@ int main(int argc, char **argv) {
         {"score", no_argument,      0, 1013},
         {"map-bits", required_argument, 0, 1014},
         {"score-bytes", no_argument, 0, 1016},
+        {"orders", required_argument, 0, 1017},
         {"prep", no_argument,       0, 1015},
         {"attn", no_argument,       0, 'Z'},
         {"help", no_argument, 0, 'h'},
@@ -203,6 +205,7 @@ int main(int argc, char **argv) {
             case 1013: do_score = true; break;
             case 1014: lm_set_map_cap(atoi(optarg)); break;
             case 1016: do_score_bytes = true; break;
+            case 1017: lm_set_orders(optarg); break;
             case 1015: do_prep = true; break;
             case 'c': do_chat = true; break;
             case 'o': outfile = optarg; break;

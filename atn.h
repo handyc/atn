@@ -110,6 +110,8 @@ void score_query(const char *brainpath);
 void score_query_bytes(const char *brainpath);
 /* tune the per-map entry cap to 1<<bits (more = higher fidelity, more RAM) */
 void lm_set_map_cap(int bits);
+/* set the context orders from a CSV like "2,4,7" (each 1..7, up to 6 orders) */
+void lm_set_orders(const char *csv);
 /* autotrain (gpt.c): ingest every text file under a directory into the brain */
 void autotrain(const char *dir, const char *brainpath, bool strip_html, bool quiet);
 

@@ -212,16 +212,25 @@ def load_index(out):
 # genes
 # ----------------------------------------------------------------------------
 class Gene:
-    """A gene's two loci fields are mode-dependent:
+    """A gene's loci fields are mode-dependent:
        positional: start = first chunk, span = number of contiguous chunks
-       content:    start = SEED chunk,  span = how many nearest chunks to gather"""
-    __slots__ = ("start", "span", "mapbits")
-    def __init__(self, start, span, mapbits):
-        self.start, self.span, self.mapbits = start, span, mapbits
+       content:    start = SEED chunk,  span = how many nearest chunks to gather
+    `orders` is the model's n-gram context orders (the atn --orders gene) — the
+    one model-internal the GA can now evolve, tuple of 1..6 ints each in 1..7."""
+    __slots__ = ("start", "span", "mapbits", "orders")
+    def __init__(self, start, span, mapbits, orders=(2, 4, 7)):
+        self.start, self.span, self.mapbits, self.orders = start, span, mapbits, tuple(orders)
+    def orders_csv(self):
+        return ",".join(map(str, self.orders))
     def sig(self):
-        return f"{self.start}_{self.span}_{self.mapbits}"
+        return f"{self.start}_{self.span}_{self.mapbits}_{'-'.join(map(str, self.orders))}"
     def to_dict(self):
-        return {"start": self.start, "span": self.span, "mapbits": self.mapbits}
+        return {"start": self.start, "span": self.span, "mapbits": self.mapbits,
+                "orders": list(self.orders)}
+
+def _orders_csv(gd):
+    """orders CSV from a gene dict (backward-compatible with pre-orders runs)."""
+    return ",".join(map(str, gd.get("orders", [2, 4, 7])))
 
 def clamp(g, mode, nchunks, span_min, span_max):
     g.span = max(span_min, min(span_max, g.span))
@@ -230,6 +239,8 @@ def clamp(g, mode, nchunks, span_min, span_max):
     else:
         g.start = max(0, min(nchunks - g.span, g.start)) # contiguous region must fit
     g.mapbits = max(16, min(26, g.mapbits))
+    o = sorted({v for v in g.orders if 1 <= v <= 7})[:6] # valid, sorted, deduped, ≤6
+    g.orders = tuple(o) if o else (2, 4, 7)
     return g
 
 # ----------------------------------------------------------------------------
@@ -289,8 +300,8 @@ class Engine:
         with tempfile.NamedTemporaryFile("wb", suffix=".txt", delete=False) as tf:
             tf.write(data); slice_path = tf.name
         try:
-            subprocess.run([self.atn, "--train", slice_path, "--brain", bp,
-                            "-q", "--map-bits", str(g.mapbits)],
+            subprocess.run([self.atn, "--train", slice_path, "--brain", bp, "-q",
+                            "--map-bits", str(g.mapbits), "--orders", g.orders_csv()],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         finally:
             os.unlink(slice_path)
@@ -301,7 +312,7 @@ class Engine:
         bp = self.brain_path(g)
         with open(eval_path, "rb") as ef:
             r = subprocess.run([self.atn, "--score", "--brain", bp,
-                                "--map-bits", str(g.mapbits)],
+                                "--map-bits", str(g.mapbits), "--orders", g.orders_csv()],
                                stdin=ef, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, check=True)
         out = []
@@ -361,12 +372,26 @@ def crossover(a, b, rng):
     start = a.start if rng.random() < 0.5 else b.start
     span = a.span if rng.random() < 0.5 else b.span
     mapbits = a.mapbits if rng.random() < 0.5 else b.mapbits
-    return Gene(start, span, mapbits)
+    orders = a.orders if rng.random() < 0.5 else b.orders
+    return Gene(start, span, mapbits, orders)
 
 def clone(g):
-    return Gene(g.start, g.span, g.mapbits)
+    return Gene(g.start, g.span, g.mapbits, g.orders)
 
-def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, eng=None):
+def mutate_orders(orders, rng):
+    """Add, drop, or shift one context order (each 1..7, up to 6, kept sorted)."""
+    o = set(orders)
+    r = rng.random()
+    if r < 0.4 and len(o) < 6:                            # add an order
+        o.add(rng.randint(1, 7))
+    elif r < 0.7 and len(o) > 1:                          # drop an order
+        o.discard(rng.choice(sorted(o)))
+    else:                                                 # shift one order by ±1
+        v = rng.choice(sorted(o)); o.discard(v)
+        o.add(min(7, max(1, v + rng.choice([-1, 1]))))
+    return tuple(sorted(o)) or (2, 4, 7)
+
+def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, eng=None, evolve_orders=False):
     if mode == "content":
         if rng.random() < 0.6 and eng:                   # hop to a near neighbor of the seed
             nb = eng.neighbors(g.start)
@@ -380,6 +405,8 @@ def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, eng=None):
         g.span = round(g.span * rng.uniform(0.7, 1.4))
     if rng.random() < 0.15:
         g.mapbits += rng.choice([-1, 1])
+    if evolve_orders and rng.random() < 0.4:             # evolve the n-gram orders gene
+        g.orders = mutate_orders(g.orders, rng)
     return clamp(g, mode, nchunks, span_min, span_max)
 
 # ----------------------------------------------------------------------------
@@ -409,7 +436,9 @@ def cmd_run(a):
     print(f"[index] territory chunks={nchunks} (avg {avg}B), eval lines={M}")
     span_min, span_max = 1, max(1, nchunks // 2)
 
-    print(f"[index] locus mode = {a.locus}, init span = {init_span} chunks")
+    init_orders = tuple(int(x) for x in a.orders.replace(",", " ").split())
+    print(f"[index] locus mode = {a.locus}, init span = {init_span} chunks, "
+          f"orders = {init_orders}{' (evolving)' if a.evolve_orders else ''}")
     eng = Engine(a.atn, a.out, os.path.join(a.out, "territory.txt"), chunks, a.jobs,
                  mode=a.locus, df_max=a.df_max, sig=a.sig)
 
@@ -417,7 +446,7 @@ def cmd_run(a):
     pop = []
     for i in range(a.pop):
         start = round(i * nchunks / a.pop)
-        g = Gene(start + rng.randint(-1, 1), init_span, a.mapbits)
+        g = Gene(start + rng.randint(-1, 1), init_span, a.mapbits, init_orders)
         pop.append(clamp(g, a.locus, nchunks, span_min, span_max))
 
     hist = open(os.path.join(a.out, "history.tsv"), "w")
@@ -451,7 +480,8 @@ def cmd_run(a):
                 child = crossover(rng.choice(survivors), rng.choice(survivors), rng)
             else:
                 child = clone(rng.choice(survivors))               # local search on a survivor
-            nxt.append(mutate(child, rng, a.locus, nchunks, span_min, span_max, a.jitter, eng))
+            nxt.append(mutate(child, rng, a.locus, nchunks, span_min, span_max, a.jitter,
+                              eng, a.evolve_orders))
         pop = nxt
 
     print(f"[best] coverage={best_cov:.4f} bpb (finalizing this population)")
@@ -508,7 +538,8 @@ def _perbyte_matrix(a, survivors, eval_path):
     for g in survivors:
         bp = os.path.join(a.out, g["brain"])
         with open(eval_path, "rb") as ef:
-            r = subprocess.run([a.atn, "--score-bytes", "--brain", bp, "--map-bits", str(g["mapbits"])],
+            r = subprocess.run([a.atn, "--score-bytes", "--brain", bp, "--map-bits", str(g["mapbits"]),
+                                "--orders", _orders_csv(g)],
                                stdin=ef, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True)
         flat = []; lens = []
         for line in r.stdout.decode("utf-8", "ignore").splitlines():
@@ -578,7 +609,8 @@ def cmd_lightup(a):
     scored = []
     for g in survivors:
         bp = os.path.join(a.out, g["brain"])
-        r = subprocess.run([a.atn, "--score", "--brain", bp, "--map-bits", str(g["mapbits"])],
+        r = subprocess.run([a.atn, "--score", "--brain", bp, "--map-bits", str(g["mapbits"]),
+                            "--orders", _orders_csv(g)],
                            input=(a.query + "\n").encode(), stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL)
         try: bpb = float(r.stdout.decode().split("\t")[0].strip().split()[0])
@@ -625,6 +657,10 @@ def main():
                    help="content: drop words in >this fraction of chunks (topical signature)")
     r.add_argument("--sig", choices=["minhash", "simhash"], default="minhash",
                    help="content signature: minhash (word-set Jaccard) or simhash (TF-IDF/cosine)")
+    r.add_argument("--orders", default="2,4,7",
+                   help="initial n-gram context orders for every gene (each 1..7, up to 6)")
+    r.add_argument("--evolve-orders", action="store_true",
+                   help="let the GA mutate each gene's n-gram orders (the model-internal gene)")
     r.add_argument("--chunk-on", default=None,
                    help="regex: start a new chunk when a line matches (document-aware chunking, "
                         "e.g. '<title>' for a Wikipedia dump) so each chunk is one coherent document")

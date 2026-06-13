@@ -84,19 +84,45 @@ static void map_put(u64map *m, uint64_t key, uint32_t val) {
 }
 
 /* ---- the model: unigram + a couple of higher orders with backoff ---- */
-#define NORD 3
+#define MAX_NORD 6                  /* hard cap on how many context orders     */
 typedef struct {
     uint32_t uni[256]; uint64_t uni_total;
-    int orders[NORD];           /* context lengths, low -> high  */
-    u64map cnt[NORD];           /* (ctx<<8 | nextbyte) -> count */
-    u64map tot[NORD];           /* ctx -> total count           */
+    int orders[MAX_NORD];       /* context lengths, low -> high  */
+    int nord;                   /* how many orders are active    */
+    u64map cnt[MAX_NORD];       /* (ctx<<8 | nextbyte) -> count */
+    u64map tot[MAX_NORD];       /* ctx -> total count           */
     size_t n;                   /* bytes used to build          */
 } model;
 
-/* Single place to choose the context orders (low -> high). */
+/* Runtime-tunable context orders (low -> high), default {2,4,7}. Each order is a
+ * context length in 1..7 (the count key packs (ctx<<8)|byte into 64 bits). */
+static int g_orders[MAX_NORD] = {2, 4, 7};
+static int g_nord = 3;
+
+/* Set orders from a CSV like "2,4,7" (each 1..7, up to MAX_NORD; sorted, deduped). */
+void lm_set_orders(const char *csv) {
+    int tmp[MAX_NORD], k = 0;
+    for (const char *p = csv; *p && k < MAX_NORD; ) {
+        while (*p == ' ' || *p == ',') p++;
+        if (!*p) break;
+        int v = atoi(p);
+        if (v >= 1 && v <= 7) tmp[k++] = v;
+        while (*p && *p != ',') p++;
+    }
+    if (k == 0) return;
+    for (int i = 0; i < k; i++)                       /* sort ascending */
+        for (int j = i + 1; j < k; j++)
+            if (tmp[j] < tmp[i]) { int t = tmp[i]; tmp[i] = tmp[j]; tmp[j] = t; }
+    int m = 0;
+    for (int i = 0; i < k; i++)                       /* dedup (tmp is sorted) */
+        if (m == 0 || tmp[i] != g_orders[m - 1]) g_orders[m++] = tmp[i];
+    g_nord = m;
+}
+
+/* Single place to choose the context orders for a model (copies the globals). */
 static void model_set_orders(model *M) {
-    /* Max order is 7: the count key packs (ctx<<8)|byte into 64 bits. */
-    M->orders[0] = 2; M->orders[1] = 4; M->orders[2] = 7;
+    M->nord = g_nord;
+    for (int o = 0; o < g_nord; o++) M->orders[o] = g_orders[o];
 }
 
 static uint64_t pack_ctx(const unsigned char *d, size_t pos, int m) {
@@ -111,11 +137,11 @@ static void model_build_reserve(model *M, const blob *b, size_t reserve) {
     size_t n = b->len; if (n > MODEL_CAP) n = MODEL_CAP;
     M->n = n;
     size_t want = n > reserve ? n : reserve;
-    for (int o = 0; o < NORD; o++) { map_init(&M->cnt[o], want); map_init(&M->tot[o], want); }
+    for (int o = 0; o < M->nord; o++) { map_init(&M->cnt[o], want); map_init(&M->tot[o], want); }
     for (size_t t = 0; t < n; t++) {
         unsigned char x = b->data[t];
         M->uni[x]++; M->uni_total++;
-        for (int o = 0; o < NORD; o++) {
+        for (int o = 0; o < M->nord; o++) {
             int m = M->orders[o];
             if (t >= (size_t)m) {
                 uint64_t ctx = pack_ctx(b->data, t, m);
@@ -127,7 +153,7 @@ static void model_build_reserve(model *M, const blob *b, size_t reserve) {
 }
 static void model_build(model *M, const blob *b) { model_build_reserve(M, b, 0); }
 static void model_free(model *M) {
-    for (int o = 0; o < NORD; o++) { map_free(&M->cnt[o]); map_free(&M->tot[o]); }
+    for (int o = 0; o < M->nord; o++) { map_free(&M->cnt[o]); map_free(&M->tot[o]); }
 }
 
 /* Probability of byte `nb` given the context ending at d[pos-1] (pos bytes
@@ -137,7 +163,7 @@ static double model_prob(const model *M, const unsigned char *d, size_t pos, uns
     double p = 1.0 / 256.0;                                   /* uniform floor */
     double puni = (M->uni_total ? (double)M->uni[nb] / (double)M->uni_total : 1.0/256.0);
     p = 0.5 * puni + 0.5 * p;                                 /* unigram */
-    for (int o = 0; o < NORD; o++) {                         /* low -> high order */
+    for (int o = 0; o < M->nord; o++) {                      /* low -> high order */
         int m = M->orders[o];
         if (pos < (size_t)m) continue;
         uint64_t ctx = pack_ctx(d, pos, m);
@@ -154,7 +180,7 @@ static double model_prob(const model *M, const unsigned char *d, size_t pos, uns
 static void model_observe(model *M, const unsigned char *d, size_t t) {
     unsigned char x = d[t];
     M->uni[x]++; M->uni_total++;
-    for (int o = 0; o < NORD; o++) {
+    for (int o = 0; o < M->nord; o++) {
         int m = M->orders[o];
         if (t >= (size_t)m) {
             uint64_t ctx = pack_ctx(d, t, m);
@@ -176,7 +202,7 @@ static double model_bpb_online(const blob *b) {
     if (n == 0) return 0;
     model M; memset(&M, 0, sizeof(M));
     model_set_orders(&M);
-    for (int o = 0; o < NORD; o++) { map_init(&M.cnt[o], n); map_init(&M.tot[o], n); }
+    for (int o = 0; o < M.nord; o++) { map_init(&M.cnt[o], n); map_init(&M.tot[o], n); }
 
     double bits = 0;
     for (size_t t = 0; t < n; t++) {
@@ -197,7 +223,7 @@ static void model_generate(const model *M, const blob *b, double temp, int gen) 
     rng_seed(0xA77E27107ull ^ (uint64_t)b->len);   /* fixed but content-tied */
 
     /* history buffer: seed with the file's final bytes */
-    int hist = M->orders[NORD-1];                  /* longest context needed */
+    int hist = M->orders[M->nord-1];                  /* longest context needed */
     unsigned char ctx[8];
     for (int k = 0; k < hist; k++) ctx[k] = b->data[b->len - hist + k];
 
@@ -237,7 +263,7 @@ static void model_dist(const model *M, const unsigned char *d, size_t pos, doubl
         double pu = M->uni_total ? (double)M->uni[i] / (double)M->uni_total : uni;
         p[i] = 0.5 * pu + 0.5 * uni;
     }
-    for (int o = 0; o < NORD; o++) {
+    for (int o = 0; o < M->nord; o++) {
         int m = M->orders[o];
         if (pos < (size_t)m) continue;
         uint64_t ctx = pack_ctx(d, pos, m);
@@ -309,7 +335,7 @@ static void quantise(const double *p, uint32_t *freq) {
 static void fresh_model(model *M, size_t n) {
     memset(M, 0, sizeof(*M));
     model_set_orders(M);
-    for (int o = 0; o < NORD; o++) { map_init(&M->cnt[o], n); map_init(&M->tot[o], n); }
+    for (int o = 0; o < M->nord; o++) { map_init(&M->cnt[o], n); map_init(&M->tot[o], n); }
 }
 
 /* ================================================================ */
@@ -325,7 +351,7 @@ static void fresh_model(model *M, size_t n) {
 /* transformer. It also predicts better than fixed backoff.           */
 /* ================================================================ */
 
-#define NEXP (NORD + 1)               /* nested backoffs: ≤unigram .. ≤full */
+#define MAX_NEXP (MAX_NORD + 1)       /* nested backoffs: ≤unigram .. ≤full */
 #define FEEDBACK_CAP (1u << 19)       /* 512 KiB                          */
 
 /* Backoff probability of nb using only the first `nord` context orders. */
@@ -355,24 +381,25 @@ void feedback_report(const blob *b) {
     if (capped) printf("  (first %u KiB)\n", FEEDBACK_CAP >> 10);
 
     model M; fresh_model(&M, n);
+    int NEXP = M.nord + 1;             /* runtime expert count (≤ MAX_NEXP) */
     /* NEXP nested experts: expert e uses backoff over the first e orders
-     * (e = 0 is unigram only, e = NORD is the full model). */
-    double w[NEXP]; for (int e = 0; e < NEXP; e++) w[e] = 1.0 / NEXP;
+     * (e = 0 is unigram only, e = M.nord is the full model). */
+    double w[MAX_NEXP]; for (int e = 0; e < NEXP; e++) w[e] = 1.0 / NEXP;
     const double gamma = 0.003;        /* fixed-share: keep some adaptivity */
     double mixed_bits = 0, base_bits = 0;
 
     const int NW = 64; double winbits[64]; size_t wincnt[64];
     for (int i = 0; i < NW; i++) { winbits[i] = 0; wincnt[i] = 0; }
-    double wsnap[NEXP]; for (int e = 0; e < NEXP; e++) wsnap[e] = w[e];
+    double wsnap[MAX_NEXP]; for (int e = 0; e < NEXP; e++) wsnap[e] = w[e];
 
     for (size_t t = 0; t < n; t++) {
         unsigned char act = b->data[t];
-        double pe[NEXP], mixed = 0;
+        double pe[MAX_NEXP] = {0}, mixed = 0;
         for (int e = 0; e < NEXP; e++) { pe[e] = model_prob_upto(&M, b->data, t, act, e); mixed += w[e] * pe[e]; }
         if (mixed < 1e-300) mixed = 1e-300;
         double lb = -log2(mixed);
         mixed_bits += lb;
-        base_bits  += -log2(pe[NORD]);                 /* full backoff = expert NORD */
+        base_bits  += -log2(pe[M.nord]);               /* full backoff = expert M.nord */
         int wi = (int)(t * NW / n); winbits[wi] += lb; wincnt[wi]++;
 
         /* Bayesian feedback: posterior ∝ prior × likelihood of the actual byte */
@@ -386,15 +413,15 @@ void feedback_report(const blob *b) {
 
     double mbpb = mixed_bits / (double)n, bbpb = base_bits / (double)n;
     printf("  experts: nested backoffs (unigram");
-    for (int o = 0; o < NORD; o++) printf(", ≤order-%d", M.orders[o]);
+    for (int o = 0; o < M.nord; o++) printf(", ≤order-%d", M.orders[o]);
     printf("), Bayesian mix\n");
     printf("  bits/byte   mixed %.3f   vs fixed-backoff %.3f   (%+.1f%% from feedback)\n",
            mbpb, bbpb, bbpb > 0 ? 100.0 * (bbpb - mbpb) / bbpb : 0);
 
     printf("  posterior weights learned from prediction error (start -> end):\n");
-    static char nb[NEXP][14];
+    static char nb[MAX_NEXP][14];
     snprintf(nb[0], 14, "unigram");
-    for (int o = 0; o < NORD; o++) snprintf(nb[o+1], 14, "<=order-%d", M.orders[o]);
+    for (int o = 0; o < M.nord; o++) snprintf(nb[o+1], 14, "<=order-%d", M.orders[o]);
     for (int e = 0; e < NEXP; e++)
         printf("    %-11s %5.2f -> %5.2f\n", nb[e], 1.0/NEXP, wsnap[e]);
 
@@ -484,13 +511,13 @@ void compress_report(const blob *b) {
 }
 
 /* ---- real on-disk compressor ----
- * .atnz = "ATNZ2\n"(6) | NORD(1) | orders[NORD] | u64 len | coded stream
+ * .atnz = "ATNZ2\n"(6) | nord(1) | orders[nord] | u64 len | coded stream
  * The order config is embedded and validated so a future change to
  * model_set_orders() can't silently mis-decode an old file.
  */
 #define ATNZ_MAGIC "ATNZ2\n"
 #define ATNZ_CAP (64u << 20)
-#define ATNZ_HDR (6 + 1 + NORD + 8)
+#define ATNZ_HDR_MAX (6 + 1 + MAX_NORD + 8)   /* header length varies with nord */
 
 int lm_compress_file(const blob *b, const char *outpath) {
     if (b->len > ATNZ_CAP) { fprintf(stderr, "atn: file too large to compress (>64 MiB)\n"); return 1; }
@@ -499,33 +526,34 @@ int lm_compress_file(const blob *b, const char *outpath) {
     if (!enc) { fprintf(stderr, "atn: compress: out of memory\n"); return 1; }
 
     model ref; memset(&ref, 0, sizeof(ref)); model_set_orders(&ref);
-    unsigned char hdr[ATNZ_HDR]; size_t h = 0;
+    unsigned char hdr[ATNZ_HDR_MAX]; size_t h = 0;
     memcpy(hdr, ATNZ_MAGIC, 6); h = 6;
-    hdr[h++] = (unsigned char)NORD;
-    for (int o = 0; o < NORD; o++) hdr[h++] = (unsigned char)ref.orders[o];
+    hdr[h++] = (unsigned char)ref.nord;
+    for (int o = 0; o < ref.nord; o++) hdr[h++] = (unsigned char)ref.orders[o];
     for (int i = 0; i < 8; i++) hdr[h++] = (unsigned char)((uint64_t)n >> (8 * i));
 
     FILE *f = fopen(outpath, "wb");
     if (!f) { fprintf(stderr, "atn: %s: cannot write\n", outpath); free(enc); return 1; }
-    fwrite(hdr, 1, sizeof(hdr), f);
+    fwrite(hdr, 1, h, f);
     fwrite(enc, 1, csize, f);
     fclose(f);
     free(enc);
-    double bpb = n ? 8.0 * (double)(csize + sizeof(hdr)) / (double)n : 0;
+    double bpb = n ? 8.0 * (double)(csize + h) / (double)n : 0;
     fprintf(stderr, "atn: compressed -> %s  (%zu -> %zu bytes, %.3f bits/byte)\n",
-            outpath, n, csize + sizeof(hdr), bpb);
+            outpath, n, csize + h, bpb);
     return 0;
 }
 
 int lm_decompress_file(const blob *in, const char *outpath) {
-    if (in->len < ATNZ_HDR || memcmp(in->data, ATNZ_MAGIC, 6) != 0) {
+    if (in->len < 7 || memcmp(in->data, ATNZ_MAGIC, 6) != 0) {
         fprintf(stderr, "atn: not an .atnz (v2) stream\n"); return 1;
     }
     size_t h = 6;
     int nord = in->data[h++];
     model ref; memset(&ref, 0, sizeof(ref)); model_set_orders(&ref);
-    if (nord != NORD) { fprintf(stderr, "atn: incompatible model (order count)\n"); return 1; }
-    for (int o = 0; o < NORD; o++) if (in->data[h++] != (unsigned char)ref.orders[o]) {
+    if (nord != ref.nord) { fprintf(stderr, "atn: incompatible model (order count)\n"); return 1; }
+    if (in->len < (size_t)(7 + nord + 8)) { fprintf(stderr, "atn: truncated .atnz header\n"); return 1; }
+    for (int o = 0; o < nord; o++) if (in->data[h++] != (unsigned char)ref.orders[o]) {
         fprintf(stderr, "atn: incompatible model (orders differ from this build)\n"); return 1;
     }
     uint64_t n = 0; for (int i = 0; i < 8; i++) n |= (uint64_t)in->data[h++] << (8 * i);
@@ -533,7 +561,7 @@ int lm_decompress_file(const blob *in, const char *outpath) {
 
     unsigned char *out = malloc(n ? n : 1);
     if (!out) { fprintf(stderr, "atn: decompress: out of memory\n"); return 1; }
-    model_decode(in->data + ATNZ_HDR, in->len - ATNZ_HDR, out, n);
+    model_decode(in->data + h, in->len - h, out, n);
     FILE *f = outpath ? fopen(outpath, "wb") : stdout;
     if (!f) { fprintf(stderr, "atn: %s: cannot write\n", outpath); free(out); return 1; }
     fwrite(out, 1, n, f);
@@ -558,7 +586,7 @@ int lm_decompress_file(const blob *in, const char *outpath) {
 static int gen_text(const model *M, const unsigned char *seed, size_t seedlen,
                     double temp, char *out, int maxout) {
     if (temp < 0.05) temp = 0.05;
-    int hist = M->orders[NORD-1];
+    int hist = M->orders[M->nord-1];
     unsigned char ctx[8];
     memset(ctx, 0, sizeof(ctx));
     size_t take = seedlen < (size_t)hist ? seedlen : (size_t)hist;
@@ -592,12 +620,12 @@ static int gen_text(const model *M, const unsigned char *seed, size_t seedlen,
 static void save_weights(const model *M, uint64_t tlen, const char *path) {
     FILE *f = fopen(path, "wb"); if (!f) return;
     fwrite(WMAGIC, 1, 6, f);
-    uint8_t nord = NORD; fwrite(&nord, 1, 1, f);
-    for (int o = 0; o < NORD; o++) { uint8_t m = (uint8_t)M->orders[o]; fwrite(&m, 1, 1, f); }
+    uint8_t nord = (uint8_t)M->nord; fwrite(&nord, 1, 1, f);
+    for (int o = 0; o < M->nord; o++) { uint8_t m = (uint8_t)M->orders[o]; fwrite(&m, 1, 1, f); }
     fwrite(&tlen, 8, 1, f);
     fwrite(&M->uni_total, 8, 1, f);
     fwrite(M->uni, 4, 256, f);
-    for (int o = 0; o < NORD; o++) {
+    for (int o = 0; o < M->nord; o++) {
         for (int pass = 0; pass < 2; pass++) {
             const u64map *mp = pass ? &M->tot[o] : &M->cnt[o];
             uint64_t live = 0;
@@ -615,15 +643,20 @@ static void save_weights(const model *M, uint64_t tlen, const char *path) {
 static bool load_weights(model *M, uint64_t expect_tlen, const char *path) {
     FILE *f = fopen(path, "rb"); if (!f) return false;
     char mg[6]; uint8_t nord;
-    if (fread(mg, 1, 6, f) != 6 || memcmp(mg, WMAGIC, 6) || fread(&nord, 1, 1, f) != 1 || nord != NORD) {
-        fclose(f); return false;
+    if (fread(mg, 1, 6, f) != 6 || memcmp(mg, WMAGIC, 6) || fread(&nord, 1, 1, f) != 1 || nord != g_nord) {
+        fclose(f); return false;                          /* different order count -> rebuild */
     }
     memset(M, 0, sizeof(*M));
-    for (int o = 0; o < NORD; o++) { uint8_t m; if (fread(&m, 1, 1, f) != 1) { fclose(f); return false; } M->orders[o] = m; }
+    M->nord = nord;
+    for (int o = 0; o < nord; o++) {
+        uint8_t m; if (fread(&m, 1, 1, f) != 1) { fclose(f); return false; }
+        M->orders[o] = m;
+        if (m != g_orders[o]) { fclose(f); return false; } /* orders differ -> rebuild */
+    }
     uint64_t tlen;
     if (fread(&tlen, 8, 1, f) != 1 || tlen != expect_tlen) { fclose(f); return false; }  /* stale -> rebuild */
     if (fread(&M->uni_total, 8, 1, f) != 1 || fread(M->uni, 4, 256, f) != 256) { fclose(f); return false; }
-    for (int o = 0; o < NORD; o++) {
+    for (int o = 0; o < nord; o++) {
         for (int pass = 0; pass < 2; pass++) {
             uint64_t live;
             if (fread(&live, 8, 1, f) != 1) { model_free(M); fclose(f); return false; }

@@ -508,8 +508,11 @@ hindsight per-line oracle (2.68). Genes can address **content** (`--locus
 content`) instead of position, gathering topically-similar chunks via MinHash
 LSH. Paired with **document-aware chunking** (`--chunk-on '<title>'`, one article
 per chunk) on 100 MB of Wikipedia, content tiling decisively beats positional
-(2.70 vs 2.81 bpb) and its mixture hits 2.41 — the chunk *unit* matters more than
-the signature. Full design, results, scale tests, and options in **[GA.md](GA.md)**.
+(2.70 vs 2.81 bpb) — the chunk *unit* matters more than the signature. And with
+**`--evolve-orders`** the GA tunes each expert's n-gram context lengths to its
+territory (now a runtime `atn --orders` gene), the biggest single win: coverage
+2.69 → 2.55, mixture 2.37. Full design, results, scale tests, and options in
+**[GA.md](GA.md)**.
 
 ## The filesystem as a GPT corpus (`--corpus`)
 

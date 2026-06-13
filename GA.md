@@ -17,7 +17,7 @@ Wikipedia / Library-of-Congress dump later — the machinery is identical.
 | Concept | Realized as |
 |---|---|
 | an expert / node | one atn brain (`--train`, counts not gradients — trains in ~ms) |
-| a gene | `(start_chunk, span, map_bits)` — the brain's region + capacity |
+| a gene | `(start_chunk, span, map_bits, orders)` — region, capacity, and the n-gram context orders |
 | fitness | **coverage**: how much a brain lowers the population's held-out bits/byte (its *marginal* contribution, via `--score`) |
 | selection | steady-state: keep useful experts, replace the redundant ~0-marginal ones with children of survivors |
 | the graph | per held-out line, `owner = argmin bpb`, `fallback = 2nd best` → directed edges |
@@ -66,9 +66,9 @@ The same loop, pointed at enwik8 (the standard 100 MB Wikipedia benchmark) —
 # positional (contiguous loci)
 python3 atn-ga.py run --corpus enwik8 --out wiki --pop 48 --gens 16 \
     --span-mb 0.6 --eval-frac 0.01
-# content loci at DOCUMENT granularity (each chunk = one article) — the strong setup
+# strongest setup: document chunks + content loci + evolving the n-gram orders
 python3 atn-ga.py run --corpus enwik8 --out wikic --pop 48 --gens 12 \
-    --locus content --chunk-on '<title>' --span-mb 0.6 --eval-frac 0.01
+    --locus content --chunk-on '<title>' --evolve-orders --span-mb 0.6 --eval-frac 0.01
 python3 atn-ga.py mixture --out wikic
 ```
 
@@ -139,6 +139,8 @@ python3 atn-ga.py mixture --out RUNDIR
 | `--chunk-kb` | (derived) | fixed chunk size in KB (alternative to `--chunk-on`) |
 | `--chunk-on` | (none) | regex; start a new chunk when a line matches → document-aware chunks (e.g. `'<title>'`) |
 | `--sig` | minhash | content signature: `minhash` (word-set Jaccard, best for n-gram coverage) or `simhash` (TF-IDF cosine) |
+| `--orders` | 2,4,7 | initial n-gram context orders for every gene (each 1..7, up to 6) |
+| `--evolve-orders` | off | let the GA mutate each gene's n-gram orders (biggest measured win) |
 | `--df-max` | 0.5 | content: drop words in >this fraction of chunks (trims stopwords/markup) |
 | `--eval-frac` | 0.05 | fraction of lines held out for scoring |
 | `--replace-frac` | 0.3 | worst fraction replaced each generation |
@@ -166,10 +168,17 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
 
 ## Honest limits & next steps
 
-- atn's n-gram orders `{2,4,7}` are compile-time, so the gene varies the *locus*
-  and `--map-bits`, not the model internals. The interesting search — *where*
-  each expert sits — is exactly the locus search, so this is not a real
-  constraint, but richer genes would need a runtime order flag.
+- **Evolvable n-gram orders (`--evolve-orders`, implemented).** The model's
+  context orders used to be compile-time `{2,4,7}`; atn now takes `--orders 2,4,7`
+  at runtime (each 1..7, up to 6 orders) and a gene carries its own order set, so
+  the GA can tune each expert's context lengths to its territory — the one
+  model-internal the genome can now touch. This is the single biggest win
+  measured: on enwik8 article chunks, evolving orders took coverage from **2.689
+  → 2.549 bpb (~5%)** and the population kept improving every generation (no
+  plateau), with its mixture reaching **2.37**. The settled orders are genuinely
+  heterogeneous — only ~36% of experts kept `(2,4,7)`; others found `(1,2,4,7)`,
+  `(2,4)`, `(1,2,4,6)`, `(2,3,7)` — different topical territories prefer different
+  context lengths (many added order-1, absent from the default).
 - **Content loci (`--locus content`, implemented).** A positional gene is a
   contiguous byte region — fine when nearby text is related (a sorted/sharded
   corpus), useless when it isn't. A content gene instead names a *seed chunk* and
