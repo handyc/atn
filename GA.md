@@ -66,9 +66,9 @@ The same loop, pointed at enwik8 (the standard 100 MB Wikipedia benchmark) —
 # positional (contiguous loci)
 python3 atn-ga.py run --corpus enwik8 --out wiki --pop 48 --gens 16 \
     --span-mb 0.6 --eval-frac 0.01
-# content loci at document granularity (LSH index, topical signature)
+# content loci at DOCUMENT granularity (each chunk = one article) — the strong setup
 python3 atn-ga.py run --corpus enwik8 --out wikic --pop 48 --gens 12 \
-    --locus content --chunk-kb 4 --df-max 0.2 --span-mb 0.6 --eval-frac 0.01
+    --locus content --chunk-on '<title>' --span-mb 0.6 --eval-frac 0.01
 python3 atn-ga.py mixture --out wikic
 ```
 
@@ -84,17 +84,30 @@ python3 atn-ga.py mixture --out wikic
   articles in **dump order** (not topically sorted), so a contiguous region is an
   unrelated grab-bag: there is no coherent territory for the GA to discover, and a
   uniform spread is already near-optimal. Same wall the news corpus hit.
-- **Document-granularity content loci unstall it (LSH).** With `--locus content
-  --chunk-kb 4` (≈document-sized chunks, 22,808 of them, indexed by **LSH** since
-  brute-force O(n²) would be 520M comparisons) the GA *does* improve generation
-  over generation — 2.80 → 2.78 → **2.76 bpb**, beating the positional best.
-  Experts now evolve toward topical clusters gathered by word-MinHash regardless
-  of position. The margin over positional is small (~0.4%) because enwik8's
-  per-chunk topical signal is genuinely weak (topical-word Jaccard of LSH
-  neighbors ≈ 2.3× random) — topic is a far subtler signal than language. But the
-  mechanism is proven and scales: content addressing is what gives the
-  evolutionary search traction on unsorted data. Its mixture reaches **2.45 bpb**
-  (20% under the best single brain, again beating the hindsight oracle 2.70).
+- **Content loci unstall it — and the *chunk unit* is the real lever.** With
+  `--locus content` the GA improves generation over generation, but how much
+  depends entirely on what a chunk *is*:
+  - *Fixed 4 KB fragments* (`--chunk-kb 4`, 22,808 chunks via **LSH**): the GA
+    improves (2.80 → 2.76) but only edges past positional (~0.4%). A 4 KB chunk is
+    a mid-article fragment, so its topical signal is weak — topical-word Jaccard of
+    neighbors ≈ 2.3× random.
+  - *Whole articles* (`--chunk-on '<title>'`, 12,289 document chunks): topical
+    neighbors jump to **7.8× random** ("Military of Burundi" → "Military of
+    Burkina Faso / Brazil / Brunei"; "Nimzowitsch" → "Karpov"), and content now
+    **decisively** beats positional: **2.70 vs 2.81 bpb (~4%)**, improving 2.74 →
+    2.70 over generations while positional stalls at its gen-1 spread. Its mixture
+    reaches **2.41 bpb** — 15% under the best single brain (2.85).
+
+  The lesson: content addressing needs a coherent topical *unit*. Fragments blur
+  the signature; document-aware chunking (`--chunk-on`) is what lets the
+  evolutionary search find real topical territory in an unsorted dump.
+- **The signature itself is not the bottleneck — Jaccard beats cosine here.** A
+  TF-IDF-weighted SimHash (`--sig simhash`, cosine similarity, meant to amplify
+  rare topical words) was implemented and A/B'd against word-set MinHash
+  (`--sig minhash`, the default). MinHash won on the actual coverage task (2.75 vs
+  2.76 at 4 KB; cleaner topical neighbors on articles) — an n-gram expert benefits
+  from shared *exact vocabulary* (Jaccard) more than from cosine of weighted
+  vectors. SimHash stays available for corpora where cosine fits better.
 
 The takeaway: the evolutionary search pays off when position correlates with
 content (languages, topics, sorted/sharded data); when it doesn't, the *mixture*
@@ -123,8 +136,10 @@ python3 atn-ga.py mixture --out RUNDIR
 | `--span-mb` | 0.5 | target training bytes per brain |
 | `--span-chunks` | 8 | initial span (in chunks) of each gene |
 | `--locus` | positional | `positional` (contiguous region) or `content` (gather MinHash-similar chunks) |
-| `--chunk-kb` | (derived) | chunk size in KB; set small (e.g. 4) for document-granularity content loci |
-| `--df-max` | 0.5 | content: drop words in >this fraction of chunks (sharpens the topical signature) |
+| `--chunk-kb` | (derived) | fixed chunk size in KB (alternative to `--chunk-on`) |
+| `--chunk-on` | (none) | regex; start a new chunk when a line matches → document-aware chunks (e.g. `'<title>'`) |
+| `--sig` | minhash | content signature: `minhash` (word-set Jaccard, best for n-gram coverage) or `simhash` (TF-IDF cosine) |
+| `--df-max` | 0.5 | content: drop words in >this fraction of chunks (trims stopwords/markup) |
 | `--eval-frac` | 0.05 | fraction of lines held out for scoring |
 | `--replace-frac` | 0.3 | worst fraction replaced each generation |
 | `--elite` | 4 | (legacy; steady-state keeps survivors) |
@@ -171,10 +186,14 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
   22,808 chunks). The signature uses **document-frequency filtering** (`--df-max`):
   dropping corpus-universal words (stopwords/markup) sharpens topic discrimination
   in mono-lingual data, while keeping enough to preserve language discrimination.
-  Granularity matters — coarse chunks are multi-topic grab-bags whose signatures
-  blur (enwik8 at 78 KB: content 2.82 ≥ positional 2.78), while document-sized
-  chunks (`--chunk-kb 4`) let the GA find topical territory (enwik8: 2.76 <
-  positional 2.78). Content addressing is a *document-granularity* tool.
+  Granularity matters most — coarse chunks are multi-topic grab-bags whose
+  signatures blur (enwik8 at 78 KB: content 2.82 ≥ positional 2.78; at 4 KB only
+  ~0.4% ahead), while **document-aware chunks** (`--chunk-on '<title>'`, one
+  article each) lift topical-neighbor quality to 7.8× random and content beats
+  positional by ~4% (2.70 vs 2.81). Content addressing is a *document-granularity*
+  tool — pair `--locus content` with `--chunk-on` on real corpora. Signature
+  choice (`--sig`) is secondary: MinHash (Jaccard) edges TF-IDF SimHash (cosine)
+  for this n-gram task, since experts reward shared exact vocabulary.
 - **Soft mixture (`mixture` command, implemented).** Coverage uses a hard
   per-line argmin. The deployable router can't peek at the answer, so `mixture`
   runs an **online fixed-share** predictor over the eval stream: each byte is

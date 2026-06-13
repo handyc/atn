@@ -505,8 +505,11 @@ labels, and coverage beat a single brain (3.11 → 2.72 bpb). A **soft online
 mixture** of the experts (`mixture`) beats any single brain by ~22% with no
 hindsight — at 100 MB Wikipedia scale it reaches 2.44 bpb, beating even the
 hindsight per-line oracle (2.68). Genes can address **content** (`--locus
-content`) instead of position, gathering topically-similar chunks via word-level
-MinHash. Full design, results, scale tests, and options in **[GA.md](GA.md)**.
+content`) instead of position, gathering topically-similar chunks via MinHash
+LSH. Paired with **document-aware chunking** (`--chunk-on '<title>'`, one article
+per chunk) on 100 MB of Wikipedia, content tiling decisively beats positional
+(2.70 vs 2.81 bpb) and its mixture hits 2.41 — the chunk *unit* matters more than
+the signature. Full design, results, scale tests, and options in **[GA.md](GA.md)**.
 
 ## The filesystem as a GPT corpus (`--corpus`)
 

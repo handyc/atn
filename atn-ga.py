@@ -39,55 +39,83 @@ except ImportError:
 # can gather topically-SIMILAR chunks (not contiguous ones) even when there are
 # tens of thousands of document-granularity chunks (brute-force O(n^2) would die).
 # ----------------------------------------------------------------------------
-NH = 32                                            # MinHash slots per chunk
-MASK = (1 << 64) - 1
-_MULT = None
+SIG_BITS = 128                                     # SimHash signature width (bits)
 _WORD = re.compile(r"[a-zà-ÿ0-9']+")
 
-def _mult():
-    global _MULT
-    if _MULT is None:
-        _MULT = np.array([(0x9E3779B97F4A7C15 * (2 * i + 1)) & MASK for i in range(NH)],
-                         dtype=np.uint64)
-    return _MULT
+def _word_bits(words):
+    """Deterministic SimHash hyperplane signs for each word: a {-1,+1}^SIG_BITS row
+    from the word's hash (two crc32s give 64 bits; tiled to SIG_BITS)."""
+    h = np.empty((len(words), (SIG_BITS + 63) // 64), dtype=np.uint64)
+    for j in range(h.shape[1]):
+        salt = bytes([j])
+        h[:, j] = np.fromiter((zlib.crc32(salt + w) | (zlib.crc32(salt + b"\x01" + w) << 32)
+                               for w in words), dtype=np.uint64, count=len(words))
+    bitpos = np.arange(SIG_BITS, dtype=np.uint64)
+    word64 = h[:, bitpos // 64]                    # pick the 64-bit word holding each bit
+    bit = (word64 >> (bitpos % np.uint64(64))) & np.uint64(1)
+    return bit.astype(np.int8) * 2 - 1             # [nwords, SIG_BITS] in {-1,+1}
 
-def _minhash(word_hashes):
-    if word_hashes.size < 4:
-        return np.full(NH, MASK, dtype=np.uint64)
-    m = word_hashes[:, None] * _mult()[None, :]    # uint64 multiply wraps mod 2^64
-    m ^= m >> np.uint64(29)
-    return m.min(axis=0)
-
-def chunk_signature(text):
-    """MinHash over a chunk's word set (no df filter; used by quick probes)."""
-    ws = set(_WORD.findall(text.lower()))
-    hs = np.fromiter((zlib.crc32(w.encode("utf-8")) for w in ws), dtype=np.uint64, count=len(ws))
-    return _minhash(hs)
-
-def build_signatures(chunk_texts, df_max=0.5, min_df=2):
-    """Per-chunk MinHash signatures, with document-frequency filtering: drop words
-    in >df_max of all chunks (corpus-universal stopwords / markup — they swamp the
-    topical signal) and words in <min_df chunks (noise). What's left is the topical
-    vocabulary, so 'similar' means same TOPIC, not just same language. df_max=1
-    disables the filter (keeps language-discriminating function words)."""
+def _df_stats(chunk_texts):
     from collections import Counter
     toks, df = [], Counter()
     for t in chunk_texts:
-        ws = set(_WORD.findall(t.lower())); toks.append(ws); df.update(ws)
+        c = Counter(_WORD.findall(t.lower())); toks.append(c); df.update(c.keys())
+    return toks, df
+
+def _sig_minhash(chunk_texts, df_max, min_df):
+    """MinHash over the df-filtered word SET (estimates Jaccard of vocabularies)."""
+    NH = 32
+    mult = np.array([(0x9E3779B97F4A7C15 * (2 * i + 1)) & ((1 << 64) - 1) for i in range(NH)],
+                    dtype=np.uint64)
+    toks, df = _df_stats(chunk_texts)
     n = len(chunk_texts); hi = df_max * n if df_max < 1 else n + 1
-    sigs = np.empty((n, NH), dtype=np.uint64)
-    for i, ws in enumerate(toks):
-        kept = [w for w in ws if min_df <= df[w] <= hi]
+    sigs = np.full((n, NH), (1 << 64) - 1, dtype=np.uint64)
+    for i, c in enumerate(toks):
+        kept = [w for w in c if min_df <= df[w] <= hi]
+        if len(kept) < 4:
+            continue
         hs = np.fromiter((zlib.crc32(w.encode("utf-8")) for w in kept), dtype=np.uint64, count=len(kept))
-        sigs[i] = _minhash(hs)
+        m = hs[:, None] * mult[None, :]
+        m ^= m >> np.uint64(29)
+        sigs[i] = m.min(axis=0)
     return sigs
+
+def _sig_simhash(chunk_texts, df_max, min_df):
+    """TF-IDF-weighted SimHash (SIG_BITS bits): rare topical words dominate the
+    signature; bit-agreement ≈ cosine of the TF-IDF vectors. Topic is carried by
+    the rare-word tail, so weighting by IDF should beat unweighted Jaccard."""
+    import math
+    toks, df = _df_stats(chunk_texts)
+    n = len(chunk_texts); hi = df_max * n if df_max < 1 else n + 1
+    vocab = [w for w in df if min_df <= df[w] <= hi]
+    vidx = {w: i for i, w in enumerate(vocab)}
+    sigs = np.zeros((n, SIG_BITS), dtype=np.uint8)
+    if not vocab:
+        return sigs
+    idf = np.array([math.log(n / df[w]) for w in vocab])
+    signs = _word_bits([w.encode("utf-8") for w in vocab])   # [V, SIG_BITS] in {-1,+1}
+    for i, c in enumerate(toks):
+        idxs, wts = [], []
+        for w, cnt in c.items():
+            j = vidx.get(w)
+            if j is not None:
+                idxs.append(j); wts.append((1.0 + math.log(cnt)) * idf[j])
+        if idxs:
+            v = (signs[idxs] * np.array(wts)[:, None]).sum(axis=0)
+            sigs[i] = (v > 0).astype(np.uint8)
+    return sigs
+
+def build_signatures(chunk_texts, df_max=0.5, min_df=2, sig="minhash"):
+    """Per-chunk content signature. `sig`: 'simhash' (TF-IDF weighted, cosine) or
+    'minhash' (word-set Jaccard). Both band for LSH the same way (per-slot equality)."""
+    return (_sig_simhash if sig == "simhash" else _sig_minhash)(chunk_texts, df_max, min_df)
 
 class LSHIndex:
     """Banded MinHash LSH. neighbors(i) returns chunks sharing a band-bucket with
     chunk i, ranked by full-signature similarity — O(bucket) per query, not O(n)."""
     def __init__(self, sigs, bands=16, cap=400):
         self.sigs = sigs; self.n = len(sigs); self.cap = cap
-        self.B = bands; self.R = max(1, NH // bands)
+        self.B = bands; self.R = max(1, sigs.shape[1] // bands)
         self.buckets = [dict() for _ in range(self.B)]
         for i in range(self.n):
             for b in range(self.B):
@@ -131,13 +159,16 @@ class ExactNeighbors:
 # ----------------------------------------------------------------------------
 # corpus indexing: split into territory (trainable) + a held-out eval sample
 # ----------------------------------------------------------------------------
-def build_index(corpus, out, eval_frac, chunk_bytes, seed):
+def build_index(corpus, out, eval_frac, chunk_bytes, seed, chunk_on=None):
     """Split corpus lines into territory chunks (contiguous, line-aligned) and a
     held-out eval set sampled uniformly across the corpus. Writes:
         out/territory.txt   the trainable text
         out/index.tsv       chunk_id <tab> byte_off <tab> byte_len  (into territory.txt)
         out/eval.txt        held-out lines (never trained on)
         out/eval_pos.tsv    parallel: each eval line's fractional position 0..1
+    If chunk_on (a compiled regex) is given, a new chunk also starts whenever a
+    line matches it — document-aware chunking, so each chunk is one coherent unit
+    (e.g. one Wikipedia article) instead of a fixed byte window.
     """
     os.makedirs(out, exist_ok=True)
     terr_path = os.path.join(out, "territory.txt")
@@ -150,14 +181,16 @@ def build_index(corpus, out, eval_frac, chunk_bytes, seed):
     n = len(lines)
     terr = open(terr_path, "w"); ev = open(evalp, "w"); pf = open(pos_path, "w")
     chunks = []            # (byte_off, byte_len) into territory.txt
-    off = 0; cur_off = 0; cur_len = 0
+    cur_off = 0; cur_len = 0
     for i, ln in enumerate(lines):
         if i % stride == 0:                       # -> held out for eval
             ev.write(ln + "\n"); pf.write(f"{i / n:.6f}\n"); continue
+        if chunk_on is not None and cur_len and chunk_on.search(ln):
+            chunks.append((cur_off, cur_len)); cur_off += cur_len; cur_len = 0  # document boundary
         b = (ln + "\n").encode("utf-8", "ignore")
         terr.write(ln + "\n")
         cur_len += len(b)
-        if cur_len >= chunk_bytes:                # close a chunk on a line boundary
+        if cur_len >= chunk_bytes:                # byte cap (also splits huge documents)
             chunks.append((cur_off, cur_len)); cur_off += cur_len; cur_len = 0
     if cur_len:
         chunks.append((cur_off, cur_len))
@@ -203,7 +236,7 @@ def clamp(g, mode, nchunks, span_min, span_max):
 # train / score via the atn binary (cached by gene signature)
 # ----------------------------------------------------------------------------
 class Engine:
-    def __init__(self, atn, out, territory, chunks, jobs, mode="positional", df_max=0.5):
+    def __init__(self, atn, out, territory, chunks, jobs, mode="positional", df_max=0.5, sig="minhash"):
         self.atn = atn
         self.out = out
         self.terr = territory
@@ -211,6 +244,7 @@ class Engine:
         self.jobs = jobs
         self.mode = mode
         self.df_max = df_max
+        self.sig = sig
         self.cache_dir = os.path.join(out, "brains")
         os.makedirs(self.cache_dir, exist_ok=True)
         self._fp = open(territory, "rb")
@@ -219,11 +253,11 @@ class Engine:
             if np is None:
                 raise SystemExit("--locus content needs numpy")
             texts = [self._read(o, l).decode("utf-8", "ignore") for (o, l) in chunks]
-            sigs = build_signatures(texts, df_max=df_max)
+            sigs = build_signatures(texts, df_max=df_max, sig=sig)
             exact = len(chunks) <= 2500                  # exact for small, LSH at scale
             self.nn = ExactNeighbors(sigs) if exact else LSHIndex(sigs, bands=16)
-            print(f"[index] content index: {'exact O(n^2)' if exact else 'LSH (16 bands)'} "
-                  f"over {len(chunks)} chunks")
+            print(f"[index] content index: {sig} signature, "
+                  f"{'exact O(n^2)' if exact else 'LSH (16 bands)'} over {len(chunks)} chunks")
 
     def _read(self, off, length):
         self._fp.seek(off); return self._fp.read(length)
@@ -353,25 +387,31 @@ def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, eng=None):
 # ----------------------------------------------------------------------------
 def cmd_run(a):
     rng = random.Random(a.seed)
-    # chunk size: explicit --chunk-kb (document granularity for content mode), else
-    # derive from the per-brain budget / initial span.
+    # chunk size: explicit --chunk-kb, else a generous cap when splitting on document
+    # boundaries (--chunk-on), else derived from the per-brain budget / initial span.
+    chunk_on = re.compile(a.chunk_on) if a.chunk_on else None
     if a.chunk_kb:
         chunk_bytes = int(a.chunk_kb * 1024)
-        init_span = max(1, round(a.span_mb * 1024 / a.chunk_kb))   # chunks to hit span_mb
+    elif chunk_on is not None:
+        chunk_bytes = 65536                          # cap; the regex is the real splitter
     else:
         chunk_bytes = int(a.span_mb * 1024 * 1024 / max(1, a.span_chunks))
-        init_span = a.span_chunks
-    print(f"[index] {a.corpus} -> {a.out}  (eval_frac={a.eval_frac}, chunk≈{chunk_bytes}B)")
-    chunks = build_index(a.corpus, a.out, a.eval_frac, chunk_bytes, a.seed)
+    print(f"[index] {a.corpus} -> {a.out}  (eval_frac={a.eval_frac}, chunk≈{chunk_bytes}B"
+          f"{', doc-split on /' + a.chunk_on + '/' if chunk_on is not None else ''})")
+    chunks = build_index(a.corpus, a.out, a.eval_frac, chunk_bytes, a.seed, chunk_on)
     nchunks = len(chunks)
     eval_path = os.path.join(a.out, "eval.txt")
     M = sum(1 for _ in open(eval_path, errors="ignore"))
-    print(f"[index] territory chunks={nchunks}, eval lines={M}")
+    # initial span = chunks needed to hit the per-brain byte budget (works for any
+    # chunk size, fixed or variable document-sized)
+    avg = max(1, sum(l for _, l in chunks) // nchunks)
+    init_span = max(1, round(a.span_mb * 1024 * 1024 / avg))
+    print(f"[index] territory chunks={nchunks} (avg {avg}B), eval lines={M}")
     span_min, span_max = 1, max(1, nchunks // 2)
 
     print(f"[index] locus mode = {a.locus}, init span = {init_span} chunks")
     eng = Engine(a.atn, a.out, os.path.join(a.out, "territory.txt"), chunks, a.jobs,
-                 mode=a.locus, df_max=a.df_max)
+                 mode=a.locus, df_max=a.df_max, sig=a.sig)
 
     # init: spread P loci (positional start, or content seed) across territory
     pop = []
@@ -583,6 +623,11 @@ def main():
                    help="positional: contiguous region; content: gather MinHash-similar chunks")
     r.add_argument("--df-max", type=float, default=0.5,
                    help="content: drop words in >this fraction of chunks (topical signature)")
+    r.add_argument("--sig", choices=["minhash", "simhash"], default="minhash",
+                   help="content signature: minhash (word-set Jaccard) or simhash (TF-IDF/cosine)")
+    r.add_argument("--chunk-on", default=None,
+                   help="regex: start a new chunk when a line matches (document-aware chunking, "
+                        "e.g. '<title>' for a Wikipedia dump) so each chunk is one coherent document")
     r.add_argument("--eval-frac", type=float, default=0.05)
     r.add_argument("--elite", type=int, default=4)
     r.add_argument("--jitter", type=int, default=3)
