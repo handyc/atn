@@ -27,7 +27,7 @@ RNG => fully reproducible runs.
 This is corpus-agnostic: point --corpus at 25MB of news now, or a Wikipedia /
 Library-of-Congress dump later. Only the addressed slices are ever read.
 """
-import argparse, json, os, random, re, subprocess, tempfile, zlib
+import argparse, json, os, random, re, subprocess, sys, tempfile, zlib
 from concurrent.futures import ThreadPoolExecutor
 try:
     import numpy as np
@@ -702,6 +702,76 @@ def cmd_mixture(a):
           f"(no hindsight, deployable)")
 
 # ----------------------------------------------------------------------------
+# classify / novelty: apply an evolved population to new text (batch)
+# ----------------------------------------------------------------------------
+def _read_lines(paths, cap=8000):
+    """Read lines from files (or stdin if none), trimmed and capped to atn's score
+    line buffer so each input line yields exactly one score."""
+    out = []
+    if paths:
+        for p in paths:
+            with open(p, "r", errors="ignore") as f:
+                out += [ln.rstrip("\n")[:cap] for ln in f if ln.strip()]
+    else:
+        for ln in sys.stdin:
+            if ln.strip():
+                out.append(ln.rstrip("\n")[:cap])
+    return out
+
+def _pop_scores(a, survivors, lines):
+    """bpb[expert][line]: each surviving brain scores ALL lines in one --score call
+    (brain loaded once), run in parallel across experts."""
+    blob = ("\n".join(lines) + "\n").encode("utf-8", "ignore")
+    def score_one(g):
+        bp = os.path.join(a.out, g["brain"])
+        r = subprocess.run([a.atn, "--score", "--brain", bp, "--map-bits", str(g["mapbits"]),
+                            "--orders", _orders_csv(g)],
+                           input=blob, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        vals = []
+        for ln in r.stdout.decode("utf-8", "ignore").splitlines():
+            try: vals.append(float(ln.split("\t")[0].strip().split()[0]))
+            except (ValueError, IndexError): vals.append(99.0)
+        return (vals + [99.0] * len(lines))[:len(lines)]
+    with ThreadPoolExecutor(max_workers=a.jobs) as ex:
+        return list(ex.map(score_one, survivors))
+
+def cmd_classify(a):
+    meta = json.load(open(os.path.join(a.out, "genes.json")))
+    survivors = [g for g in meta["genes"] if g["n_owned"] > 0]
+    lines = _read_lines(a.files)
+    if not survivors or not lines:
+        print("no survivors or no input"); return
+    cols = _pop_scores(a, survivors, lines)
+    nchunks = len(open(os.path.join(a.out, "index.tsv")).read().splitlines()) or 1
+    print(f"{'expert':<8}{'bpb':<8}{'margin':<8}{'territory':<11}text")
+    for i, line in enumerate(lines):
+        ranked = sorted(range(len(survivors)), key=lambda e: cols[e][i])
+        e0 = ranked[0]; best = cols[e0][i]
+        second = cols[ranked[1]][i] if len(ranked) > 1 else best
+        g = survivors[e0]
+        print(f"{g['expert']:<8}{best:<8.3f}{second-best:<8.3f}"
+              f"{g['start']/nchunks:<11.3f}{line[:50]}")
+
+def cmd_novelty(a):
+    meta = json.load(open(os.path.join(a.out, "genes.json")))
+    survivors = [g for g in meta["genes"] if g["n_owned"] > 0]
+    lines = _read_lines(a.files)
+    if not survivors or not lines:
+        print("no survivors or no input"); return
+    cov = meta.get("coverage_bpb", 3.0)
+    thr = a.threshold if a.threshold is not None else round(cov * 1.6, 2)
+    cols = _pop_scores(a, survivors, lines)
+    print(f"# in-corpus bpb≈{cov:.2f}; flagging NOVEL when best-expert bpb ≥ {thr}")
+    print(f"{'bpb':<8}{'flag':<7}text")
+    nflag = 0
+    for i, line in enumerate(lines):
+        m = min(cols[e][i] for e in range(len(survivors)))
+        novel = m >= thr
+        nflag += novel
+        print(f"{m:<8.3f}{'NOVEL' if novel else 'ok':<7}{line[:56]}")
+    print(f"# {nflag}/{len(lines)} flagged novel (≥{thr} bpb)")
+
+# ----------------------------------------------------------------------------
 # lightup: route a query against the surviving population
 # ----------------------------------------------------------------------------
 def cmd_lightup(a):
@@ -793,6 +863,23 @@ def main():
     m.add_argument("--atn", default="./atn")
     m.add_argument("--alpha", type=float, default=None, help="fixed-share rate (default: sweep)")
     m.set_defaults(func=cmd_mixture)
+
+    jdef = max(1, (os.cpu_count() or 2) - 1)
+    c = sub.add_parser("classify", help="route each input line to its best-fitting expert")
+    c.add_argument("--out", required=True)
+    c.add_argument("--atn", default="./atn")
+    c.add_argument("--jobs", type=int, default=jdef)
+    c.add_argument("files", nargs="*", help="files to classify (stdin if none)")
+    c.set_defaults(func=cmd_classify)
+
+    nv = sub.add_parser("novelty", help="score each input line's novelty (best-expert bpb)")
+    nv.add_argument("--out", required=True)
+    nv.add_argument("--atn", default="./atn")
+    nv.add_argument("--jobs", type=int, default=jdef)
+    nv.add_argument("--threshold", type=float, default=None,
+                    help="flag lines at/above this bpb (default: ~1.6x the corpus bpb)")
+    nv.add_argument("files", nargs="*", help="files to score (stdin if none)")
+    nv.set_defaults(func=cmd_novelty)
 
     a = ap.parse_args()
     a.func(a)

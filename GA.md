@@ -151,6 +151,43 @@ the territory file use `os.pread` (positioned, no shared file offset) so paralle
 workers can't clobber each other — without that, concurrent `seek+read` on one
 handle silently trained brains on the wrong bytes and made runs non-reproducible.
 
+## What a finished run is good for
+
+An evolved `RUNDIR/` is a routable **mixture of cheap experts over your corpus** —
+no GPU, counts not gradients. It is good at *judging* and *organizing* text, not
+*generating* it (these are n-gram surprisal models). Four ready-to-use commands:
+
+```
+# 1. CLASSIFY — route each line to its best-fitting expert (topic/lang/shard),
+#    with a confidence margin. Batch: each brain loads once.
+classify.sh RUNDIR file.txt
+echo "the troops advanced at dawn" | classify.sh RUNDIR
+
+# 2. NOVELTY — out-of-distribution / anomaly score (lowest bpb any expert gives).
+#    Flags foreign / corrupted / off-topic text; threshold auto-set from the corpus.
+novelty.sh RUNDIR file.txt          # NOVELTY_THRESHOLD=4 to override
+
+# 3. LIGHTUP — which expert "lights up" for one query, plus its graph neighbours.
+python3 atn-ga.py lightup --out RUNDIR "some query text"
+
+# 4. MIXTURE — the population AS a corpus language model: deployable bits/byte
+#    (typicality scorer / compressor front-end).
+python3 atn-ga.py mixture --out RUNDIR
+```
+
+Plus two artifacts you can consume directly: `tiling.tsv` is the corpus carved
+into coherent topical slices (each expert's territory) — a label-free sharding you
+can feed to a real LLM's data pipeline — and `graph.tsv` is the routing graph
+(owner → fallback expert) for navigating it. Example outputs:
+
+```
+classify:  expert 7   2.197 bpb  margin 0.063   "the function returns a pointer..."   (code-ish slice)
+           expert 23  2.870 bpb  margin 0.116   "she sang an aria at the opera..."    (arts slice)
+novelty:   2.16 ok     "the empire collapsed after a long decline"   (in-corpus)
+           5.86 NOVEL  "aaaa zzzz qqqq 8888 !!!!"                     (junk)
+           5.14 NOVEL  "import numpy as np; arr = np.zeros((10,10))"  (off-domain code)
+```
+
 ## Usage
 
 ```
