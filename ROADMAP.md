@@ -29,6 +29,30 @@ produces measurable, useful results (prediction, generation, compression).
   menu), `PREDICTION.md` (write-up on the prediction features).
 - All modes build warning-free; full regression green. ~3900 LOC, 116K binary.
 
+## Session 2026-06-13 ("atn-ga brain network — maturation")
+The GA layer (`atn-ga.py`: a population of atn brains the GA tiles over a corpus;
+see GA.md) was hardened and broadened this session:
+- [x] DEPENDENCY-FREE: the content signatures (MinHash/TF-IDF SimHash) and the
+      exact/LSH nearest-neighbour table moved into C as `atn --neighbors`
+      (content.c); the mixture loop is plain Python. atn-ga now needs no numpy —
+      Python standard library only.
+- [x] NON-LATIN end to end: `is_texty` (gpt.c), `--prep`'s quality filter + dedup
+      fingerprint (prep.c), and the content tokeniser all accept UTF-8 — Chinese
+      etc. used to be dropped/degenerate. Each CJK char is its own token.
+- [x] SYMBOL-AWARE tokeniser: math/logic/Greek symbols (∀∃∈∪λ∫…) are tokens too,
+      so formal notation clusters on its operators.
+- [x] OWNER PROTECTION: steady-state replacement never culls the sole owner of an
+      eval line, so a minority region (a language, a notation) can't be wiped in
+      one generation. Fixed minority-expert loss.
+- [x] OUTPUT: `lightup` shows what an expert specialises in (distinctive words +
+      a sample line); legends on classify/novelty/mixture/lightup; `export`
+      writes portable CSV + a model-shaped SQLite (atlas.db).
+- [x] WEB: `web/` — a Django "corpus atlas" (browse territories, routing-graph
+      viz, live queries) that ingests the export.
+- [x] DEMOS: demo-languages (7 languages), demo-code (C/Python/shell/asm/hex),
+      demo-formal (six formal systems), demo-all (run all four), demo-meta (train
+      on the previous trainings — one population over the pooled corpora).
+
 ## Session note (2026-06-12)
 User said "got to close the lid in 45 min", so the 5-hour window was cut short.
 Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic

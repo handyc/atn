@@ -201,6 +201,23 @@ novelty:   2.16 ok     "the empire collapsed after a long decline"   (in-corpus)
            5.14 NOVEL  "import numpy as np; arr = np.zeros((10,10))"  (off-domain code)
 ```
 
+## Demos (one-command corpora to try)
+
+Each builds a corpus and evolves a population over it; the experts self-organise
+by whatever structure the corpus has. From the repo root:
+
+| script | corpus | the experts separate by |
+|---|---|---|
+| `./demo-news.sh` | 1920s–40s US newspapers (AmericanStories) | era / section (subtle — one domain) |
+| `./demo-languages.sh` | seven-language Wikipedia (en/nl/fr/de/es/it/zh) | language |
+| `./demo-code.sh` | local filesystem: C / Python / shell / asm / hex | kind of code |
+| `./demo-formal.sh` | generated FOL / linear algebra / set / calculus / λ / regex | formal system |
+| `./demo-all.sh` | runs the four above back to back | — |
+| `./demo-meta.sh` | the pooled corpora of the prior runs | the coarse kind (news vs language vs code vs formal) and finer structure within |
+
+`demo-news.sh` and `demo-languages.sh` need internet; the rest are local/offline.
+`demo-meta.sh` trains on the previous trainings, so run some of the others first.
+
 ## Usage
 
 ```
@@ -332,6 +349,15 @@ run.csv         name, corpus, coverage_bpb, n_experts, config_json
   bpb vs ~8.3 for an English brain, so on a 7-language Wikipedia mix
   (en/nl/fr/de/es/it/zh) the experts separate by language and a query routes to
   its language's expert — including Chinese.
+- **Symbol-aware tokeniser (`./demo-formal.sh`, implemented).** The content
+  tokeniser also treats math/logic/Greek symbols (∀ ∃ ∈ ∪ λ ∫ ∂ Σ → ¬ …) as
+  their own tokens, so formal notation clusters on the operators that define it
+  instead of collapsing to bare letters. On a generated corpus of six formal
+  systems (first-order logic, linear algebra, set theory, calculus, lambda
+  calculus, regex) all six separate; the closest call is first-order logic vs
+  lambda calculus, which share a surface shape (binder + variables + parens) and
+  are the last to resolve. The symbols are absent from prose/code, so existing
+  corpora are unaffected.
 - **Owner protection (implemented).** Steady-state replacement removed the
   lowest-*marginal* genes each generation. A minority region (e.g. one language)
   is covered by a few mutually-redundant experts that each show low marginal, so
