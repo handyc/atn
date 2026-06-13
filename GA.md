@@ -114,6 +114,43 @@ content (languages, topics, sorted/sharded data); when it doesn't, the *mixture*
 of even a uniformly-spread population is still a large, deployable win over any
 single brain.
 
+## Resumable, time-boxed cron evolver
+
+A run is a **checkpoint on disk**, so evolution can be advanced in slices by a
+cron job instead of one long process. `--minutes N` evolves as many generations
+as fit the budget, writes an atomic checkpoint (`state.json`) every generation,
+and exits; rerunning **resumes exactly where it left off** — and because the RNG
+state is checkpointed, splitting a run across many ticks is *bit-for-bit
+identical* to one continuous run (verified). The frozen structural config
+(`config.json`) means a resume needs only `--out`.
+
+```
+# first tick — create the run with its corpus + params
+ga-step.sh /data/eo 10 --corpus enwik8 --chunk-on '<title>' \
+           --locus content --evolve-orders --pop 48 --span-mb 0.6
+# every later tick — just continue (no args)
+ga-step.sh /data/eo 10
+```
+
+Cron (advance 10 minutes every hour, forever):
+
+```cron
+0 * * * *  /path/to/atn/ga-step.sh /data/eo 10 >> /data/eo/cron.log 2>&1
+```
+
+Each tick also scores the best population on an **untouched test set**
+(`--test-frac`, never selected on) and prints the eval-vs-test gap — the honest
+measure of how much the GA is overfitting the eval set it optimizes against. Watch
+that gap: as long as it stays near zero the coverage gains are real; when it opens
+up, the evolver is fitting the scorekeeper, not the data. (`atn --score`'s line
+buffer is 8 KB, so held-out lines are capped to that length to keep one score per
+line; training text keeps full lines.)
+
+Determinism note: the GA trains/scores brains across worker threads. Reads from
+the territory file use `os.pread` (positioned, no shared file offset) so parallel
+workers can't clobber each other — without that, concurrent `seek+read` on one
+handle silently trained brains on the wrong bytes and made runs non-reproducible.
+
 ## Usage
 
 ```
@@ -147,7 +184,10 @@ python3 atn-ga.py mixture --out RUNDIR
 | `--elite` | 4 | (legacy; steady-state keeps survivors) |
 | `--jitter` | 3 | locus mutation range (chunks) |
 | `--mapbits` | 22 | initial `--map-bits` per brain |
-| `--seed` | 1 | RNG seed (runs are fully reproducible) |
+| `--minutes` | (none) | wall-clock budget for this run; evolve as many generations as fit, checkpoint, exit |
+| `--restart` | off | ignore any checkpoint and start fresh |
+| `--test-frac` | 0.02 | fraction held out as an untouched TEST set (reported, never selected on) |
+| `--seed` | 1 | RNG seed (runs are fully reproducible — incl. across resume) |
 | `--jobs` | cores−1 | parallel train/score workers |
 | `--atn` | `./atn` | path to the atn binary |
 

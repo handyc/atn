@@ -159,9 +159,10 @@ class ExactNeighbors:
 # ----------------------------------------------------------------------------
 # corpus indexing: split into territory (trainable) + a held-out eval sample
 # ----------------------------------------------------------------------------
-def build_index(corpus, out, eval_frac, chunk_bytes, seed, chunk_on=None):
-    """Split corpus lines into territory chunks (contiguous, line-aligned) and a
-    held-out eval set sampled uniformly across the corpus. Writes:
+def build_index(corpus, out, eval_frac, test_frac, chunk_bytes, seed, chunk_on=None):
+    """Split corpus lines into territory chunks (contiguous, line-aligned), a
+    held-out EVAL set (the GA selects on it), and an untouched TEST set (scored
+    only for honesty — the eval-vs-test gap is the overfitting). Writes:
         out/territory.txt   the trainable text
         out/index.tsv       chunk_id <tab> byte_off <tab> byte_len  (into territory.txt)
         out/eval.txt        held-out lines (never trained on)
@@ -174,17 +175,25 @@ def build_index(corpus, out, eval_frac, chunk_bytes, seed, chunk_on=None):
     terr_path = os.path.join(out, "territory.txt")
     evalp = os.path.join(out, "eval.txt")
     pos_path = os.path.join(out, "eval_pos.tsv")
-    stride = max(2, round(1.0 / eval_frac))      # hold out every `stride`-th line
+    testp = os.path.join(out, "test.txt")
+    estride = max(2, round(1.0 / eval_frac))     # every estride-th line -> eval
+    tstride = max(2, round(1.0 / test_frac)) if test_frac > 0 else 0
 
     with open(corpus, "r", errors="ignore") as f:
         lines = [ln.rstrip("\n") for ln in f if ln.strip()]
     n = len(lines)
-    terr = open(terr_path, "w"); ev = open(evalp, "w"); pf = open(pos_path, "w")
+    terr = open(terr_path, "w"); ev = open(evalp, "w"); pf = open(pos_path, "w"); te = open(testp, "w")
     chunks = []            # (byte_off, byte_len) into territory.txt
     cur_off = 0; cur_len = 0
+    # held-out lines are scored one-per-line by `atn --score`, whose line buffer is
+    # 8192 bytes; cap them so a long line can't split into several score rows (which
+    # would misalign the per-line arrays). Territory (training) keeps full lines.
+    CAP = 8000
     for i, ln in enumerate(lines):
-        if i % stride == 0:                       # -> held out for eval
-            ev.write(ln + "\n"); pf.write(f"{i / n:.6f}\n"); continue
+        if i % estride == 0:                      # -> eval (the GA selects on this)
+            ev.write(ln[:CAP] + "\n"); pf.write(f"{i / n:.6f}\n"); continue
+        if tstride and i % tstride == tstride // 2:   # -> test (NEVER touched by the GA)
+            te.write(ln[:CAP] + "\n"); continue
         if chunk_on is not None and cur_len and chunk_on.search(ln):
             chunks.append((cur_off, cur_len)); cur_off += cur_len; cur_len = 0  # document boundary
         b = (ln + "\n").encode("utf-8", "ignore")
@@ -194,7 +203,7 @@ def build_index(corpus, out, eval_frac, chunk_bytes, seed, chunk_on=None):
             chunks.append((cur_off, cur_len)); cur_off += cur_len; cur_len = 0
     if cur_len:
         chunks.append((cur_off, cur_len))
-    terr.close(); ev.close(); pf.close()
+    terr.close(); ev.close(); pf.close(); te.close()
     with open(os.path.join(out, "index.tsv"), "w") as ix:
         for cid, (o, l) in enumerate(chunks):
             ix.write(f"{cid}\t{o}\t{l}\n")
@@ -258,20 +267,27 @@ class Engine:
         self.sig = sig
         self.cache_dir = os.path.join(out, "brains")
         os.makedirs(self.cache_dir, exist_ok=True)
-        self._fp = open(territory, "rb")
+        self._fd = os.open(territory, os.O_RDONLY)       # read via os.pread (thread-safe)
         self.nn = None                                   # neighbor provider (content mode)
         if mode == "content":
             if np is None:
                 raise SystemExit("--locus content needs numpy")
-            texts = [self._read(o, l).decode("utf-8", "ignore") for (o, l) in chunks]
-            sigs = build_signatures(texts, df_max=df_max, sig=sig)
+            cachef = os.path.join(out, "sigs.npy")       # cache signatures across cron ticks
+            if os.path.exists(cachef):
+                sigs = np.load(cachef)
+            else:
+                texts = [self._read(o, l).decode("utf-8", "ignore") for (o, l) in chunks]
+                sigs = build_signatures(texts, df_max=df_max, sig=sig)
+                np.save(cachef, sigs)
             exact = len(chunks) <= 2500                  # exact for small, LSH at scale
             self.nn = ExactNeighbors(sigs) if exact else LSHIndex(sigs, bands=16)
             print(f"[index] content index: {sig} signature, "
                   f"{'exact O(n^2)' if exact else 'LSH (16 bands)'} over {len(chunks)} chunks")
 
     def _read(self, off, length):
-        self._fp.seek(off); return self._fp.read(length)
+        # os.pread does NOT use/modify the fd's file position, so concurrent reads
+        # from worker threads can't clobber each other (a plain seek+read would).
+        return os.pread(self._fd, length, off)
 
     def neighbors(self, seed):
         return self.nn.neighbors(seed)
@@ -322,12 +338,20 @@ class Engine:
         return out
 
     def train_all(self, pop):
+        # dedupe by gene signature: a generation can hold duplicate genes (elitism /
+        # crossover clones), and training the SAME brain file from two threads at once
+        # races and corrupts it — the source of run-to-run nondeterminism. One per sig.
+        uniq = {g.sig(): g for g in pop}
         with ThreadPoolExecutor(max_workers=self.jobs) as ex:
-            list(ex.map(self.train, pop))
+            list(ex.map(self.train, uniq.values()))
 
     def score_all(self, pop, eval_path):
+        uniq = {}
+        for g in pop:
+            uniq.setdefault(g.sig(), g)
         with ThreadPoolExecutor(max_workers=self.jobs) as ex:
-            return list(ex.map(lambda g: self.score(g, eval_path), pop))
+            res = dict(zip(uniq.keys(), ex.map(lambda g: self.score(g, eval_path), uniq.values())))
+        return [res[g.sig()] for g in pop]
 
 # ----------------------------------------------------------------------------
 # fitness: coverage + marginal contribution
@@ -410,68 +434,127 @@ def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, eng=None, evolve_o
     return clamp(g, mode, nchunks, span_min, span_max)
 
 # ----------------------------------------------------------------------------
-# run
+# checkpoint / config persistence (for the resumable, time-boxed cron evolver)
+# ----------------------------------------------------------------------------
+CONFIG_KEYS = ["corpus", "pop", "locus", "sig", "df_max", "chunk_kb", "chunk_on",
+               "span_mb", "span_chunks", "eval_frac", "test_frac", "mapbits",
+               "orders", "evolve_orders", "jitter", "replace_frac", "seed"]
+
+def save_config(out, a):
+    cfg = {k: getattr(a, k) for k in CONFIG_KEYS}
+    json.dump(cfg, open(os.path.join(out, "config.json"), "w"), indent=2)
+
+def load_config(out, a):
+    """Apply the run's frozen structural config onto args so a resume only needs
+    --out (and --minutes). Returns the config dict."""
+    cfg = json.load(open(os.path.join(out, "config.json")))
+    for k, v in cfg.items():
+        setattr(a, k, v)
+    return cfg
+
+def save_state(out, gen, rng, pop, best_cov, best_pop):
+    state = {
+        "gen": gen,
+        "rng": list(rng.getstate()),                 # (version, [ints], gauss)
+        "pop": [g.to_dict() for g in pop],
+        "best_cov": best_cov,
+        "best_pop": [g.to_dict() for g in best_pop] if best_pop else None,
+    }
+    tmp = os.path.join(out, "state.json.tmp")
+    json.dump(state, open(tmp, "w"))
+    os.replace(tmp, os.path.join(out, "state.json"))  # atomic: a kill never corrupts it
+
+def _gene_from_dict(d):
+    return Gene(d["start"], d["span"], d["mapbits"], tuple(d.get("orders", (2, 4, 7))))
+
+def load_state(out):
+    p = os.path.join(out, "state.json")
+    if not os.path.exists(p):
+        return None
+    s = json.load(open(p))
+    v, ints, gauss = s["rng"]
+    s["rng_state"] = (v, tuple(ints), gauss)
+    s["pop"] = [_gene_from_dict(d) for d in s["pop"]]
+    s["best_pop"] = [_gene_from_dict(d) for d in s["best_pop"]] if s.get("best_pop") else None
+    return s
+
+# ----------------------------------------------------------------------------
+# run  (single-shot OR resumable, time-boxed cron step-evolver)
 # ----------------------------------------------------------------------------
 def cmd_run(a):
     rng = random.Random(a.seed)
-    # chunk size: explicit --chunk-kb, else a generous cap when splitting on document
-    # boundaries (--chunk-on), else derived from the per-brain budget / initial span.
-    chunk_on = re.compile(a.chunk_on) if a.chunk_on else None
-    if a.chunk_kb:
-        chunk_bytes = int(a.chunk_kb * 1024)
-    elif chunk_on is not None:
-        chunk_bytes = 65536                          # cap; the regex is the real splitter
-    else:
-        chunk_bytes = int(a.span_mb * 1024 * 1024 / max(1, a.span_chunks))
-    print(f"[index] {a.corpus} -> {a.out}  (eval_frac={a.eval_frac}, chunk≈{chunk_bytes}B"
-          f"{', doc-split on /' + a.chunk_on + '/' if chunk_on is not None else ''})")
-    chunks = build_index(a.corpus, a.out, a.eval_frac, chunk_bytes, a.seed, chunk_on)
-    nchunks = len(chunks)
-    eval_path = os.path.join(a.out, "eval.txt")
-    M = sum(1 for _ in open(eval_path, errors="ignore"))
-    # initial span = chunks needed to hit the per-brain byte budget (works for any
-    # chunk size, fixed or variable document-sized)
-    avg = max(1, sum(l for _, l in chunks) // nchunks)
-    init_span = max(1, round(a.span_mb * 1024 * 1024 / avg))
-    print(f"[index] territory chunks={nchunks} (avg {avg}B), eval lines={M}")
-    span_min, span_max = 1, max(1, nchunks // 2)
+    import time
+    resuming = os.path.exists(os.path.join(a.out, "state.json")) and not a.restart
+    if not resuming and not a.corpus:
+        raise SystemExit("a fresh run needs --corpus (resume needs only --out)")
 
-    init_orders = tuple(int(x) for x in a.orders.replace(",", " ").split())
-    print(f"[index] locus mode = {a.locus}, init span = {init_span} chunks, "
-          f"orders = {init_orders}{' (evolving)' if a.evolve_orders else ''}")
+    if resuming:
+        load_config(a.out, a)                        # freeze structural params from creation
+        chunks = load_index(a.out)
+        st = load_state(a.out)
+        gen0 = st["gen"]; pop = st["pop"]; best_cov = st["best_cov"]; best_pop = st["best_pop"]
+        rng = random.Random(); rng.setstate(st["rng_state"])
+        print(f"[resume] {a.out}: at gen {gen0}, pop {len(pop)}, best {best_cov:.4f} bpb")
+    else:
+        if a.restart:
+            for f in ("state.json", "sigs.npy"):
+                try: os.remove(os.path.join(a.out, f))
+                except FileNotFoundError: pass
+        # chunk size: explicit --chunk-kb, else generous cap when splitting on document
+        # boundaries (--chunk-on), else derived from the per-brain budget / initial span.
+        chunk_on = re.compile(a.chunk_on) if a.chunk_on else None
+        if a.chunk_kb:        chunk_bytes = int(a.chunk_kb * 1024)
+        elif chunk_on:        chunk_bytes = 65536
+        else:                 chunk_bytes = int(a.span_mb * 1024 * 1024 / max(1, a.span_chunks))
+        print(f"[index] {a.corpus} -> {a.out}  (eval {a.eval_frac}, test {a.test_frac}, chunk≈{chunk_bytes}B"
+              f"{', doc-split on /' + a.chunk_on + '/' if chunk_on else ''})")
+        chunks = build_index(a.corpus, a.out, a.eval_frac, a.test_frac, chunk_bytes, a.seed, chunk_on)
+        avg = max(1, sum(l for _, l in chunks) // len(chunks))
+        init_span = max(1, round(a.span_mb * 1024 * 1024 / avg))
+        init_orders = tuple(int(x) for x in a.orders.replace(",", " ").split())
+        print(f"[index] chunks={len(chunks)} (avg {avg}B), locus={a.locus}, init span={init_span}, "
+              f"orders={init_orders}{' (evolving)' if a.evolve_orders else ''}")
+        rng = random.Random(a.seed)
+        pop = []
+        for i in range(a.pop):
+            start = round(i * len(chunks) / a.pop)
+            g = Gene(start + rng.randint(-1, 1), init_span, a.mapbits, init_orders)
+            pop.append(clamp(g, a.locus, len(chunks), 1, max(1, len(chunks) // 2)))
+        gen0 = 0; best_cov = 1e18; best_pop = None
+        save_config(a.out, a)
+
+    nchunks = len(chunks)
+    span_min, span_max = 1, max(1, nchunks // 2)
+    eval_path = os.path.join(a.out, "eval.txt")
     eng = Engine(a.atn, a.out, os.path.join(a.out, "territory.txt"), chunks, a.jobs,
                  mode=a.locus, df_max=a.df_max, sig=a.sig)
 
-    # init: spread P loci (positional start, or content seed) across territory
-    pop = []
-    for i in range(a.pop):
-        start = round(i * nchunks / a.pop)
-        g = Gene(start + rng.randint(-1, 1), init_span, a.mapbits, init_orders)
-        pop.append(clamp(g, a.locus, nchunks, span_min, span_max))
+    hist = open(os.path.join(a.out, "history.tsv"), "a")
+    if gen0 == 0:
+        hist.write("gen\tcoverage_bpb\tbest_marginal\tn_owners\n")
+    gens_cap = (a.gens if a.gens and a.gens > 0 else None) if (a.gens is not None) \
+               else (None if a.minutes else 15)
+    deadline = time.time() + a.minutes * 60 if a.minutes else None
 
-    hist = open(os.path.join(a.out, "history.tsv"), "w")
-    hist.write("gen\tcoverage_bpb\tbest_marginal\tn_owners\n")
-    best_state = None; best_cov = 1e18
-    for gen in range(1, a.gens + 1):
+    gen = gen0
+    while True:
+        if gens_cap and gen >= gens_cap:
+            print(f"[stop] reached generation cap {gens_cap}"); break
+        t0 = time.time()
+        gen += 1
         eng.train_all(pop)
         cols = eng.score_all(pop, eval_path)
         coverage, marginal, owner, second = evaluate(cols)
         n_owners = len(set(owner))
-        hist.write(f"{gen}\t{coverage:.4f}\t{max(marginal):.4f}\t{n_owners}\n"); hist.flush()
         flag = ""
         if coverage < best_cov:                       # keep the best tiling ever seen
-            best_cov = coverage
-            best_state = ([clone(g) for g in pop], list(marginal), list(owner), list(second), coverage)
-            flag = "  <- best"
-        print(f"[gen {gen:2d}] coverage={coverage:.4f} bpb   "
-              f"active_experts={n_owners}/{a.pop}   best_marginal={max(marginal):.4f}{flag}")
+            best_cov = coverage; best_pop = [clone(g) for g in pop]; flag = "  <- best"
+        hist.write(f"{gen}\t{coverage:.4f}\t{max(marginal):.4f}\t{n_owners}\n"); hist.flush()
+        print(f"[gen {gen:3d}] coverage={coverage:.4f} bpb   active={n_owners}/{a.pop}   "
+              f"best={best_cov:.4f}{flag}")
 
-        if gen == a.gens:
-            break
-        # STEADY-STATE: keep the useful experts, replace only the worst `replace_frac`
-        # (the redundant ~0-marginal ones) with children of the survivors. Replaced
-        # experts owned almost nothing, so coverage can't spike up — it ratchets down.
-        order = sorted(range(len(pop)), key=lambda p: marginal[p])   # worst first
+        # build the next generation (steady-state: replace the worst, keep survivors)
+        order = sorted(range(len(pop)), key=lambda p: marginal[p])
         n_rep = max(1, round(len(pop) * a.replace_frac))
         survivors = [pop[i] for i in order[n_rep:]]
         nxt = [clone(g) for g in survivors]
@@ -479,15 +562,33 @@ def cmd_run(a):
             if rng.random() < 0.5:
                 child = crossover(rng.choice(survivors), rng.choice(survivors), rng)
             else:
-                child = clone(rng.choice(survivors))               # local search on a survivor
+                child = clone(rng.choice(survivors))
             nxt.append(mutate(child, rng, a.locus, nchunks, span_min, span_max, a.jitter,
                               eng, a.evolve_orders))
         pop = nxt
+        save_state(a.out, gen, rng, pop, best_cov, best_pop)   # atomic checkpoint each gen
 
-    print(f"[best] coverage={best_cov:.4f} bpb (finalizing this population)")
-    finalize(a, eng, *best_state)
+        gen_time = time.time() - t0
+        if deadline and time.time() + gen_time > deadline:
+            print(f"[budget] {a.minutes} min used at gen {gen} (next gen ~{gen_time:.0f}s won't fit)")
+            break
+
     hist.close()
-    print(f"[done] population + graph written under {a.out}/")
+    # finalize on the BEST population (re-score it for ownership/graph; brains are cached)
+    print(f"[best] coverage={best_cov:.4f} bpb after {gen} total generations")
+    eng.train_all(best_pop)
+    bcols = eng.score_all(best_pop, eval_path)
+    bcov, bmarg, bown, bsec = evaluate(bcols)
+    finalize(a, eng, best_pop, bmarg, bown, bsec, bcov)
+
+    # honesty: score the best population on the UNTOUCHED test set; the gap is overfitting
+    test_path = os.path.join(a.out, "test.txt")
+    if os.path.exists(test_path) and os.path.getsize(test_path) > 0:
+        tcols = eng.score_all(best_pop, test_path)
+        tcov, *_ = evaluate(tcols)
+        print(f"[honesty] eval {bcov:.4f}  vs  test {tcov:.4f} bpb  "
+              f"(gap {tcov - bcov:+.4f} = overfitting to the eval set)")
+    print(f"[done] checkpoint at {a.out}/state.json — rerun to continue evolving")
 
 def finalize(a, eng, pop, marginal, owner, second, coverage):
     """Write the surviving population, tiling map, and routing graph."""
@@ -496,7 +597,7 @@ def finalize(a, eng, pop, marginal, owner, second, coverage):
     from collections import defaultdict, Counter
     owned = defaultdict(list)
     for m, p in enumerate(owner):
-        owned[p].append(pos[m])
+        owned[p].append(pos[m] if m < len(pos) else 0.0)   # guard against any misalignment
     genes = []
     tiling = open(os.path.join(a.out, "tiling.tsv"), "w")
     tiling.write("expert\tgene_start\tgene_span\tmapbits\tn_owned\tpos_centroid\tpos_lo\tpos_hi\tbrain\n")
@@ -641,12 +742,20 @@ def main():
     ap = argparse.ArgumentParser(description="evolve atn brains that tile a corpus")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    r = sub.add_parser("run", help="index a corpus and evolve a population")
-    r.add_argument("--corpus", required=True)
+    r = sub.add_parser("run", help="index a corpus and evolve a population (resumable)")
+    r.add_argument("--corpus", default=None, help="corpus file (only for a fresh run; "
+                   "on resume it is read from the checkpoint's config)")
     r.add_argument("--out", required=True)
     r.add_argument("--atn", default="./atn")
     r.add_argument("--pop", type=int, default=32)
-    r.add_argument("--gens", type=int, default=15)
+    r.add_argument("--gens", type=int, default=None,
+                   help="total generation cap (default 15 single-shot; 0 or with --minutes = unlimited)")
+    r.add_argument("--minutes", type=float, default=None,
+                   help="wall-clock budget for THIS run; evolve as many generations as fit, then "
+                        "checkpoint and exit. Rerun (e.g. from cron) to keep going.")
+    r.add_argument("--restart", action="store_true", help="ignore any checkpoint and start fresh")
+    r.add_argument("--test-frac", type=float, default=0.02,
+                   help="fraction held out as an UNTOUCHED test set (reported, never selected on)")
     r.add_argument("--span-mb", type=float, default=0.5, help="target training bytes per brain (MB)")
     r.add_argument("--span-chunks", type=int, default=8, help="initial span in chunks")
     r.add_argument("--chunk-kb", type=float, default=None,
