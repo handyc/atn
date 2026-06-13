@@ -20,20 +20,34 @@ nbrains=$(printf '%s\n' "$brains" | wc -l)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 if [ "$MODE" = "--novel" ] && [ "$nbrains" -gt 1 ]; then
+    # 2-fold held-out novelty: split the brains into two folds, train a model on
+    # each fold (sampling a slice of every brain so the fold fits MODEL_CAP), and
+    # score each brain's lines under the OPPOSITE fold's model. Keep the
+    # surprising ones. Two trainings regardless of how many brains (scales to 64+),
+    # and held out (a brain is never scored by a model that contains it).
     T="${NOVEL_BPB:-3.0}"
-    inlines=0; : > "$tmp/all"
+    half=$(( (nbrains + 1) / 2 ))
+    per=$(( 64000000 / half ))          # bytes sampled per brain so a fold <= MODEL_CAP
+    : > "$tmp/foldA"; : > "$tmp/foldB"
+    i=0
+    for b in $brains; do
+        if [ $((i % 2)) -eq 0 ]; then head -c "$per" "$b" >> "$tmp/foldA"
+        else head -c "$per" "$b" >> "$tmp/foldB"; fi
+        i=$((i + 1))
+    done
+    "$A" --train "$tmp/foldA" --brain "$tmp/mA.brain" >/dev/null 2>&1
+    "$A" --train "$tmp/foldB" --brain "$tmp/mB.brain" >/dev/null 2>&1
+
+    inlines=0; : > "$tmp/all"; i=0
     for b in $brains; do
         inlines=$((inlines + $(wc -l < "$b")))
-        # train a model of everything EXCEPT this brain
-        : > "$tmp/rest"
-        for o in $brains; do [ "$o" = "$b" ] || cat "$o" >> "$tmp/rest"; done
-        "$A" --train "$tmp/rest" --brain "$tmp/rest.brain" >/dev/null 2>&1
-        # keep b's lines that the rest finds surprising (>= T bits/byte)
-        "$A" --score --brain "$tmp/rest.brain" < "$b" \
+        if [ $((i % 2)) -eq 0 ]; then m="$tmp/mB.brain"; else m="$tmp/mA.brain"; fi
+        "$A" --score --brain "$m" < "$b" \
           | awk -F'\t' -v t="$T" '($1+0) >= t { print $2 }' >> "$tmp/all"
-        rm -f "$tmp/rest.brain" "$tmp/rest.brain.weights"
+        i=$((i + 1))
     done
-    note="novelty-filtered (>= ${T} bpb vs other brains)"
+    rm -f "$tmp/mA.brain" "$tmp/mA.brain.weights" "$tmp/mB.brain" "$tmp/mB.brain.weights"
+    note="novelty-filtered (>= ${T} bpb, 2-fold held-out)"
 else
     inlines=0; : > "$tmp/all"
     for b in $brains; do cat "$b" >> "$tmp/all"; inlines=$((inlines + $(wc -l < "$b"))); done

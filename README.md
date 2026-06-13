@@ -426,11 +426,13 @@ script each (all just orchestrate `--score` and the corpora):
 - **`bundle.sh BRAIN_DIR out.txt [--novel]`** — the actual path to a real model:
   merge the brains' transcripts and de-duplicate into one clean corpus, then
   fine-tune a neural model on `out.txt`. The counts are discarded; the *text* is
-  the asset the trainer relearns and surpasses. With **`--novel`** it leaves each
-  brain out in turn, scores its lines under a model of the *rest*, and keeps only
-  the surprising (distinctive) ones — so boilerplate and stories shared across
-  brains are dropped and the corpus keeps more signal per byte (`NOVEL_BPB` sets
-  the threshold, default 3.0).
+  the asset the trainer relearns and surpasses. With **`--novel`** it splits the
+  brains into two folds, trains a model on each (sampling a slice of every brain
+  so the fold fits the model cap), and keeps each brain's lines that the
+  *opposite* fold finds surprising — so boilerplate and stories shared across
+  brains are dropped and the corpus keeps more signal per byte. It's two
+  trainings regardless of how many brains, so it scales to dozens at a time
+  (`NOVEL_BPB` sets the threshold, default 3.0).
 
 ```
 route.sh ./brains "the federal reserve raised rates"   # -> finance (1.4 bpb)

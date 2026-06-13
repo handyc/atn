@@ -35,6 +35,15 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-13 ("scale novelty to ~64 brains")
+- [x] bundle.sh --novel rewritten as 2-FOLD held-out (was leave-one-out): split
+      brains into 2 folds, sample each brain so a fold fits MODEL_CAP, train 2
+      models, score each brain under the opposite fold. TWO trainings regardless
+      of N -> scales to 64+ brains, and stays held-out/correct (old leave-one-out
+      was N trainings AND truncated the "rest" past MODEL_CAP = wrong at scale).
+- Note: plain bundle (exact dedup) already scales (text ops) and collapses
+  verbatim cross-brain duplicates (wire stories) — the main news redundancy.
+
 ## Session 2026-06-13 ("combining brains")
 - [x] route.sh: mixture-of-atn-experts — score a query under every brain in a
       dir, route to the lowest-surprisal one (+ margin). Demoed: topic queries
