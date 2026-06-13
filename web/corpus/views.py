@@ -65,8 +65,12 @@ def graph_json(request):
     return JsonResponse({"nodes": nodes, "edges": edges})
 
 
+def _hue(s):
+    import hashlib
+    return int(hashlib.md5((s or "").encode()).hexdigest(), 16) % 360
+
 def overview(request):
-    """Dashboard: summary + the GA learning curve (Chart.js)."""
+    """Dashboard: summary + the GA learning curve + the corpus tiling map."""
     run = _run(request)
     hist = list(run.history.all()) if run else []
     chart = {
@@ -74,11 +78,20 @@ def overview(request):
         "coverage": [round(h.coverage_bpb, 4) for h in hist],
         "owners": [h.n_owners for h in hist],
     }
+    experts = list(run.experts.all()) if run else []
+    # the corpus carved into territories: one lane per expert, [lo,hi] of the corpus
+    strip = sorted([{
+        "pk": e.pk, "expert_id": e.expert_id, "label": e.label or f"expert {e.expert_id}",
+        "lo": round(e.pos_lo * 100, 2), "wid": round(max(0.5, (e.pos_hi - e.pos_lo) * 100), 2),
+        "cen": round(e.centroid * 100, 2), "n_owned": e.n_owned,
+        "color": f"hsl({_hue(e.label or str(e.expert_id))}, 60%, 65%)",
+        "terms": ", ".join(e.term_list[:6]),
+    } for e in experts], key=lambda s: s["cen"])
     return render(request, "corpus/overview.html", {
         "run": run, "runs": Run.objects.all(),
         "chart_json": json.dumps(chart),
-        "n_gens": len(hist),
-        "top_experts": run.experts.all()[:12] if run else [],
+        "n_gens": len(hist), "strip": strip,
+        "top_experts": experts[:12],
     })
 
 

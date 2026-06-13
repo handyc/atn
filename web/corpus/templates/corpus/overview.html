@@ -10,6 +10,24 @@
 
     <div class="card"><canvas id="evo" height="110"></canvas></div>
 
+    <h2>Corpus tiling — how the population carved up the corpus</h2>
+    <p class="sub">Each bar is one expert's territory, spanning the slice of the
+       corpus it owns (left = start, right = end), coloured by guessed kind. Click
+       a bar to open it.</p>
+    <div class="card" style="padding:8px 12px">
+      {% for s in strip %}
+        <a href="{% url 'territory' s.pk %}" title="{{ s.label }} — {{ s.terms }} (owns {{ s.n_owned }})"
+           style="display:block;position:relative;height:13px;margin:2px 0;text-decoration:none">
+          <span style="position:absolute;left:{{ s.lo }}%;width:{{ s.wid }}%;height:11px;
+                       background:{{ s.color }};border-radius:3px"></span>
+          <span style="position:absolute;left:{{ s.cen }}%;top:-1px;width:2px;height:13px;background:#1a1c20;opacity:.5"></span>
+        </a>
+      {% endfor %}
+      <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:4px">
+        <span>corpus start</span><span>position →</span><span>end</span>
+      </div>
+    </div>
+
     <h2>Territories</h2>
     <div class="grid">
       {% for e in top_experts %}
