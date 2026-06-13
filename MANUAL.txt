@@ -1,0 +1,461 @@
+===============================================================================
+ atn — MANUAL
+ "look very closely at files"
+===============================================================================
+
+atn is a single C program plus a set of small shell scripts that wrap it. The
+program does two broad things:
+
+  1. FORENSIC INSPECTION of any file (bytes, structure, entropy, anomalies,
+     disassembly, carving, signatures) — the "look very closely" half.
+  2. A deterministic byte LANGUAGE MODEL (a "brain") you can train on text and
+     use to chat, score surprisal, predict, compress, clean corpora, route
+     queries, retrieve passages, and detect trends — the "attention" half.
+
+The scripts chain those primitives into workflows: build/clean corpora, scrape
+live news on a schedule, prepare data for a real (GPU) LLM, and analyse trends.
+
+Everything is deterministic (fixed-seed hashing/PRNG). No network except the
+corpus/news fetchers. Output goes to stdout; stats/logs to stderr.
+
+-------------------------------------------------------------------------------
+ CONTENTS
+-------------------------------------------------------------------------------
+  0.  Quick start
+  1.  atn binary — file inspection
+  2.  atn binary — filesystem scan
+  3.  atn binary — the brain (language model)
+  4.  atn binary — compression
+  5.  Scripts — corpora & live news
+  6.  Scripts — LLM data prep
+  7.  Scripts — many-brain tools (route / recall / where / trend)
+  8.  Scripts — demos
+  9.  RECIPES (end-to-end workflows)
+  10. The news cron pipeline (every 3h x 7 days), step by step
+  11. Tunables & environment variables (reference)
+  12. File types atn writes
+
+===============================================================================
+ 0.  QUICK START
+===============================================================================
+  make                                  # build ./atn
+  ./atn somefile.bin                    # basic report on a file
+  ./atn -A somefile.bin                 # EVERYTHING (all analysis sections)
+  ./atn --train book.txt --brain b.brain -q     # train a brain on text
+  echo "to be or not to" | ./atn --ask --brain b.brain   # one-shot prediction
+  ./atn --prep raw.txt > clean.txt      # clean+dedup text for LLM training
+  ./prepare-llm.sh out raw.txt          # clean -> shuffle -> train/val split
+  ./demo.sh                             # narrated tour of the "fake transformer"
+
+Tip: `-` means stdin anywhere a FILE is expected, e.g. `cat x | ./atn -S -`.
+
+===============================================================================
+ 1.  atn BINARY — FILE INSPECTION
+===============================================================================
+Usage:  atn [sections] [tunables] FILE...
+
+With no section flags you get the BASIC REPORT: size, type guess, printable
+ratio, byte histogram summary, entropy, and notable findings.
+
+  ./atn photo.jpg
+  ./atn /bin/ls
+  cat /dev/urandom | head -c 4096 | ./atn -        # inspect random bytes
+
+SECTION FLAGS (combine freely; -A turns on all of them):
+
+  -A   Everything below at once.
+         ./atn -A firmware.bin
+
+  -S   Deep statistics: Shannon entropy, chi-square, serial correlation,
+       Monte-Carlo pi estimate, noise estimate. Good for "is this random /
+       encrypted / compressed?".
+         ./atn -S key.bin
+         head -c 100000 /dev/urandom | ./atn -S -      # ~8.0 bits/byte = random
+
+  -E   Windowed entropy MAP: scans the file in windows and prints where entropy
+       spikes — finds embedded compressed/encrypted/packed regions.
+         ./atn -E -w 512 installer.exe                 # 512-byte windows
+
+  -C   Self-similarity: detects periodicity and reports the most-repeated
+       chunks. Good for tables, bitmaps, padding, repeated records.
+         ./atn -C dump.bin
+
+  -T   Type-specific structure parse for known formats: PNG, JPEG, GIF, BMP,
+       WAV, gzip, ELF, ZIP. Prints headers/chunks/sections.
+         ./atn -T image.png
+         ./atn -T archive.zip
+
+  -F   Carve: scan EVERY offset for embedded file signatures (a JPEG inside a
+       blob, a ZIP appended to an EXE, etc.).
+         ./atn -F suspicious.bin
+
+  -P   Routine / opcode patterns: INT 21h, syscalls, NOP sleds, function
+       prologues, and similar machine-code tells.
+         ./atn -P sample.bin
+
+  -M   Signature scan: known markers including the EICAR test string and common
+       packers. Extend with --sigs (see below).
+         ./atn -M sample.bin
+         ./atn -M --sigs mysigs.txt sample.bin
+
+  -K   Anomaly & error checks: truncation, trailing data after logical EOF, bad
+       UTF-8, structural inconsistencies.
+         ./atn -K download.pdf
+
+  -D   Linear x86 / x86-64 disassembly (ELF .text, or the whole file). Force the
+       width with --bits 32|64 if auto-detect is wrong.
+         ./atn -D /bin/true
+         ./atn -D --bits 64 shellcode.bin
+
+  -Z   Hand-wired ATTENTION HEAD: a causal self-attention map plus an induction
+       next-byte predictor — a deterministic, unlearned echo of GPT attention,
+       computed directly over the file's bytes.
+         ./atn -Z hamlet.txt
+
+  -B   Predictive FEEDBACK LOOP: an online context-mixing model whose weights
+       are nudged by prediction error, plus a model-based surprisal map showing
+       which bytes were "surprising".
+         ./atn -B logfile.txt
+
+  -x   Hex + ASCII dump (limit bytes with -n; 0 = whole file).
+         ./atn -x -n 64 header.bin
+         ./atn -x -n 0 small.bin
+
+  -s   Extract printable strings (min length with -m).
+         ./atn -s -m 6 /bin/ls
+
+PATTERN SEARCH:
+
+  -g PAT   Find a byte/text pattern. Accepts hex 'CD21', spaced 'cd 21',
+           escaped '\xCD\x21', or plain ASCII.
+         ./atn -g 'CD21' dos.com
+         ./atn -g 'password' dump.bin
+         ./atn -g '\x7fELF' mystery.bin
+
+YARA (subset):
+
+  --yara FILE   Scan with a (subset) YARA rule file.
+         ./atn --yara rules.yar sample.bin
+
+===============================================================================
+ 2.  atn BINARY — FILESYSTEM SCAN
+===============================================================================
+  -R DIR   Recursively scan a directory tree, print aggregate statistics. Point
+           it at / for the whole filesystem. Combine with section flags to run
+           those analyses per file.
+         ./atn -R /etc                              # aggregate stats
+         ./atn -R -v /etc                           # one summary line per file
+         ./atn -R -P -K /usr/bin                    # opcode + anomaly per file
+
+  --corpus DIR   Build ONE byte language-model over the whole tree, then rank
+           every file by surprisal under it — an outlier finder (which file is
+           least like the rest?) — and can generate from the model.
+         ./atn --corpus ./logs                      # rank logs by oddness
+
+===============================================================================
+ 3.  atn BINARY — THE BRAIN (LANGUAGE MODEL)
+===============================================================================
+The brain is an interpolated n-gram byte model (orders mixed with backoff).
+It is trained by counting, not gradient descent: training is fast and the
+"weights" are counts. A brain is saved as FILE.brain (+ FILE.brain.weights
+cache). Default brain lives next to the atn binary; override with --brain.
+
+TRAIN:
+  --train PATH   Ingest a text file, or every text file under a directory.
+  -q             Quiet/fast: skip the learnability (held-out bpb) pass — 2-3x
+                 faster. Use this for routine training.
+  --strip-html   Strip HTML tags/entities while training (clean web/prose).
+  --map-bits N   Per-map entry cap = 2^N (default 22). Raise for big/diverse
+                 corpora (more fidelity, more RAM). Use the SAME N at query time.
+
+         ./atn --train hamlet.txt --brain hamlet.brain -q
+         ./atn --train ./articles/ --brain news.brain -q --strip-html
+         ./atn --train big.txt --brain big.brain -q --map-bits 25
+
+CHAT:
+  -c             Minimal terminal chat that also learns from what you type.
+         ./atn -c --brain hamlet.brain
+
+ONE-SHOT (cron/script friendly):
+  --ask          Read ONE line from stdin, print ONE reply, exit.
+  --no-learn     With --ask, query read-only (don't fold the input into the brain).
+         echo "to be or not to" | ./atn --ask --brain hamlet.brain
+         echo "the market" | ./atn --ask --no-learn --brain news.brain
+
+SCORE (surprisal):
+  --score        For each stdin line, print bits/byte under the brain. Low =
+                 fits the corpus; high = novel / off-topic. This single number
+                 powers routing, trend detection, and novelty filtering.
+         printf '%s\n' "roosevelt new deal" "quantum entanglement" \
+             | ./atn --score --brain news1934.brain
+
+PREP (clean a corpus, no model trained):
+  --prep [files] Stream text through cleaning + exact-dedup + near-dup removal
+                 (MinHash/LSH) + quality filtering, to stdout. ~100s of MB/s.
+         ./atn --prep raw1.txt raw2.txt > clean.txt
+         cat corpus.txt | ./atn --prep > clean.txt
+       Tunables (env): PREP_MINLEN, PREP_MINALPHA, PREP_MINWORD, PREP_NEAR.
+
+===============================================================================
+ 4.  atn BINARY — COMPRESSION
+===============================================================================
+  -X             Model-driven arithmetic compression with an in-memory lossless
+                 round-trip check (shows the achievable ratio; nothing written).
+         ./atn -X book.txt
+
+  --compress FILE [-o OUT]     Write a real .atnz compressed file.
+  --decompress FILE [-o OUT]   Restore an .atnz file (stdout if no -o).
+         ./atn --compress book.txt -o book.atnz
+         ./atn --decompress book.atnz -o book.restored
+         ./atn --decompress book.atnz | head            # to stdout
+
+===============================================================================
+ 5.  SCRIPTS — CORPORA & LIVE NEWS
+===============================================================================
+build-corpus.sh — HISTORIC news from the AmericanStories (Chronicling America
+                  OCR) dataset on HuggingFace, by year.
+  build-corpus.sh YEAR PREFIX [MAXBYTES] [--prep]
+       ./build-corpus.sh 1934 news1934 16000000
+       ./build-corpus.sh 1934 news1934 16000000 --prep   # also clean it
+  Produces PREFIX.txt (one article/line) + PREFIX.meta (date<TAB>state<TAB>paper).
+
+fetch-news.sh — LIVE headlines+summaries from RSS/Atom feeds (the live
+                counterpart to build-corpus.sh).
+  fetch-news.sh OUTPREFIX [feeds.txt]
+       ./fetch-news.sh today
+       ./fetch-news.sh today myfeeds.txt
+       NEWS_FEEDS=myfeeds.txt ./fetch-news.sh today
+  feeds.txt: one feed URL per line (#comments allowed). Without it, a small
+  built-in default list is used (override it — those URLs drift).
+  Produces OUTPREFIX.txt + OUTPREFIX.meta (fetch-time<TAB>host<TAB>feed-title).
+
+news-tick.sh — ONE scheduled scrape. Put this in cron every 3 hours.
+  news-tick.sh [DATADIR]
+       ./news-tick.sh                       # -> ./newsdata/<ISO-week>/...
+       NEWS_DIR=/data/news ./news-tick.sh
+  Fetches now, files it under DATADIR/<ISO-week>/raw/<stamp>.txt(+.meta), and
+  builds DATADIR/<ISO-week>/brains/<stamp>.brain.
+
+news-week.sh — END OF WEEK. Pool every tick and prep one train-ready dataset.
+  news-week.sh [DATADIR] [WEEK]
+       ./news-week.sh                       # this ISO week
+       ./news-week.sh ./newsdata 2026-W24   # a specific week
+  Pools DATADIR/WEEK/raw/*.txt through prepare-llm.sh (dedup ACROSS ticks
+  collapses the same wire story scraped 8x/day), writes DATADIR/WEEK/dataset/
+  {train,val,manifest}.txt + all.meta, and one DATADIR/WEEK/week.brain.
+
+===============================================================================
+ 6.  SCRIPTS — LLM DATA PREP
+===============================================================================
+prepare-llm.sh — one command from raw corpus to a train-ready dataset.
+  prepare-llm.sh OUTDIR file1 [file2 ...]
+       ./prepare-llm.sh data/run1 news1934.txt
+       ./prepare-llm.sh data/run1 a.txt b.txt c.txt      # dedup across all
+       VAL_PCT=2 ./prepare-llm.sh data/run1 news.txt      # 2% held out
+       PREP_SKIP=1 ./prepare-llm.sh data/run1 already_clean.txt
+  Runs atn --prep, deterministically shuffles (blake2b content-hash sort — same
+  inputs always give the same split, no RNG), splits train/val, writes a
+  manifest (line/byte counts, est. tokens ~bytes/4, drop stats, settings).
+  Output: OUTDIR/{train.txt, val.txt, manifest.txt, clean.txt}.
+
+bundle.sh — export a set of brains' text as ONE clean corpus to train a real
+            model (you can't merge n-gram brains into a neural net; you re-use
+            their TEXT).
+  bundle.sh BRAIN_DIR out.txt [--novel]
+       ./bundle.sh ./brains corpus.txt
+       ./bundle.sh ./brains corpus.txt --novel       # keep distinctive lines only
+  --novel: two-fold held-out scoring — keeps each brain's lines that the other
+  fold finds surprising, dropping boilerplate shared across brains.
+  Env: NOVEL_BPB (threshold, default 3.0).
+
+===============================================================================
+ 7.  SCRIPTS — MANY-BRAIN TOOLS
+===============================================================================
+route.sh — mixture-of-experts router. Score a query against every brain in a
+           directory; report which corpus fits best (lowest surprisal).
+  route.sh BRAIN_DIR "query"
+  route.sh BRAIN_DIR < queries.txt
+       ./route.sh ./brains "the gold standard and the dollar"
+       printf '%s\n' "baseball scores" "the federal budget" | ./route.sh ./brains
+  Output per query: best brain, its bits/byte, margin over runner-up.
+
+recall.sh — non-parametric retrieval. Given a context, return the REAL passages
+            that followed it, with provenance [brain:line]. Grounded source text,
+            no hallucination.
+  recall.sh BRAIN_DIR "context"
+       ./recall.sh ./brains "the president said"
+
+where.sh — concordance. Find WHERE a phrase occurs in a corpus, and (using the
+           .meta sidecar) in which place / when.
+  where.sh CORPUS.txt "phrase"
+       ./where.sh news1934.txt "civilian conservation corps"
+
+trend.sh — what's rising? Score phrases under TWO brains (e.g. this week vs last)
+           and report the surprisal change. Positive delta = rising in NEW.
+  trend.sh NEW.brain OLD.brain < phrases.txt
+       printf '%s\n' "the new deal" "the gold standard" \
+           | ./trend.sh thisweek.brain lastweek.brain
+
+autotrend.sh — trends WITHOUT you guessing phrases. Mines frequent content
+               phrases from today's corpus, ranks by frequency-weighted rise.
+  autotrend.sh today.brain yesterday.brain [today_corpus.txt]
+       ./autotrend.sh today.brain yesterday.brain today.txt
+  Env: TOPN (default 40), MINCOUNT (default 3).
+
+===============================================================================
+ 8.  SCRIPTS — DEMOS
+===============================================================================
+demo.sh    — narrated, automated tour of atn's "fake transformer" features.
+                 ./demo.sh
+explore.sh — interactive menu for poking at atn's features on one file.
+                 ./explore.sh somefile.bin
+
+===============================================================================
+ 9.  RECIPES (END-TO-END WORKFLOWS)
+===============================================================================
+
+A) Is this file encrypted, packed, or hiding something?
+     ./atn -S -E -F -K mystery.bin
+   High flat entropy (-S ~8.0), an entropy plateau (-E), a carved signature
+   (-F), or trailing-data anomalies (-K) are the tells.
+
+B) Train a brain on a book and predict / chat.
+     ./atn --train hamlet.txt --brain hamlet.brain -q
+     echo "to be or not to" | ./atn --ask --brain hamlet.brain
+     ./atn -c --brain hamlet.brain
+
+C) Clean a messy corpus and hand it to a real trainer.
+     ./prepare-llm.sh data/run1 raw1.txt raw2.txt raw3.txt
+     # -> data/run1/train.txt + val.txt (+ manifest.txt with token estimate)
+
+D) Build a 1934 corpus and ask where/when a topic appears.
+     ./build-corpus.sh 1934 n1934 16000000
+     ./where.sh n1934.txt "dust bowl"
+
+E) Route an incoming query to the right day/topic brain.
+     ./route.sh ./brains "talk of war in europe"
+
+F) Find this week's emerging stories automatically.
+     ./autotrend.sh thisweek.brain lastweek.brain thisweek.txt
+
+G) Turn a pile of day-brains into one LLM training set, distinctive lines only.
+     ./bundle.sh ./brains week_corpus.txt --novel
+     ./prepare-llm.sh data/week week_corpus.txt
+
+===============================================================================
+ 10.  THE NEWS CRON PIPELINE  (every 3h x 7 days = 56 scrapes -> weekly dataset)
+===============================================================================
+This is the exact setup for "scrape news every 3 hours, then collect at the end
+of the week and prep for the LLM". Two scripts do everything:
+
+  news-tick.sh   the every-3-hours job  (8 per day)
+  news-week.sh   the once-a-week job     (pools all 56 ticks, preps the dataset)
+
+STEP 1 — choose your feeds (optional but recommended).
+  Create feeds.txt, one RSS/Atom URL per line:
+     # feeds.txt
+     https://feeds.bbci.co.uk/news/world/rss.xml
+     https://feeds.npr.org/1001/rss.xml
+     https://feeds.arstechnica.com/arstechnica/index
+  Point the scripts at it with the NEWS_FEEDS env var (see crontab below).
+  Without it, a small built-in default list is used.
+
+STEP 2 — pick a data dir, e.g. /data/news, via NEWS_DIR.
+  The scripts create /data/news/<ISO-week>/ automatically, e.g. 2026-W24.
+
+STEP 3 — install the crontab.  (`crontab -e`, then:)
+
+  # --- atn news pipeline ---------------------------------------------------
+  ATN=/home/handyc/projects/atn
+  NEWS_DIR=/data/news
+  NEWS_FEEDS=/home/handyc/projects/atn/feeds.txt
+
+  # scrape every 3 hours (00:05, 03:05, 06:05, ... = 8x/day), log appended
+  5 */3 * * *   cd $ATN && NEWS_DIR=$NEWS_DIR NEWS_FEEDS=$NEWS_FEEDS \
+                ./news-tick.sh >> $NEWS_DIR/tick.log 2>&1
+
+  # collect + prep once a week, Sunday 23:30
+  30 23 * * 0   cd $ATN && NEWS_DIR=$NEWS_DIR ./news-week.sh \
+                >> $NEWS_DIR/week.log 2>&1
+  # -------------------------------------------------------------------------
+
+  (cron does not expand the ATN/NEWS_* lines inside the command on every system;
+   if yours doesn't, just write the absolute paths inline.)
+
+WHAT YOU GET each week, under /data/news/2026-W24/:
+     raw/<stamp>.txt(+.meta)     56 raw scrapes (one per tick)
+     brains/<stamp>.brain        56 per-tick brains (for fine-grained route/trend)
+     dataset/train.txt           cleaned, deduped, shuffled  <- feed the LLM
+     dataset/val.txt             held-out eval slice
+     dataset/manifest.txt        line/byte counts, est. tokens, drop stats
+     dataset/all.meta            pooled provenance
+     week.brain                  one brain over the whole week
+
+WHY THE DEDUP MATTERS: the same wire story is scraped many times across 56 ticks.
+news-week.sh runs them all through prepare-llm.sh in ONE pass, so exact and near
+duplicates collapse — you train on the unique news of the week, not 56 copies of
+each headline. (Verified: 2 ticks x 52 items -> 104 pooled -> 52 unique.)
+
+WEEK-OVER-WEEK TRENDS (optional, once you have two weeks):
+     printf '%s\n' "interest rates" "the election" \
+       | ./trend.sh /data/news/2026-W25/week.brain /data/news/2026-W24/week.brain
+  or let it mine the phrases for you:
+     ./autotrend.sh /data/news/2026-W25/week.brain /data/news/2026-W24/week.brain \
+                    /data/news/2026-W25/dataset/clean.txt
+
+MANUAL RUNS (test before trusting cron):
+     NEWS_DIR=/tmp/news ./news-tick.sh        # do one scrape now
+     NEWS_DIR=/tmp/news ./news-tick.sh        # and another
+     NEWS_DIR=/tmp/news ./news-week.sh        # pool + prep this week
+
+===============================================================================
+ 11.  TUNABLES & ENVIRONMENT VARIABLES (REFERENCE)
+===============================================================================
+atn command-line tunables:
+  -w N         window size for -E / -C            (default 256)
+  -n N         bytes shown by hex dump, 0 = all   (default 256)
+  -m N         min string length for -s           (default 4)
+  --bits N     force 32 or 64 for -D / -P         (default auto)
+  --map-bits N per-map entry cap = 2^N            (default 22; same N train+query)
+  -g PAT       pattern to search
+  --sigs FILE  extra 'name:hexpattern' signatures for -M
+  --yara FILE  YARA (subset) rule file
+  -q           quiet (drop the basic report; with --train, skip learnability pass)
+
+prep / prepare-llm environment:
+  PREP_MINLEN   min line length to keep            (default 40)
+  PREP_MINALPHA min alpha+space fraction           (default 0.55)
+  PREP_MINWORD  min fraction of word-shaped tokens (default 0.60; raise to drop
+                more OCR/garbage, but it also starts cutting terse real lines)
+  PREP_NEAR     1 = near-dup removal on, 0 = off   (default 1)
+  VAL_PCT       percent of lines held out for val  (default 1)   [prepare-llm.sh]
+  PREP_SKIP     1 = inputs already clean, skip prep (default 0)  [prepare-llm.sh]
+
+news / corpus environment:
+  NEWS_DIR      root data dir for ticks/weeks      (default ./newsdata)
+  NEWS_FEEDS    path to a feeds file (URLs)         (default: built-in list)
+
+many-brain script environment:
+  NOVEL_BPB     surprisal threshold for bundle --novel   (default 3.0)
+  TOPN          phrases shown by autotrend.sh            (default 40)
+  MINCOUNT      min phrase frequency for autotrend.sh    (default 3)
+
+===============================================================================
+ 12.  FILE TYPES atn WRITES
+===============================================================================
+  FILE.brain          trained language model (counts). Portable.
+  FILE.brain.weights  weight cache next to a brain (rebuilt if missing).
+  FILE.atnz           real compressed file (--compress / --decompress).
+  PREFIX.txt          corpus, one document/article/line per line.
+  PREFIX.meta         line-aligned provenance: date<TAB>place/host<TAB>source.
+  OUTDIR/train.txt    cleaned+shuffled training split (prepare-llm.sh).
+  OUTDIR/val.txt      held-out eval split.
+  OUTDIR/manifest.txt human-readable stats for a prepared dataset.
+
+  Note: brains, corpora, compressed files, and scraped news are all gitignored;
+  only source (.c/.h/.sh), the Makefile, README.md, and this MANUAL.txt are
+  tracked.
+
+===============================================================================
+ end of manual — run ./demo.sh for a live tour, or ./atn -h for the flag list.
+===============================================================================
