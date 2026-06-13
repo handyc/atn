@@ -34,10 +34,16 @@ class Command(BaseCommand):
         parser.add_argument("--name", default="demo-langs")
         parser.add_argument("--dir", default=None, help="run output dir (default <repo>/demo-langs)")
         parser.add_argument("--atn", default=None, help="atn binary (default <repo>/atn)")
+        parser.add_argument("--from-db", default=None,
+                            help="load from an exported atlas.db (atn-ga.py export) instead of "
+                                 "re-reading the run artifacts; still needs --dir/--atn for live scoring")
 
     def handle(self, *args, **opts):
         run_dir = os.path.abspath(opts["dir"] or os.path.join(settings.REPO_DIR, "demo-langs"))
         atn_path = os.path.abspath(opts["atn"] or os.path.join(settings.REPO_DIR, "atn"))
+
+        if opts["from_db"]:
+            return self._import_from_db(os.path.abspath(opts["from_db"]), run_dir, atn_path, opts["name"])
         genes_path = os.path.join(run_dir, "genes.json")
         if not os.path.exists(genes_path):
             raise CommandError(f"no genes.json in {run_dir} — build a run first")
@@ -114,3 +120,45 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"imported '{run.name}': {len(survivors)} experts, {n_edges} edges, "
             f"coverage {run.coverage_bpb:.3f} bpb"))
+
+    def _import_from_db(self, db_path, run_dir, atn_path, name):
+        """Load a portable atlas.db (from `atn-ga.py export`). The structured data
+        comes from the db; run_dir/atn_path are supplied locally for live scoring."""
+        import sqlite3
+        if not os.path.exists(db_path):
+            raise CommandError(f"no export db at {db_path}")
+        db = sqlite3.connect(db_path)
+        db.row_factory = sqlite3.Row
+        rr = db.execute("SELECT * FROM run LIMIT 1").fetchone()
+        run_name = name or (rr["name"] if rr else "imported")
+
+        Run.objects.filter(name=run_name).delete()
+        run = Run.objects.create(
+            name=run_name, run_dir=run_dir, atn_path=atn_path,
+            corpus_path=(rr["corpus"] if rr else ""),
+            coverage_bpb=(rr["coverage_bpb"] if rr else 0.0),
+            config_json=(rr["config_json"] if rr else ""),
+        )
+        by_id = {}
+        for r in db.execute("SELECT * FROM expert"):
+            e = Expert.objects.create(
+                run=run, expert_id=r["expert_id"], brain_path=r["brain_path"],
+                mapbits=r["mapbits"], orders=r["orders"], marginal=r["marginal"],
+                n_owned=r["n_owned"], centroid=r["centroid"], pos_lo=r["pos_lo"],
+                pos_hi=r["pos_hi"], label=r["label"] or "", terms=r["terms"] or "",
+                sample=r["sample"] or "",
+            )
+            by_id[r["expert_id"]] = e
+        for r in db.execute("SELECT * FROM passage"):
+            if r["expert_id"] in by_id:
+                Passage.objects.create(expert=by_id[r["expert_id"]], text=r["text"])
+        n_edges = 0
+        for r in db.execute("SELECT * FROM edge"):
+            if r["src_expert_id"] in by_id and r["dst_expert_id"] in by_id:
+                Edge.objects.create(run=run, src=by_id[r["src_expert_id"]],
+                                    dst=by_id[r["dst_expert_id"]], weight=r["weight"])
+                n_edges += 1
+        db.close()
+        self.stdout.write(self.style.SUCCESS(
+            f"imported '{run.name}' from {os.path.basename(db_path)}: "
+            f"{len(by_id)} experts, {n_edges} edges, coverage {run.coverage_bpb:.3f} bpb"))

@@ -31,6 +31,29 @@ python manage.py runserver
 `atn-ga.py`'s own helpers so the distinctive terms / passages match `lightup`.
 Re-run it any time you rebuild; pass `--dir`/`--atn`/`--name` to point elsewhere.
 
+### Portable export (decoupled from Django)
+
+The tool can also emit the model-shaped data as framework-agnostic files, so a
+built population can be shipped and loaded into *any* downstream project later:
+
+```sh
+# from the repo root — writes run.csv / experts.csv / passages.csv / edges.csv
+# and a self-contained atlas.db (tables: run, expert, passage, edge)
+python3 atn-ga.py export --out demo-langs --format both
+```
+
+Load that SQLite straight into this app (the structured data comes from the db;
+`--dir`/`--atn` just say where the brains + binary live for live scoring):
+
+```sh
+cd web
+python manage.py import_run --from-db ../demo-langs/atlas.db \
+    --dir ../demo-langs --atn ../atn --name demo-langs
+```
+
+The CSVs are equally usable from pandas, a DB browser, or a bigger Django
+project's own loader — nothing about the export depends on this app.
+
 ## Pages
 
 - **Atlas** (`/`) — every surviving expert as a card (guessed language label,

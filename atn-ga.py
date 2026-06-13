@@ -832,6 +832,142 @@ def cmd_lightup(a):
     print("    trained on — that's what 'expert {}' really is.".format(win_g["expert"]))
 
 # ----------------------------------------------------------------------------
+# export: emit a built run as portable, framework-agnostic data (CSV / SQLite)
+# whose tables mirror the atlas model structure, so any downstream consumer (a
+# Django project, pandas, DB browser, …) can ingest it without re-reading the
+# run's internal artifacts. Pure stdlib (csv + sqlite3).
+# ----------------------------------------------------------------------------
+_LANG_WORDS = {
+    "English": set("the and of to in a is was for with that this from as it".split()),
+    "Dutch":   set("de het een en van is op met voor werd door zijn die naar".split()),
+    "German":  set("der die das und ist von den im wurde eine auch mit sich nach".split()),
+    "French":  set("le la les de et des un une est dans pour avec sur au".split()),
+    "Spanish": set("el la los las de y en un una es por para con del".split()),
+    "Italian": set("il la di e che un una in per con della nel sono".split()),
+}
+
+def guess_label(sample, terms):
+    """Coarse function-word language guess for display (best-effort, may be blank)."""
+    if re.search(r"[㐀-鿿]", (sample or "") + " " + " ".join(terms or [])):
+        return "Chinese (zh)"
+    toks = re.findall(r"[a-zà-ÿ]+", (sample or "").lower())
+    best, best_n = "", 0
+    for lang, words in _LANG_WORDS.items():
+        n = sum(t in words for t in toks)
+        if n > best_n:
+            best, best_n = lang, n
+    return best if best_n >= 2 else ""
+
+def _export_rows(out, name):
+    """Derive the atlas model rows (run, experts, passages, edges) from a built run."""
+    meta = json.load(open(os.path.join(out, "genes.json")))
+    try:
+        cfg = json.load(open(os.path.join(out, "config.json")))
+    except FileNotFoundError:
+        cfg = {}
+    tiling = {}
+    tp = os.path.join(out, "tiling.tsv")
+    if os.path.exists(tp):
+        for line in open(tp).read().splitlines()[1:]:
+            f = line.split("\t")
+            if len(f) >= 8:
+                tiling[int(f[0])] = (float(f[5]), float(f[6]), float(f[7]))
+    chunks = load_index(out)
+    nbpath = os.path.join(out, "neighbors.bin")
+    nbtable = NeighborTable(nbpath) if (cfg.get("locus") == "content" and os.path.exists(nbpath)) else None
+    fd = os.open(os.path.join(out, "territory.txt"), os.O_RDONLY)
+
+    def cids(g):
+        if nbtable is not None:
+            return nbtable.neighbors(g["start"])[:g["span"]]
+        return list(range(g["start"], min(g["start"] + g["span"], len(chunks))))
+
+    def readc(cid):
+        o, l = chunks[cid]
+        return os.pread(fd, l, o).decode("utf-8", "ignore").strip()
+
+    survivors = [g for g in meta["genes"] if g.get("n_owned", 0) > 0]
+    experts, passages = [], []
+    for g in survivors:
+        terms, sample = _expert_profile(out, g, cfg)
+        cen, lo, hi = tiling.get(g["expert"], (g["start"] / max(1, len(chunks)), 0.0, 1.0))
+        experts.append({
+            "run": name, "expert_id": g["expert"], "brain_path": g["brain"],
+            "mapbits": g.get("mapbits", 22), "orders": ",".join(map(str, g.get("orders", [2, 4, 7]))),
+            "marginal": g.get("marginal", 0.0), "n_owned": g.get("n_owned", 0),
+            "centroid": cen, "pos_lo": lo, "pos_hi": hi,
+            "label": guess_label(sample, terms), "terms": ",".join(terms), "sample": sample[:400],
+        })
+        for cid in cids(g)[:4]:
+            t = readc(cid)
+            if t:
+                passages.append({"run": name, "expert_id": g["expert"], "text": t[:320]})
+    os.close(fd)
+
+    ids = {g["expert"] for g in survivors}
+    edges = []
+    gp = os.path.join(out, "graph.tsv")
+    if os.path.exists(gp):
+        for line in open(gp).read().splitlines()[1:]:
+            f = line.split("\t")
+            if len(f) >= 3 and int(f[0]) in ids and int(f[1]) in ids:
+                edges.append({"run": name, "src_expert_id": int(f[0]),
+                              "dst_expert_id": int(f[1]), "weight": int(f[2])})
+    run = {"name": name, "corpus": cfg.get("corpus", ""),
+           "coverage_bpb": meta.get("coverage_bpb", 0.0), "n_experts": len(survivors),
+           "config_json": json.dumps(cfg, ensure_ascii=False)}
+    return run, experts, passages, edges
+
+def _export_csv(dest, run, experts, passages, edges):
+    import csv
+    def dump(fname, rows, fields):
+        with open(os.path.join(dest, fname), "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            w.writerows(rows)
+    dump("run.csv", [run], list(run.keys()))
+    dump("experts.csv", experts, list(experts[0].keys()) if experts else
+         ["run", "expert_id", "brain_path", "mapbits", "orders", "marginal", "n_owned",
+          "centroid", "pos_lo", "pos_hi", "label", "terms", "sample"])
+    dump("passages.csv", passages, ["run", "expert_id", "text"])
+    dump("edges.csv", edges, ["run", "src_expert_id", "dst_expert_id", "weight"])
+
+def _export_sqlite(path, run, experts, passages, edges):
+    import sqlite3
+    if os.path.exists(path):
+        os.remove(path)
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE run(name TEXT PRIMARY KEY, corpus TEXT, coverage_bpb REAL,
+                         n_experts INTEGER, config_json TEXT);
+        CREATE TABLE expert(run TEXT, expert_id INTEGER, brain_path TEXT, mapbits INTEGER,
+                            orders TEXT, marginal REAL, n_owned INTEGER, centroid REAL,
+                            pos_lo REAL, pos_hi REAL, label TEXT, terms TEXT, sample TEXT,
+                            PRIMARY KEY(run, expert_id));
+        CREATE TABLE passage(run TEXT, expert_id INTEGER, text TEXT);
+        CREATE TABLE edge(run TEXT, src_expert_id INTEGER, dst_expert_id INTEGER, weight INTEGER);
+    """)
+    db.execute("INSERT INTO run VALUES(:name,:corpus,:coverage_bpb,:n_experts,:config_json)", run)
+    db.executemany("INSERT INTO expert VALUES(:run,:expert_id,:brain_path,:mapbits,:orders,"
+                   ":marginal,:n_owned,:centroid,:pos_lo,:pos_hi,:label,:terms,:sample)", experts)
+    db.executemany("INSERT INTO passage VALUES(:run,:expert_id,:text)", passages)
+    db.executemany("INSERT INTO edge VALUES(:run,:src_expert_id,:dst_expert_id,:weight)", edges)
+    db.commit()
+    db.close()
+
+def cmd_export(a):
+    name = a.name or os.path.basename(os.path.normpath(a.out))
+    run, experts, passages, edges = _export_rows(a.out, name)
+    dest = a.dest or a.out
+    os.makedirs(dest, exist_ok=True)
+    if a.format in ("csv", "both"):
+        _export_csv(dest, run, experts, passages, edges)
+    if a.format in ("sqlite", "both"):
+        _export_sqlite(os.path.join(dest, "atlas.db"), run, experts, passages, edges)
+    print(f"[export] {name}: {len(experts)} experts, {len(passages)} passages, "
+          f"{len(edges)} edges -> {dest}/ ({a.format})")
+
+# ----------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description="evolve atn brains that tile a corpus")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -904,6 +1040,14 @@ def main():
                     help="flag lines at/above this bpb (default: ~1.6x the corpus bpb)")
     nv.add_argument("files", nargs="*", help="files to score (stdin if none)")
     nv.set_defaults(func=cmd_novelty)
+
+    ex = sub.add_parser("export", help="export a built run to portable CSV / SQLite "
+                        "(model-shaped tables for Django or any downstream consumer)")
+    ex.add_argument("--out", required=True, help="the built run directory")
+    ex.add_argument("--name", default=None, help="run name in the export (default: dir name)")
+    ex.add_argument("--dest", default=None, help="output directory (default: the run dir)")
+    ex.add_argument("--format", choices=["csv", "sqlite", "both"], default="both")
+    ex.set_defaults(func=cmd_export)
 
     a = ap.parse_args()
     a.func(a)
