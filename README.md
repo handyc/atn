@@ -8,10 +8,11 @@ patterns, routines, and anomalies live inside this exact file?).
 > `./demo-news.sh` streams 1920–1940 news from the AmericanStories archive,
 > cleans it, evolves a population of GA "brains" over it, then runs example
 > classify / novelty / mixture queries — end to end in ~5 minutes.
-> `./demo-languages.sh` does the same over a five-language Wikipedia corpus,
-> where the experts separate crisply by language (an English query lights up
-> the English expert, French the French one…) — the clearest view of what an
-> expert specialises in. See [GA.md](GA.md) for the mixture-of-experts both build.
+> `./demo-languages.sh` does the same over a seven-language Wikipedia corpus
+> (en/nl/fr/de/es/it/zh), where the experts separate crisply by language (an
+> English query lights up the English expert, Dutch the Dutch one, Chinese the
+> Chinese one…) — the clearest view of what an expert specialises in. See
+> [GA.md](GA.md) for the mixture-of-experts both build.
 
 It answers three questions about any file:
 

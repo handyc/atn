@@ -1,9 +1,9 @@
 #!/bin/sh
 # demo-languages.sh — the crisp-separation companion to demo-news.sh.
 #
-# Builds atn, fetches random Wikipedia articles in FIVE languages, shuffles them
-# into one corpus, then evolves a population of GA brains over it. On mixed
-# languages the experts self-organise into one-per-language territories — so
+# Builds atn, fetches random Wikipedia articles in SEVEN languages (including
+# Dutch and Chinese), shuffles them into one corpus, then evolves a population
+# of GA brains. On mixed languages the experts self-organise by language — so
 # `lightup`/`classify` route an English sentence to the English expert, a French
 # sentence to the French expert, etc. This is the clearest showcase for the
 # "what does each expert specialise in?" feature: the answer is a different
@@ -30,12 +30,15 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # 1. fetch random Wikipedia articles in 5 languages (one cleaned article per line)
-say "fetch — random Wikipedia articles in en / fr / de / es / it"
+say "fetch — random Wikipedia articles in en / nl / fr / de / es / it / zh"
 python3 - "$WORK/corpus.txt" <<'PY'
 import json, sys, random, urllib.request, urllib.parse
 out = sys.argv[1]
-LANGS = ["en", "fr", "de", "es", "it"]
-PER_LANG = 90                     # target articles per language
+# Chinese (zh) is handled too: atn tokenises each CJK character as its own
+# "word", so Chinese chunks get real content signatures and cluster like the
+# space-delimited languages. Dutch (nl) is close to German — a nice stress test.
+LANGS = ["en", "nl", "fr", "de", "es", "it", "zh"]
+PER_LANG = 75                     # target articles per language
 UA = "atn-demo/1.0 (educational; https://github.com/handyc/atn)"
 
 def grab(lang, n):
@@ -89,8 +92,8 @@ say "evolve — GA population (content loci) for ~${GA_MIN} min"
 echo "  (experts should self-organise into one territory per language)"
 rm -rf demo-langs
 python3 atn-ga.py run --corpus "$WORK/clean.txt" --out demo-langs \
-    --pop 24 --minutes "$GA_MIN" --chunk-on '.' --locus content --evolve-orders \
-    --eval-frac 0.06 2>&1 | grep -E "chunks=|content index|gen|budget|honesty|best\]"
+    --pop 28 --minutes "$GA_MIN" --chunk-on '.' --locus content --evolve-orders \
+    --span-mb 0.05 --eval-frac 0.08 2>&1 | grep -E "chunks=|content index|gen|budget|honesty|best\]"
 echo "  $(elapsed)"
 
 # 4. example queries — each language should route to its own expert
@@ -98,10 +101,12 @@ say "classify — route a sentence in each language to its best-fit expert"
 echo "  (watch the expert id change from language to language)"
 printf '%s\n' \
   "the government passed a new law on trade and taxation this year" \
+  "de regering heeft een nieuwe wet over handel en belastingen aangenomen" \
   "le gouvernement a adopté une nouvelle loi sur le commerce et les impots" \
   "die Regierung verabschiedete ein neues Gesetz über Handel und Steuern" \
   "el gobierno aprobó una nueva ley sobre el comercio y los impuestos" \
   "il governo ha approvato una nuova legge sul commercio e sulle tasse" \
+  "政府今年通过了一项关于贸易和税收的新法律" \
   | python3 atn-ga.py classify --out demo-langs
 
 say "lightup — route ONE query and SEE the chosen expert's own vocabulary"
@@ -109,9 +114,13 @@ echo "  English query -> English expert (its words should be English):"
 python3 atn-ga.py lightup --out demo-langs \
   "the river flows north through the mountains into the sea near the old city"
 echo
-echo "  French query -> French expert (its words should be French):"
+echo "  Dutch query -> Dutch expert (its words should be Dutch, not German):"
 python3 atn-ga.py lightup --out demo-langs \
-  "le fleuve traverse la ville et se jette dans la mer au nord du pays"
+  "de rivier stroomt door de bergen naar de zee bij de oude stad in het noorden"
+echo
+echo "  Chinese query -> Chinese expert (its 'words' are Chinese characters):"
+python3 atn-ga.py lightup --out demo-langs \
+  "这条河流穿过山脉向北流入大海靠近那座古老的城市和港口"
 
 say "novelty — flag text unlike anything in the corpus"
 echo "  (gibberish and an unseen script score as out-of-distribution)"
@@ -130,10 +139,11 @@ cat <<'GUIDE'
 
 ────────────────────────────────────────────────────────────────────
 WHAT YOU JUST SAW
-  We grew a POPULATION of tiny "expert" models over a corpus mixing five
-  languages. A genetic algorithm grouped articles by shared vocabulary —
-  and with languages mixed together, the cleanest grouping IS by language,
-  so each expert becomes a per-language specialist on its own.
+  We grew a POPULATION of tiny "expert" models over a corpus mixing seven
+  languages (en/nl/fr/de/es/it/zh). A genetic algorithm grouped articles by
+  shared vocabulary — and with languages mixed together, the cleanest
+  grouping IS by language, so each expert becomes a per-language specialist
+  on its own. (Chinese works too: atn treats each character as a token.)
 
     classify : each sentence routes to an expert specialised in its language
     lightup  : shows the chosen expert's actual words — a whole language

@@ -678,10 +678,24 @@ static bool load_weights(model *M, uint64_t expect_tlen, const char *path) {
 static bool is_texty(const unsigned char *d, size_t n) {
     if (n == 0) return false;
     size_t check = n < 8192 ? n : 8192, printable = 0, nul = 0;
-    for (size_t i = 0; i < check; i++) {
+    for (size_t i = 0; i < check; ) {
         unsigned char c = d[i];
-        if (c == 0) nul++;
-        if (isprint(c) || c == '\n' || c == '\r' || c == '\t') printable++;
+        if (c == 0) { nul++; i++; continue; }
+        if (c < 0x80) {                       /* ASCII: printable or whitespace */
+            if (isprint(c) || c == '\n' || c == '\r' || c == '\t') printable++;
+            i++; continue;
+        }
+        /* Accept valid UTF-8 multibyte runs as text (non-Latin scripts — Chinese,
+         * Cyrillic, accents…), so non-English corpora aren't mistaken for binary.
+         * Stray high bytes / bad continuations still count against the ratio. */
+        int len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 0;
+        if (len && i + (size_t)len <= check) {
+            int ok = 1;
+            for (int k = 1; k < len; k++)
+                if ((d[i + k] & 0xC0) != 0x80) { ok = 0; break; }
+            if (ok) { printable += (size_t)len; i += (size_t)len; continue; }
+        }
+        i++;
     }
     return nul == 0 && (double)printable / (double)check > 0.90;
 }

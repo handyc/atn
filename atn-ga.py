@@ -654,7 +654,9 @@ def _load_run_config(out):
     except FileNotFoundError:
         return {}
 
-_TOK = re.compile(r"[a-zà-ÿ]{4,}")          # alphabetic words, ≥4 chars (skips OCR cruft)
+# Latin words ≥4 chars (skips OCR cruft) OR a single CJK character (Chinese has
+# no word spaces, so each character is its own token — mirrors content.c).
+_TOK = re.compile(r"[a-zà-ÿ]{4,}|[㐀-鿿]")
 
 def _expert_profile(out, gene, cfg, n_words=10, cap_chunks=40, baseline=1200):
     """Describe an expert by reading the text it actually trained on. Returns
@@ -702,10 +704,10 @@ def _expert_profile(out, gene, cfg, n_words=10, cap_chunks=40, baseline=1200):
             text = read_chunk(cid)
             tf.update(w for w in _TOK.findall(text.lower()) if w not in _STOP)
             for ln in text.splitlines():
-                toks = ln.split()
-                if len(toks) >= 8 and sum(t.isalpha() for t in toks) / len(toks) > 0.6:
-                    if len(cands) < 120:
-                        cands.append(ln.strip())
+                # a usable sample line has ≥8 real tokens (Latin words or CJK
+                # chars) — works whether or not the language uses spaces.
+                if len(cands) < 120 and len(_TOK.findall(ln.lower())) >= 8:
+                    cands.append(ln.strip())
     finally:
         os.close(fd)
 

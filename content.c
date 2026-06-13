@@ -88,21 +88,37 @@ static int cp_in_class(uint32_t cp) {            /* [a-z à-ÿ 0-9 '] */
     return (cp >= 'a' && cp <= 'z') || (cp >= 0xE0 && cp <= 0xFF) ||
            (cp >= '0' && cp <= '9') || cp == '\'';
 }
-/* append the UTF-8 encoding of (<=2-byte) code point cp to buf at *n */
+/* CJK ideographs: Chinese (and shared Han) has no word spaces, so each
+ * character is treated as its own one-character "word" for signatures. */
+static int cp_is_cjk(uint32_t cp) {
+    return cp >= 0x3400 && cp <= 0x9FFF;
+}
+/* append the UTF-8 encoding of code point cp (up to 3 bytes) to buf at *n */
 static void cp_emit(unsigned char *buf, size_t *n, uint32_t cp) {
-    if (cp < 0x80) buf[(*n)++] = (unsigned char)cp;
-    else { buf[(*n)++] = 0xC0 | (cp >> 6); buf[(*n)++] = 0x80 | (cp & 0x3F); }
+    if (cp < 0x80) {
+        buf[(*n)++] = (unsigned char)cp;
+    } else if (cp < 0x800) {
+        buf[(*n)++] = 0xC0 | (cp >> 6); buf[(*n)++] = 0x80 | (cp & 0x3F);
+    } else {
+        buf[(*n)++] = 0xE0 | (cp >> 12);
+        buf[(*n)++] = 0x80 | ((cp >> 6) & 0x3F);
+        buf[(*n)++] = 0x80 | (cp & 0x3F);
+    }
 }
 
-/* Tokenise [text,text+len); for each token call cb(word,wlen,udata). */
+/* Tokenise [text,text+len); for each token call cb(word,wlen,udata). Latin
+ * runs form words; each CJK character is its own token (no spaces in Chinese). */
 typedef void (*tok_cb)(const unsigned char *word, size_t wlen, void *udata);
 static void tokenize(const unsigned char *text, size_t len, tok_cb cb, void *udata) {
     unsigned char tok[1024];
     size_t tn = 0, i = 0;
     while (i < len) {
         size_t adv; uint32_t cp = cp_lower(utf8_decode(text + i, len - i, &adv));
-        if (cp_in_class(cp)) {
-            if (tn < sizeof(tok) - 2) cp_emit(tok, &tn, cp);  /* clamp absurd tokens */
+        if (cp_is_cjk(cp)) {
+            if (tn) { cb(tok, tn, udata); tn = 0; }       /* flush pending Latin word */
+            unsigned char c[4]; size_t cn = 0; cp_emit(c, &cn, cp); cb(c, cn, udata);
+        } else if (cp_in_class(cp)) {
+            if (tn < sizeof(tok) - 4) cp_emit(tok, &tn, cp);  /* clamp absurd tokens */
         } else if (tn) { cb(tok, tn, udata); tn = 0; }
         i += adv;
     }
@@ -174,6 +190,18 @@ static void df_cb(const unsigned char *w, size_t wlen, void *u) {
     int32_t id = vmap_intern(c->v, w, wlen, crc32_buf(w, wlen));
     Vocab *e = &c->v->e[id];
     if (e->lastchunk != c->chunk) { e->df++; e->lastchunk = c->chunk; }  /* once per chunk */
+}
+
+/* pass 2: accumulate a chunk's df-filtered ("kept") words + term frequencies. */
+typedef struct { VMap *v; int32_t *touched; size_t ntouch, nkept; } SigCtx;
+static void sig_cb(const unsigned char *w, size_t wlen, void *u) {
+    SigCtx *c = u;
+    int32_t id = vmap_intern(c->v, w, wlen, crc32_buf(w, wlen));
+    Vocab *e = &c->v->e[id];
+    if (e->vid >= 0) {                          /* survived the df filter */
+        if (e->tmpcount == 0) { c->touched[c->ntouch++] = id; c->nkept++; }
+        e->tmpcount++;
+    }
 }
 
 /* SimHash hyperplane signs for a kept word: two crc32s per 64-bit half,
@@ -283,30 +311,10 @@ int content_build_neighbors(const char *territory, const char *index,
     double *acc = simhash ? malloc(SIG_BITS * sizeof(double)) : NULL;
     int32_t *touched = malloc(V.count * sizeof(int32_t));   /* worst case */
     for (size_t i = 0; i < n; i++) {
-        /* gather this chunk's kept words with term frequencies */
-        size_t ntouch = 0, nkept_words = 0;
-        /* inline tokenise with a closure-ish manual loop */
-        const unsigned char *text = terr + off[i]; size_t len = (size_t)clen[i];
-        unsigned char tok[1024]; size_t tn = 0, p = 0;
-        while (1) {
-            uint32_t cp; size_t adv; int flush = 0, end = 0;
-            if (p < len) { cp = cp_lower(utf8_decode(text + p, len - p, &adv)); }
-            else { end = 1; cp = 0; adv = 0; }
-            if (!end && cp_in_class(cp)) {
-                if (tn < sizeof(tok) - 2) cp_emit(tok, &tn, cp);
-            } else flush = (tn > 0);
-            if (flush) {
-                int32_t id = vmap_intern(&V, tok, tn, crc32_buf(tok, tn));
-                Vocab *e = &V.e[id];
-                if (e->vid >= 0) {                       /* a kept (df-filtered) word */
-                    if (e->tmpcount == 0) { touched[ntouch++] = id; nkept_words++; }
-                    e->tmpcount++;
-                }
-                tn = 0;
-            }
-            if (end) break;
-            p += adv;
-        }
+        /* gather this chunk's df-filtered words + term frequencies */
+        SigCtx sc = { &V, touched, 0, 0 };
+        tokenize(terr + off[i], (size_t)clen[i], sig_cb, &sc);
+        size_t ntouch = sc.ntouch, nkept_words = sc.nkept;
 
         if (simhash) {
             for (int k = 0; k < SIG_BITS; k++) acc[k] = 0.0;
@@ -350,8 +358,13 @@ int content_build_neighbors(const char *territory, const char *index,
                 score[j] = simhash ? sh_match(sh, i, j) : mh_match(mh, i, j);
             for (size_t j = 0; j < n; j++) order[j] = (int)j;
             qsort(order, n, sizeof(int), cmp_cand);
+            /* keep only chunks that share SOME vocabulary (match > 0): a gather
+             * must never spill into unrelated chunks just to fill a large span. */
             int32_t *row = table + i * (size_t)rowcap;
-            for (size_t j = 0; j < n; j++) row[j] = order[j];
+            int k = 0;
+            for (size_t j = 0; j < n; j++)
+                if (score[order[j]] > 0) row[k++] = order[j];
+            while (k < rowcap) row[k++] = -1;
         }
         free(order);
     } else {
@@ -403,9 +416,10 @@ int content_build_neighbors(const char *territory, const char *index,
             qsort(cand, nc, sizeof(int), cmp_cand);
             int32_t *row = table + i * (size_t)rowcap;
             row[0] = (int32_t)i;                     /* seed first (matches Python) */
-            int take = nc < LSH_CAP ? nc : LSH_CAP;
-            for (int c = 0; c < take; c++) row[1 + c] = cand[c];
-            for (int c = take; c < LSH_CAP; c++) row[1 + c] = -1;
+            int k = 1;                               /* keep only positive-similarity neighbours */
+            for (int c = 0; c < nc && k <= LSH_CAP; c++)
+                if (score[cand[c]] > 0) row[k++] = cand[c];
+            while (k <= LSH_CAP) row[k++] = -1;
         }
         free(ent); free(visited); free(cand);
     }
