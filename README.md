@@ -14,7 +14,11 @@ patterns, routines, and anomalies live inside this exact file?).
 > Chinese one…) — the clearest view of what an expert specialises in.
 > `./demo-code.sh` does it for *machine* text instead — C, Python, shell, x86-64
 > assembly, and hex/binary dumps sampled from the local filesystem — and the
-> experts separate by kind of code (atn on home turf). See [GA.md](GA.md) for the
+> experts separate by kind of code (atn on home turf).
+> `./demo-formal.sh` generates six *formal* notations (first-order logic, linear
+> algebra, set theory, calculus, lambda calculus, regex) — most separate cleanly,
+> while first-order logic and lambda calculus blur, an honest demonstration of the
+> method's limit (it judges surface form, not meaning). See [GA.md](GA.md) for the
 > mixture-of-experts they build.
 
 It answers three questions about any file:
