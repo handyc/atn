@@ -450,10 +450,17 @@ def cmd_run(a):
         print(f"[gen {gen:3d}] coverage={coverage:.4f} bpb   active={n_owners}/{a.pop}   "
               f"best={best_cov:.4f}{flag}")
 
-        # build the next generation (steady-state: replace the worst, keep survivors)
+        # build the next generation (steady-state: replace the worst, keep survivors).
+        # Protect every line's current owner: a minority region (e.g. one language in
+        # a multilingual corpus) is covered by a few mutually-redundant experts that
+        # each show LOW marginal, so a naive batch replace can wipe the whole cluster
+        # in one generation and never recover it. Only replace non-owners.
+        owners = set(owner)
         order = sorted(range(len(pop)), key=lambda p: marginal[p])
-        n_rep = max(1, round(len(pop) * a.replace_frac))
-        survivors = [pop[i] for i in order[n_rep:]]
+        repl = [i for i in order if i not in owners]            # worst-first, owners spared
+        n_rep = min(max(1, round(len(pop) * a.replace_frac)), len(repl))
+        dropped = set(repl[:n_rep])
+        survivors = [pop[i] for i in range(len(pop)) if i not in dropped]
         nxt = [clone(g) for g in survivors]
         while len(nxt) < a.pop:
             if rng.random() < 0.5:
