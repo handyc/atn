@@ -1284,7 +1284,7 @@ def _export_rows(out, name):
         return os.pread(fd, l, o).decode("utf-8", "ignore").strip()
 
     survivors = [g for g in meta["genes"] if g.get("n_owned", 0) > 0]
-    experts, passages = [], []
+    experts, passages, terms_rows = [], [], []
     for g in survivors:
         terms, sample = _expert_profile(out, g, cfg)
         cen, lo, hi = tiling.get(g["expert"], (g["start"] / max(1, len(chunks)), 0.0, 1.0))
@@ -1295,6 +1295,8 @@ def _export_rows(out, name):
             "centroid": cen, "pos_lo": lo, "pos_hi": hi,
             "label": guess_label(sample, terms), "terms": ",".join(terms), "sample": sample[:400],
         })
+        for rank, term in enumerate(terms, 1):
+            terms_rows.append({"run": name, "expert_id": g["expert"], "rank": rank, "term": term})
         for cid in cids(g)[:4]:
             t = readc(cid)
             if t:
@@ -1310,12 +1312,22 @@ def _export_rows(out, name):
             if len(f) >= 3 and int(f[0]) in ids and int(f[1]) in ids:
                 edges.append({"run": name, "src_expert_id": int(f[0]),
                               "dst_expert_id": int(f[1]), "weight": int(f[2])})
+
+    history = []   # the GA learning curve, from history.tsv
+    hp = os.path.join(out, "history.tsv")
+    if os.path.exists(hp):
+        for line in open(hp).read().splitlines()[1:]:
+            f = line.split("\t")
+            if len(f) >= 4:
+                history.append({"run": name, "gen": int(f[0]), "coverage_bpb": float(f[1]),
+                                "best_marginal": float(f[2]), "n_owners": int(f[3])})
+
     run = {"name": name, "corpus": cfg.get("corpus", ""),
            "coverage_bpb": meta.get("coverage_bpb", 0.0), "n_experts": len(survivors),
            "config_json": json.dumps(cfg, ensure_ascii=False)}
-    return run, experts, passages, edges
+    return run, experts, passages, edges, history, terms_rows
 
-def _export_csv(dest, run, experts, passages, edges):
+def _export_csv(dest, run, experts, passages, edges, history, terms_rows):
     import csv
     def dump(fname, rows, fields):
         with open(os.path.join(dest, fname), "w", newline="", encoding="utf-8") as f:
@@ -1328,8 +1340,10 @@ def _export_csv(dest, run, experts, passages, edges):
           "centroid", "pos_lo", "pos_hi", "label", "terms", "sample"])
     dump("passages.csv", passages, ["run", "expert_id", "text"])
     dump("edges.csv", edges, ["run", "src_expert_id", "dst_expert_id", "weight"])
+    dump("history.csv", history, ["run", "gen", "coverage_bpb", "best_marginal", "n_owners"])
+    dump("terms.csv", terms_rows, ["run", "expert_id", "rank", "term"])
 
-def _export_sqlite(path, run, experts, passages, edges):
+def _export_sqlite(path, run, experts, passages, edges, history, terms_rows):
     import sqlite3
     if os.path.exists(path):
         os.remove(path)
@@ -1343,26 +1357,32 @@ def _export_sqlite(path, run, experts, passages, edges):
                             PRIMARY KEY(run, expert_id));
         CREATE TABLE passage(run TEXT, expert_id INTEGER, text TEXT);
         CREATE TABLE edge(run TEXT, src_expert_id INTEGER, dst_expert_id INTEGER, weight INTEGER);
+        CREATE TABLE generation(run TEXT, gen INTEGER, coverage_bpb REAL, best_marginal REAL, n_owners INTEGER);
+        CREATE TABLE term(run TEXT, expert_id INTEGER, rank INTEGER, term TEXT);
     """)
     db.execute("INSERT INTO run VALUES(:name,:corpus,:coverage_bpb,:n_experts,:config_json)", run)
     db.executemany("INSERT INTO expert VALUES(:run,:expert_id,:brain_path,:mapbits,:orders,"
                    ":marginal,:n_owned,:centroid,:pos_lo,:pos_hi,:label,:terms,:sample)", experts)
     db.executemany("INSERT INTO passage VALUES(:run,:expert_id,:text)", passages)
     db.executemany("INSERT INTO edge VALUES(:run,:src_expert_id,:dst_expert_id,:weight)", edges)
+    db.executemany("INSERT INTO generation VALUES(:run,:gen,:coverage_bpb,:best_marginal,:n_owners)", history)
+    db.executemany("INSERT INTO term VALUES(:run,:expert_id,:rank,:term)", terms_rows)
     db.commit()
     db.close()
 
 def cmd_export(a):
     name = a.name or os.path.basename(os.path.normpath(a.out))
-    run, experts, passages, edges = _export_rows(a.out, name)
+    rows = _export_rows(a.out, name)
+    run, experts, passages, edges, history, terms_rows = rows
     dest = a.dest or a.out
     os.makedirs(dest, exist_ok=True)
     if a.format in ("csv", "both"):
-        _export_csv(dest, run, experts, passages, edges)
+        _export_csv(dest, *rows)
     if a.format in ("sqlite", "both"):
-        _export_sqlite(os.path.join(dest, "atlas.db"), run, experts, passages, edges)
+        _export_sqlite(os.path.join(dest, "atlas.db"), *rows)
     print(f"[export] {name}: {len(experts)} experts, {len(passages)} passages, "
-          f"{len(edges)} edges -> {dest}/ ({a.format})")
+          f"{len(edges)} edges, {len(history)} generations, {len(terms_rows)} terms "
+          f"-> {dest}/ ({a.format})")
 
 # ----------------------------------------------------------------------------
 def main():

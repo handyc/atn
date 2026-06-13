@@ -1,0 +1,42 @@
+{% extends "corpus/base.html" %}
+{% block title %}surprisal heatmap · atn atlas{% endblock %}
+{% block content %}
+  <h1>Surprisal heatmap — watch the model read</h1>
+  <p class="sub">Type any text. Each character is coloured by how <em>surprised</em>
+     the expert is to see it — <span style="background:hsl(120,75%,78%);padding:0 4px">green = predictable</span>,
+     <span style="background:hsl(0,75%,78%);padding:0 4px">red = surprising</span> (bits/byte). It's the
+     model's prediction error, made visible: low where the text matches what the
+     expert was trained on, high at boundaries and out-of-domain bits.</p>
+
+  <form class="qbox" method="get" action="{% url 'heatmap' %}" style="flex-wrap:wrap">
+    <input type="text" name="text" value="{{ text }}" autofocus style="flex:1 1 100%"
+           placeholder="e.g. the river flows north, or paste some code / another language">
+    <select name="expert" style="padding:10px;border:1px solid var(--line);border-radius:8px">
+      <option value="">auto-route to best expert</option>
+      {% for e in experts %}
+        <option value="{{ e.pk }}" {% if e.pk == sel_pk %}selected{% endif %}>
+          expert {{ e.expert_id }}{% if e.label %} — {{ e.label }}{% endif %}
+        </option>
+      {% endfor %}
+    </select>
+    <button type="submit">Read it</button>
+  </form>
+
+  {% if cells %}
+    <div class="meta">
+      read by expert {{ expert.expert_id }}{% if expert.label %} ({{ expert.label }}){% endif %}
+      · mean {{ mean }} bpb{% if not sel_pk %} · auto-routed{% endif %}
+    </div>
+    <div class="card" style="font-family:var(--mono);font-size:18px;line-height:1.9;white-space:pre-wrap;word-break:break-word">
+{% for c in cells %}<span style="background:{{ c.color }}" title="{{ c.bpb }} bpb">{{ c.ch }}</span>{% endfor %}
+    </div>
+    <div class="note">
+      Try the same sentence on different experts (the dropdown): a Dutch line is
+      smooth-green under the Dutch expert and angry-red under the Chinese one. That
+      colour difference <em>is</em> the routing signal — the model lights up where
+      surprise is lowest.
+    </div>
+  {% elif text %}
+    <p class="sub">No experts to read with (is a run imported?).</p>
+  {% endif %}
+{% endblock %}

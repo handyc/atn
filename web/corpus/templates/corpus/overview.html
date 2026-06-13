@@ -1,0 +1,52 @@
+{% extends "corpus/base.html" %}
+{% block title %}overview · atn atlas{% endblock %}
+{% block content %}
+  {% if run %}
+    <h1>{{ run.name }}</h1>
+    <p class="sub">{{ run.n_experts }} experts · {{ n_gens }} generations ·
+       final coverage <code>{{ run.coverage_bpb|floatformat:3 }}</code> bpb.
+       The chart is the GA <em>learning</em>: held-out bits/byte falling as the
+       population tiles the corpus better, generation by generation.</p>
+
+    <div class="card"><canvas id="evo" height="110"></canvas></div>
+
+    <h2>Territories</h2>
+    <div class="grid">
+      {% for e in top_experts %}
+        <a class="card" href="{% url 'territory' e.pk %}">
+          {% if e.label %}<span class="chip">{{ e.label }}</span>{% endif %}
+          <span class="eid">· expert {{ e.expert_id }} · owns {{ e.n_owned }}</span>
+          <div class="terms">{{ e.terms|truncatechars:64 }}</div>
+        </a>
+      {% endfor %}
+    </div>
+
+    <script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js"></script>
+    <script>
+      const d = {{ chart_json|safe }};
+      new Chart(document.getElementById("evo"), {
+        type: "line",
+        data: {
+          labels: d.gen,
+          datasets: [
+            {label: "coverage (bpb, ↓ better)", data: d.coverage, borderColor: "#3b5bdb",
+             backgroundColor: "rgba(59,91,219,.08)", yAxisID: "y", tension: .25, pointRadius: 0, fill: true},
+            {label: "active experts", data: d.owners, borderColor: "#e8590c",
+             yAxisID: "y1", tension: .25, pointRadius: 0},
+          ],
+        },
+        options: {
+          responsive: true, interaction: {mode: "index", intersect: false},
+          scales: {
+            y:  {position: "left",  title: {display: true, text: "bits / byte"}},
+            y1: {position: "right", title: {display: true, text: "experts"}, grid: {drawOnChartArea: false}},
+            x:  {title: {display: true, text: "generation"}, ticks: {maxTicksLimit: 12}},
+          },
+        },
+      });
+    </script>
+  {% else %}
+    <h1>No run imported</h1>
+    <p class="sub">Build a population and <code>python manage.py import_run</code>.</p>
+  {% endif %}
+{% endblock %}

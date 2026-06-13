@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from .models import Edge, Expert, Passage, Run
+from .models import Edge, Expert, Generation, Passage, Run
+
+admin.site.register(Generation)
 
 
 @admin.register(Run)

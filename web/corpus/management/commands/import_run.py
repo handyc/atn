@@ -14,7 +14,23 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from corpus.helpers import guess_label
-from corpus.models import Edge, Expert, Passage, Run
+from corpus.models import Edge, Expert, Generation, Passage, Run
+
+
+def _load_history(run):
+    """Load the GA learning curve from <run_dir>/history.tsv (gen, coverage_bpb,
+    best_marginal, n_owners) into Generation rows."""
+    path = os.path.join(run.run_dir, "history.tsv")
+    if not os.path.exists(path):
+        return 0
+    n = 0
+    for line in open(path).read().splitlines()[1:]:
+        f = line.split("\t")
+        if len(f) >= 4:
+            Generation.objects.create(run=run, gen=int(f[0]), coverage_bpb=float(f[1]),
+                                      best_marginal=float(f[2]), n_owners=int(f[3]))
+            n += 1
+    return n
 
 
 def _load_atnga():
@@ -117,9 +133,10 @@ class Command(BaseCommand):
                                         weight=int(f[2]))
                     n_edges += 1
 
+        n_gen = _load_history(run)
         self.stdout.write(self.style.SUCCESS(
             f"imported '{run.name}': {len(survivors)} experts, {n_edges} edges, "
-            f"coverage {run.coverage_bpb:.3f} bpb"))
+            f"{n_gen} generations, coverage {run.coverage_bpb:.3f} bpb"))
 
     def _import_from_db(self, db_path, run_dir, atn_path, name):
         """Load a portable atlas.db (from `atn-ga.py export`). The structured data
@@ -159,6 +176,7 @@ class Command(BaseCommand):
                                     dst=by_id[r["dst_expert_id"]], weight=r["weight"])
                 n_edges += 1
         db.close()
+        _load_history(run)
         self.stdout.write(self.style.SUCCESS(
             f"imported '{run.name}' from {os.path.basename(db_path)}: "
             f"{len(by_id)} experts, {n_edges} edges, coverage {run.coverage_bpb:.3f} bpb"))

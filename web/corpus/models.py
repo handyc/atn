@@ -75,3 +75,15 @@ class Edge(models.Model):
     src = models.ForeignKey(Expert, related_name="out_edges", on_delete=models.CASCADE)
     dst = models.ForeignKey(Expert, related_name="in_edges", on_delete=models.CASCADE)
     weight = models.IntegerField(default=1)
+
+
+class Generation(models.Model):
+    """One generation of the GA run — the learning curve (from history.tsv)."""
+    run = models.ForeignKey(Run, related_name="history", on_delete=models.CASCADE)
+    gen = models.IntegerField()
+    coverage_bpb = models.FloatField(default=0.0)
+    best_marginal = models.FloatField(default=0.0)
+    n_owners = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["gen"]

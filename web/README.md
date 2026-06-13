@@ -58,6 +58,13 @@ project's own loader — nothing about the export depends on this app.
 
 - **Atlas** (`/`) — every surviving expert as a card (guessed language label,
   distinctive vocabulary, a sample line).
+- **Overview** (`/overview/`) — the GA learning curve (held-out bits/byte and
+  active-expert count over generations, Chart.js) plus a territory grid.
+- **Heatmap** (`/heatmap/`) — the teaching centrepiece: type any text and see it
+  coloured per character by how surprised the expert is (green = predictable,
+  red = surprising). Auto-routes to the best-fit expert, or pick one — the same
+  Dutch line is green under the Dutch expert and red under the Chinese one, which
+  *is* the routing signal made visible. (atn `--score-bytes` under the hood.)
 - **Territory** (`/expert/<id>/`) — one expert in detail: terms, sample passages,
   related experts from the routing graph.
 - **Live query** (`/query/`) — type text; every expert scores its surprisal

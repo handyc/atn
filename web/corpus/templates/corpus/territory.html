@@ -14,11 +14,29 @@
 
   <h2>Distinctive vocabulary</h2>
   <div class="terms">{{ e.terms|default:"—" }}</div>
+  {% if e.term_list %}<div class="card" style="margin-top:8px"><canvas id="terms" height="120"></canvas></div>{% endif %}
 
   <h2>Sample passages from its territory</h2>
   {% for p in passages %}
     <div class="card" style="margin-bottom:10px"><div class="sample" style="font-style:normal">{{ p.text }}</div></div>
   {% empty %}<p class="sub">none</p>{% endfor %}
+
+  {% if e.term_list %}
+  <script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js"></script>
+  <script>
+    const terms = {{ e.term_list|safe }};
+    new Chart(document.getElementById("terms"), {
+      type: "bar",
+      data: {labels: terms, datasets: [{
+        label: "distinctiveness rank (TF-IDF order)",
+        data: terms.map((_, i) => terms.length - i),
+        backgroundColor: "#3b5bdb",
+      }]},
+      options: {indexAxis: "y", plugins: {legend: {display: false}},
+                scales: {x: {display: false}}},
+    });
+  </script>
+  {% endif %}
 
   <h2>Related experts (routing graph)</h2>
   {% for n in neighbors %}

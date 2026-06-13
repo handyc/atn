@@ -61,3 +61,38 @@ def score_query(run, text, timeout=30):
         results.append((bpb, e))
     results.sort(key=lambda x: x[0])
     return results
+
+
+def bpb_color(bpb, lo=0.5, hi=6.0):
+    """Map a surprisal (bits/byte) to a colour: low = green (predictable),
+    high = red (surprising). Fixed absolute scale so colours mean the same thing
+    across texts."""
+    t = max(0.0, min(1.0, (bpb - lo) / (hi - lo)))
+    return f"hsl({(1 - t) * 120:.0f}, 75%, 78%)"
+
+
+def score_chars(run, expert, text, timeout=30):
+    """Per-CHARACTER surprisal of `text` under one expert's brain (atn
+    --score-bytes), as [{ch, bpb, color}, ...]. Multibyte chars get the mean of
+    their bytes' bits. This is the 'watch the model read' heatmap."""
+    text = (text or "").rstrip("\n")
+    if not text:
+        return []
+    try:
+        r = subprocess.run(
+            [run.atn_path, "--score-bytes", "--brain", expert.brain_abspath,
+             "--map-bits", str(expert.mapbits), "--orders", expert.orders],
+            input=(text + "\n").encode("utf-8", "ignore"),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout,
+        )
+        lines = r.stdout.decode("utf-8", "ignore").splitlines()
+        vals = [float(x) for x in lines[0].split()] if lines else []
+    except Exception:
+        vals = []
+    out, bi = [], 0
+    for ch in text:
+        n = len(ch.encode("utf-8", "ignore"))
+        chunk = vals[bi:bi + n]; bi += n
+        bpb = sum(chunk) / len(chunk) if chunk else 0.0
+        out.append({"ch": ch, "bpb": round(bpb, 2), "color": bpb_color(bpb)})
+    return out
