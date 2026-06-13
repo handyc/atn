@@ -4,7 +4,9 @@ A C utility that looks very closely at files — both at the macro level (what
 *kind* of thing is this, numerically?) and the micro level (what specific
 patterns, routines, and anomalies live inside this exact file?).
 
-> **Try the whole thing in one command** (clean clone, no data needed):
+> **Try the whole thing in one command** (clean clone, no data needed).
+> `./demo-all.sh` runs all four corpus demos below back to back (~20 min);
+> or run any one on its own:
 > `./demo-news.sh` streams 1920–1940 news from the AmericanStories archive,
 > cleans it, evolves a population of GA "brains" over it, then runs example
 > classify / novelty / mixture queries — end to end in ~5 minutes.
@@ -16,10 +18,10 @@ patterns, routines, and anomalies live inside this exact file?).
 > assembly, and hex/binary dumps sampled from the local filesystem — and the
 > experts separate by kind of code (atn on home turf).
 > `./demo-formal.sh` generates six *formal* notations (first-order logic, linear
-> algebra, set theory, calculus, lambda calculus, regex) — most separate cleanly,
-> while first-order logic and lambda calculus blur, an honest demonstration of the
-> method's limit (it judges surface form, not meaning). See [GA.md](GA.md) for the
-> mixture-of-experts they build.
+> algebra, set theory, calculus, lambda calculus, regex) and separates all six —
+> the close call being first-order logic vs lambda calculus, which share a surface
+> shape (binder + variables + parens) yet still split once ∀ and λ are tokenized.
+> See [GA.md](GA.md) for the mixture-of-experts they build.
 
 It answers three questions about any file:
 

@@ -8,12 +8,13 @@
 # network, no local data. Then we evolve a population over the mix and see which
 # experts form.
 #
-# Honest result, baked into the closing notes: this is where the method's
-# resolution runs out. Calculus, lambda calculus, linear algebra and regex form
-# clean, operator-labelled territories — but first-order logic and set theory
-# tend to BLUR into look-alike neighbours (to a byte/word n-gram, `∀x (P(x) →
-# Q(x))` and `λx. f (x x)` are the *same shape*: binder + variables + parens +
-# arrow). The model separates by surface form, not meaning — and these share it.
+# The interesting bit, baked into the closing notes: all six DO separate, but
+# first-order logic and lambda calculus are the closest call — to a byte/word
+# n-gram, `∀x (P(x) → Q(x))` and `λx. f (x x)` are the *same shape* (binder +
+# variables + parens + arrow). Telling them apart needs (a) the symbol-aware
+# tokeniser, so ∀ and λ are distinct tokens, and (b) enough generations — on a
+# short budget they're the last to resolve. The method reads surface form, and
+# these two systems share more of it than any natural language or code pair.
 #
 #   ./demo-formal.sh [MINUTES]      # total time target, default 6
 #
@@ -131,8 +132,8 @@ echo "  $(elapsed)"
 
 # 3. example queries — most systems route to their own expert; some look-alikes blur
 say "classify — route a worksheet of each system to its best-fit expert"
-echo "  (calculus / linear algebra / lambda / regex should land cleanly;"
-echo "   watch first-order logic and set theory — they often share a look-alike)"
+echo "  (all six should land on their own expert; first-order logic and lambda"
+echo "   calculus are the closest pair — same surface shape — so the most evolved)"
 printf '%s\n' \
   "∀x (Human(x) → Mortal(x)) ∧ ∃y Loves(socrates, y) ; ∀z (King(z) → Wise(z)) ; ¬Even(plato)" \
   "det(A) = -3 ; A = [[1,2],[3,4]] ; transpose(B) * v = b ; eigenvalues(M) = {2,5} ; rank(A) = 2" \
@@ -147,8 +148,9 @@ echo "  linear algebra (separates cleanly — should show det / transpose / eige
 python3 atn-ga.py lightup --out demo-formal \
   "eigenvalues(A) = {2,5} ; det(B) = 7 ; transpose(M) * w = c ; rank(A) = 3 ; trace(N) = 1"
 echo
-echo "  first-order logic (the hard case — note it often lights up the λ expert,"
-echo "  because a quantifier+variable+parens body looks just like a lambda term):"
+echo "  first-order logic (the closest call — a quantifier+variable+parens body"
+echo "  looks just like a lambda term; once ∀ and λ are tokens it still separates,"
+echo "  its profile should show ∀ ∃ ∧ ¬ and predicate names):"
 python3 atn-ga.py lightup --out demo-formal \
   "∀x ∃y (Parent(x,y) → Mortal(y)) ∧ Wise(socrates) ; ∀z (Prime(z) → ¬Even(z))"
 
@@ -169,31 +171,33 @@ say "done in $(( $(date +%s) - T0 ))s"
 cat <<'GUIDE'
 
 ────────────────────────────────────────────────────────────────────
-WHAT YOU JUST SAW  (and where the method's resolution runs out)
+WHAT YOU JUST SAW
   Same machinery as the language and code demos, on a corpus GENERATED from
   the grammars of six formal systems. The symbol-aware tokenizer lets each
-  cluster on its defining operators, and most do separate:
+  cluster on its defining operators, and all six separate into their own
+  expert, each labelled by what defines it:
 
-    calculus        ∫ ∂ Σ lim sin cos exp
-    lambda calculus λ compose succ true church pair
-    linear algebra  det transpose eigenvalues rank trace
-    regex           [[:alnum:]] digit host match \d \w
+    first-order logic ∀ ∃ ∧ ¬ → + predicate names
+    set theory        ∈ ∪ ∩ ⊆ ∅ powerset complement
+    calculus          ∫ ∂ Σ lim sin cos exp
+    lambda calculus   λ compose succ true church pair
+    linear algebra    det transpose eigenvalues rank trace
+    regex             [[:alnum:]] digit host match \d \w
 
-  BUT first-order logic and set theory tend to BLUR into look-alikes. This is
-  the honest finding, not a bug: atn judges text by its SURFACE FORM, and to a
-  byte/word n-gram
+  The interesting part is the CLOSEST CALL: first-order logic vs lambda
+  calculus. atn judges text by its SURFACE FORM, and to a byte/word n-gram
 
         ∀x (P(x) → Q(x))        and        λx. f (x x)
 
   are the same shape — a binder, single-letter variables, parentheses, an
-  arrow. They mean utterly different things; they *look* identical. Natural
-  languages and code separated cleanly because their surfaces differ a lot;
-  these formal systems share theirs. Formal notation is also ultra-low-entropy
-  (corpus ≈ 1 bit/byte vs ~3 for prose), so the experts sit very close and
+  arrow. They still separate, but only because (a) the tokenizer now treats ∀
+  and λ as distinct symbols and (b) the population evolved long enough; on a
+  short budget they're the last pair to resolve. Formal notation is also ultra-
+  low-entropy (corpus ≈ 1 bit/byte vs ~3 for prose), so experts sit close and
   short queries route unreliably — trust longer worksheets and the rankings.
 
-  The lesson of this demo is its limit: surface statistics ≠ meaning. Telling
-  ∀ from λ needs a model of what the symbols DO, which n-grams don't have.
+  The takeaway: surface statistics carry you surprisingly far — even ∀ vs λ,
+  which look identical, are separable — but it's still surface, not meaning.
 
 TRY IT YOURSELF
   python3 atn-ga.py lightup  --out demo-formal "a worksheet of formulas"
