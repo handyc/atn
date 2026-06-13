@@ -33,3 +33,7 @@ ga-run/
 
 # ...but DO track the text manual (overrides *.txt above)
 !MANUAL.txt
+
+# python bytecode
+__pycache__/
+*.pyc
