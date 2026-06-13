@@ -155,7 +155,9 @@ handle silently trained brains on the wrong bytes and made runs non-reproducible
 
 An evolved `RUNDIR/` is a routable **mixture of cheap experts over your corpus** —
 no GPU, counts not gradients. It is good at *judging* and *organizing* text, not
-*generating* it (these are n-gram surprisal models). Four ready-to-use commands:
+*generating* it (these are n-gram surprisal models). The driver is pure Python
+standard library (no numpy); the signatures + neighbour table are computed in C
+(`atn --neighbors`). Five ready-to-use commands:
 
 ```
 # 1. CLASSIFY — route each line to its best-fitting expert (topic/lang/shard),
@@ -168,12 +170,23 @@ echo "the troops advanced at dawn" | classify.sh RUNDIR
 novelty.sh RUNDIR file.txt          # NOVELTY_THRESHOLD=4 to override
 
 # 3. LIGHTUP — which expert "lights up" for one query, plus its graph neighbours.
+#    Also prints what that expert specialises in (distinctive words + a sample
+#    line read from its own training articles) and a plain-English legend.
 python3 atn-ga.py lightup --out RUNDIR "some query text"
 
 # 4. MIXTURE — the population AS a corpus language model: deployable bits/byte
 #    (typicality scorer / compressor front-end).
 python3 atn-ga.py mixture --out RUNDIR
+
+# 5. EXPORT — portable, framework-agnostic model data: experts/passages/edges as
+#    CSV plus a self-contained atlas.db (tables run/expert/passage/edge).
+python3 atn-ga.py export --out RUNDIR --format both
 ```
+
+The exported `atlas.db` / CSVs are meant to be loaded into any downstream
+project. **[web/](web/)** is one: a Django "corpus atlas" that browses each
+territory's distinctive vocabulary, visualises the routing graph, and routes
+**live queries** against the real brains.
 
 Plus two artifacts you can consume directly: `tiling.tsv` is the corpus carved
 into coherent topical slices (each expert's territory) — a label-free sharding you
@@ -199,6 +212,9 @@ python3 atn-ga.py lightup --out RUNDIR "some query text"
 
 # soft online mixture of experts vs single brain / hindsight oracle
 python3 atn-ga.py mixture --out RUNDIR
+
+# export the run as portable CSV + SQLite (model-shaped tables)
+python3 atn-ga.py export --out RUNDIR --format both   # csv | sqlite | both
 ```
 
 `run` options (all have sensible defaults):
@@ -242,6 +258,17 @@ genes.json      final population: genes, marginals, coverage
 tiling.tsv      which region each surviving expert owns (centroid, range)
 graph.tsv       routing graph: owner -> fallback edges with weights
 graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
+```
+
+And, after `export`, portable model-shaped data for downstream consumers:
+
+```
+atlas.db        SQLite: tables run / expert / passage / edge (mirrors the web models)
+experts.csv     run, expert_id, brain_path, mapbits, orders, marginal, n_owned,
+                centroid, pos_lo, pos_hi, label, terms, sample
+passages.csv    run, expert_id, text        (a few sample passages per expert)
+edges.csv       run, src_expert_id, dst_expert_id, weight
+run.csv         name, corpus, coverage_bpb, n_experts, config_json
 ```
 
 ## Honest limits & next steps
@@ -296,6 +323,22 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
   the fixed-share leak is what lets it track. Line-level mixing can't do this —
   line-probabilities are too peaked for a second expert to matter, so the gain
   has to come per byte.
+- **Non-Latin scripts (`./demo-languages.sh`, implemented).** The pipeline was
+  ASCII-centric in three places that silently dropped non-Latin text; all three
+  now accept UTF-8: `atn --train` (a Chinese corpus used to ingest 0 bytes and
+  train a degenerate brain), `--prep`'s quality filter and dedup fingerprint, and
+  the content tokeniser (each CJK character is its own token, so Chinese chunks
+  get real signatures and cluster). A Chinese-trained brain scores Chinese ~4.6
+  bpb vs ~8.3 for an English brain, so on a 7-language Wikipedia mix
+  (en/nl/fr/de/es/it/zh) the experts separate by language and a query routes to
+  its language's expert — including Chinese.
+- **Owner protection (implemented).** Steady-state replacement removed the
+  lowest-*marginal* genes each generation. A minority region (e.g. one language)
+  is covered by a few mutually-redundant experts that each show low marginal, so
+  a batch replace could wipe the whole cluster at once and never recover it — the
+  multilingual demo culled Chinese this way. Fix: never replace an expert that is
+  the sole owner of an eval line; only the worst non-owners are dropped. This
+  preserves at least one expert per covered region while still pruning redundancy.
 - Scaling up: the corpus is never resident — a gene addresses a slice, we stream
   just that slice to train one brain plus a fixed held-out sample. The same loop
   runs on Wikipedia or larger; only `--span-mb`, `--pop`, and the chunk size grow.

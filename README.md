@@ -508,7 +508,19 @@ python3 atn-ga.py run --corpus big.txt --out run --pop 24 --gens 14
 python3 atn-ga.py run --corpus big.txt --out run --locus content   # gather by topic
 python3 atn-ga.py lightup --out run "some query text"              # route a query
 python3 atn-ga.py mixture --out run                                # soft online mixture
+python3 atn-ga.py export  --out run --format both                  # portable CSV + SQLite
 ```
+
+The driver needs **no third-party packages** — pure Python standard library. The
+content signatures (MinHash / TF-IDF SimHash) and the nearest-neighbour table now
+live in C (`atn --neighbors`, see `content.c`), and the mixture is plain Python.
+**Non-Latin scripts work end to end** — `atn` trains on UTF-8 text (Chinese,
+Cyrillic, accents) instead of skipping it as binary, and each CJK character is its
+own token, so on a mixed-language corpus the experts separate cleanly by language
+(`./demo-languages.sh`; an English query lights up an English expert, a Chinese
+query a Chinese one). `lightup` now reads each expert's own articles to show what
+it *specialises in* (its distinctive words + a sample line), and every command
+prints a plain-English legend.
 
 On a 5-language test corpus the experts self-organized by language with no
 labels, and coverage beat a single brain (3.11 → 2.72 bpb). A **soft online
@@ -526,6 +538,14 @@ MINUTES` advances it by a time-boxed slice and exits — drop it in cron to evol
 forever, resuming bit-for-bit (RNG state is checkpointed) and reporting an
 eval-vs-test gap each tick to keep itself honest. Full design, results, scale
 tests, and options in **[GA.md](GA.md)**.
+
+**Consuming a finished run.** `atn-ga.py export` writes the population as
+framework-agnostic, model-shaped data — `experts.csv` / `passages.csv` /
+`edges.csv` plus a self-contained `atlas.db` (tables `run`, `expert`, `passage`,
+`edge`) — ready to load into any downstream project. **[web/](web/)** is one such
+consumer: a small Django "corpus atlas" that browses each expert's territory and
+distinctive vocabulary, visualises the routing graph, and **routes live queries**
+against the real brains (the web version of `lightup`). See [web/README.md](web/README.md).
 
 ## The filesystem as a GPT corpus (`--corpus`)
 
@@ -569,10 +589,17 @@ scan.c       opcode patterns, signatures, anomalies, grep
 disasm.c     x86 / x86-64 length disassembler + linear sweep
 attn.c       hand-wired attention head (soft self-attention + induction + soft-attn generation)
 gpt.c        n-gram language model: bits/byte, temperature generation, range-coder compression, corpus API
+cm.c         context-mixing coder (the .atcm compressor)
+prep.c       corpus prep: clean + dedup + quality-filter text (UTF-8 aware), streamed to stdout
+content.c    content addressing for atn-ga: MinHash/SimHash signatures + exact/LSH neighbour table (atn --neighbors)
 yara.c       subset-YARA parser and matcher
 fleet.c      recursive directory scan + aggregate statistics
 dump.c       basic report, hex dump, strings
 atn.h        shared declarations
+
+atn-ga.py    evolve/route a population of brains over a corpus (run/lightup/mixture/classify/novelty/export) — stdlib only
+web/         Django "corpus atlas": browse territories, visualise the routing graph, route live queries
+GA.md        the atn-ga manual: design, results, options
 ```
 
 ## Caveats
