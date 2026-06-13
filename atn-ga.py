@@ -1103,6 +1103,52 @@ def cmd_mixcompare(a):
 # among a few experts). That attractor structure is what "pops out": not a mind,
 # a dynamical system finding its drain.
 # ----------------------------------------------------------------------------
+# --- a Class-4 hex cellular automaton as a deterministic novelty source ------
+# Drives atn's --seed so the closed loop gets endless edge-of-chaos structure to
+# feed on, while staying fully reproducible (no clock, no rand). The CA is the
+# 2D hexagonal K=4 rule used by the mandelhunt experiments: a 16384-byte LUT
+# (= 4^7) indexed by the 7-cell pointy-top neighbourhood, toroidal — reimplements
+# mandelhunt.c's hex_step byte-for-byte.
+_CA_SIDE = 128
+_CA_CELLS = _CA_SIDE * _CA_SIDE
+
+def _hex_step(state, rule):
+    S = _CA_SIDE
+    out = bytearray(_CA_CELLS)
+    for r in range(S):
+        even = not (r & 1)
+        rb, ub, db = r * S, ((r - 1) % S) * S, ((r + 1) % S) * S
+        for c in range(S):
+            l = (c - 1) % S; rc = (c + 1) % S
+            n_l = state[rb + l]; n_r = state[rb + rc]
+            if even:
+                n_nw = state[ub + l]; n_ne = state[ub + c]; n_sw = state[db + l]; n_se = state[db + c]
+            else:
+                n_nw = state[ub + c]; n_ne = state[ub + rc]; n_sw = state[db + c]; n_se = state[db + rc]
+            key = ((state[rb + c] << 12) | (n_nw << 10) | (n_ne << 8) | (n_r << 6)
+                   | (n_se << 4) | (n_sw << 2) | n_l)
+            out[rb + c] = rule[key]
+    return out
+
+def _ca_init(seed_text):
+    """Quiescent (all-0) board with a small central patch seeded from the text —
+    a class-4 rule grows structure out of it. Deterministic per seed text."""
+    import hashlib
+    board = bytearray(_CA_CELLS)
+    h = hashlib.sha256(seed_text.encode("utf-8", "ignore")).digest()
+    P, off, k = 18, _CA_SIDE // 2 - 9, 0
+    for i in range(P):
+        for j in range(P):
+            board[(off + i) * _CA_SIDE + (off + j)] = h[k % len(h)] & 3
+            k += 1
+    return board
+
+def _ca_seed(board):
+    h = 1469598103934665603
+    for b in board:
+        h = ((h ^ b) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return h or 1
+
 def cmd_loop(a):
     meta = json.load(open(os.path.join(a.out, "genes.json")))
     try:
@@ -1120,9 +1166,20 @@ def cmd_loop(a):
             termcache[k] = ", ".join(t) if t else "—"
         return termcache[k]
 
+    rule = board = None
+    if a.ca_lut:
+        with open(a.ca_lut, "rb") as f:
+            rule = f.read(_CA_CELLS)
+        if len(rule) != _CA_CELLS:
+            print(f"bad LUT (need {_CA_CELLS} bytes, got {len(rule)})"); return
+        board = _ca_init(a.seed_text)
+        print(f"novelty: class-4 hex CA {os.path.basename(a.ca_lut)} "
+              f"({a.ca_ticks} tick/step) → --seed\n")
+
     text = a.seed_text
     print(f'seed: "{text}"\n')
-    print(f"{'step':<5}{'expert':<7}{'bpb':<7}{'lit territory':<26}what it generated")
+    head = f"{'step':<5}{'expert':<7}{'bpb':<7}{'lit territory':<24}"
+    print(head + ("ca-seed   " if rule else "") + "what it generated")
     seen = {}
     for step in range(1, a.steps + 1):
         best, bb = None, 1e18
@@ -1131,21 +1188,30 @@ def cmd_loop(a):
                             _orders_csv(g), text)
             if s < bb:
                 bb, best = s, g
-        r = subprocess.run([a.atn, "--ask", "--brain", os.path.join(a.out, best["brain"]),
-                            "--no-learn", "--map-bits", str(best.get("mapbits", 22)),
-                            "--orders", _orders_csv(best), "--temp", str(a.temp)],
-                           input=(text + "\n").encode("utf-8", "ignore"),
+        cmd = [a.atn, "--ask", "--brain", os.path.join(a.out, best["brain"]), "--no-learn",
+               "--map-bits", str(best.get("mapbits", 22)), "--orders", _orders_csv(best),
+               "--temp", str(a.temp)]
+        seedcol = ""
+        if rule is not None:
+            for _ in range(a.ca_ticks):
+                board = _hex_step(board, rule)
+            sd = _ca_seed(board)
+            cmd += ["--seed", str(sd)]
+            seedcol = f"{sd & 0xffffff:06x}  "
+        r = subprocess.run(cmd, input=(text + "\n").encode("utf-8", "ignore"),
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         reply = r.stdout.decode("utf-8", "ignore").strip().replace("\n", " ")[:160]
-        print(f"{step:<5}e{best['expert']:<6}{bb:<7.2f}{terms_of(best)[:24]:<26}{reply[:58]}")
+        print(f"{step:<5}e{best['expert']:<6}{bb:<7.2f}{terms_of(best)[:22]:<24}{seedcol}{reply[:52]}")
         key = (best["expert"], reply)
         if key in seen:
             print(f"\n[attractor] back to step {seen[key]}'s state — a cycle of period "
-                  f"{step - seen[key]}. The loop has found its drain; stopping.")
+                  f"{step - seen[key]}. The loop found its drain; stopping.")
             return
         seen[key] = step
         text = reply or text
-    print("\n[no exact cycle within the step budget — still drifting]")
+    tail = ("the CA keeps perturbing it — no fixed point, still exploring"
+            if rule else "still drifting")
+    print(f"\n[no cycle within the step budget — {tail}]")
 
 # ----------------------------------------------------------------------------
 # export: emit a built run as portable, framework-agnostic data (CSV / SQLite)
@@ -1364,6 +1430,10 @@ def main():
     lp.add_argument("--steps", type=int, default=24)
     lp.add_argument("--temp", type=float, default=0.8)
     lp.add_argument("--seed-text", default="in the beginning there was")
+    lp.add_argument("--ca-lut", default=None,
+                    help="a 16384-byte class-4 hex-CA LUT (mandelhunt .lut) to drive --seed; "
+                         "without it the loop collapses to a fixed point")
+    lp.add_argument("--ca-ticks", type=int, default=6, help="CA ticks advanced per loop step")
     lp.set_defaults(func=cmd_loop)
 
     m = sub.add_parser("mixture", help="soft online mixture of experts vs single/oracle")

@@ -31,27 +31,40 @@ if [ -z "$RUN" ]; then
 fi
 [ -d "$RUN" ] || { echo "no run dir found — run ./demo-all.sh (or a single demo) first"; exit 1; }
 
-say "dream loop over '$RUN' — route → generate → feed back → re-route"
-for SEED in \
-  "in the beginning there was light" \
-  "the quick brown fox" \
-  "∀x (Human(x) → Mortal(x))" ; do
-  python3 atn-ga.py loop --out "$RUN" --seed-text "$SEED" --steps 20
-  echo
-done
+# An optional class-4 hex-CA LUT (a mandelhunt .lut) is the deterministic
+# novelty source. Pass it as $2, or set ATN_CA_LUT; without it the loop just
+# shows the fixed-point collapse.
+CA_LUT="${2:-${ATN_CA_LUT:-}}"
+
+say "dream loop over '$RUN' — CLOSED loop with no novelty source"
+echo "  (route → generate → feed back → re-route; expect a fast collapse)"
+python3 atn-ga.py loop --out "$RUN" --seed-text "in the beginning there was light" --steps 12
+
+if [ -n "$CA_LUT" ] && [ -f "$CA_LUT" ]; then
+  say "same loop, now driven by a class-4 hex CA ($(basename "$CA_LUT"))"
+  echo "  (the CA advances each step → deterministic novelty → no collapse)"
+  python3 atn-ga.py loop --out "$RUN" --seed-text "in the beginning there was light" \
+      --steps 16 --ca-ticks 6 --ca-lut "$CA_LUT"
+else
+  say "no CA LUT given — pass one to see the loop escape the fixed point:"
+  echo "  ./demo-loop.sh $RUN /path/to/some_class4.lut    (or set ATN_CA_LUT)"
+fi
 
 cat <<'GUIDE'
 ────────────────────────────────────────────────────────────────────
 WHAT POPPED OUT
-  An attractor, fast. Each seed flows to the expert that fits it, that expert
-  generates the text it itself finds least surprising, and the loop locks onto
-  that fixed point (watch the bpb fall as it settles). Different seeds drain
-  into different experts; determinism means it can't escape.
+  Closing the loop adds RECURRENCE — the ingredient the architecture lacked.
+  With no novelty source, a deterministic map fed its own output has nowhere to
+  go but an ATTRACTOR: it locks to a fixed point in a step or two (watch the bpb
+  fall as it settles into the lit expert's most-comfortable self-text).
 
-  This is the honest end of the meta thread. Closing the loop gives the system
-  RECURRENCE — the one ingredient the architecture lacked — and what recurrence
-  produces here is a dynamical system relaxing into its basins. Not a mind:
-  there is no novelty source, no self-model, no world, nothing felt. A drain,
-  found. Which is itself a clean thing to be able to see.
+  Add a class-4 cellular automaton as the seed and the collapse goes away. The
+  CA is deterministic and reproducible (no clock, no rand) yet never repeats —
+  edge-of-chaos structure forever — so each step samples differently and the
+  loop keeps exploring instead of draining. That's cheap novelty without
+  breaking determinism: the system stays a dynamical process, but now an
+  open-ended one. Still not a mind — the novelty is the CA's, injected, not the
+  network's own — but it is the difference between a thing that stops and a
+  thing that keeps going.
 ────────────────────────────────────────────────────────────────────
 GUIDE

@@ -238,6 +238,17 @@ over all experts before a short line ends, while routing hands each line a
 clean, correct expert set. The flat mixture is only the quality ceiling on
 stationary / long-segment streams; gate accuracy is what makes routing win.
 
+`atn-ga.py loop --out RUNDIR` closes the loop: route the text to its best
+expert, let that expert generate, feed the output back, re-route, repeat. With
+no novelty source it collapses to a fixed point in a step or two (a deterministic
+map fed its own output finds an attractor). Pass `--ca-lut FILE` — a 16384-byte
+(=4⁷) class-4 2D-hex K=4 cellular-automaton rule table (from the mandelhunt
+experiments) — and the CA, advanced `--ca-ticks` per step, drives atn's new
+`--seed`: deterministic, reproducible, never-repeating edge-of-chaos novelty, so
+the loop keeps exploring instead of draining. Cheap novelty without breaking
+determinism. (The novelty is the CA's, injected — a richer dynamical process,
+not a mind.)
+
 `demo-news.sh` and `demo-languages.sh` need internet; the rest are local/offline.
 `demo-meta.sh` trains on the previous trainings, so run some of the others first.
 
