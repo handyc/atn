@@ -435,6 +435,24 @@ removed all of them in 0.13 s. Tunables: `PREP_MINLEN` (default 40),
 surprisal-based `bundle --novel` below is the alternative when you want the
 filtering driven by the brains' own models.
 
+#### One command to a train-ready dataset — `prepare-llm.sh`
+
+`--prep` gives you a clean corpus; `prepare-llm.sh` turns that into the actual
+handoff a (GPU) trainer wants — cleaned, deduped, **deterministically shuffled**,
+and split into `train.txt` / `val.txt`, with a `manifest.txt`:
+
+```
+prepare-llm.sh OUTDIR raw1.txt raw2.txt        # prep + shuffle + split + manifest
+prepare-llm.sh data/run1 news1934.txt          # -> data/run1/{train,val,manifest}.txt
+```
+
+The shuffle orders lines by a fixed content hash (blake2b), so the same inputs
+always produce the same split — reproducible across machines, no RNG. Env:
+`VAL_PCT=1` (percent held out for eval), `PREP_SKIP=1` if the inputs are already
+cleaned, and any `PREP_*` knob is passed through to the cleaning pass. The
+manifest records line/byte counts, an estimated token count (~bytes/4), the prep
+drop stats, and the settings used — everything you need to log a training run.
+
 ### Combining many brains (toward a real model)
 
 You can't merge n-gram brains into one neural net — the parameter types are

@@ -49,6 +49,7 @@ if [ "$4" = "--prep" ] || [ "$5" = "--prep" ]; then
     echo "  cleaned -> ${PREFIX}.clean.txt  (ready to fine-tune a real model)"
 fi
 
-echo "next:  ./atn --prep ${PREFIX}.txt > ${PREFIX}.clean.txt   (clean for LLM training)"
+echo "next:  ./prepare-llm.sh out ${PREFIX}.txt          (clean+shuffle+split -> train/val)"
+echo "  or:  ./atn --prep ${PREFIX}.txt > ${PREFIX}.clean.txt   (just clean for LLM training)"
 echo "  or:  ./atn --train ${PREFIX}.txt --brain ${PREFIX}.brain -q   (build a brain)"
 echo "  or:  ./where.sh ${PREFIX}.txt \"some phrase\"            (where/when it appears)"
