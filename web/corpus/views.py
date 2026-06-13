@@ -111,9 +111,16 @@ def heatmap(request):
             expert = ranked[0][1] if ranked else (experts[0] if experts else None)
     cells = score_chars(run, expert, text) if expert else []
     mean = round(sum(c["bpb"] for c in cells) / len(cells), 2) if cells else None
+    # optional second expert to compare against, on the SAME text
+    pk2 = request.GET.get("expert2")
+    expert2 = get_object_or_404(Expert, pk=pk2, run=run) if (run and pk2 and text.strip()) else None
+    cells2 = score_chars(run, expert2, text) if expert2 else []
+    mean2 = round(sum(c["bpb"] for c in cells2) / len(cells2), 2) if cells2 else None
     return render(request, "corpus/heatmap.html", {
         "run": run, "experts": experts, "text": text, "expert": expert,
         "cells": cells, "mean": mean, "sel_pk": int(pk) if pk else None,
+        "expert2": expert2, "cells2": cells2, "mean2": mean2,
+        "sel_pk2": int(pk2) if pk2 else None,
     })
 
 
