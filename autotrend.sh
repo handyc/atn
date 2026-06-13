@@ -15,7 +15,7 @@
 #
 # Env: TOPN=40 (how many to show), MINCOUNT=3 (min phrase freq today).
 set -e
-A=./atn
+A="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/atn"
 [ -x "$A" ] || { echo "build first: make"; exit 1; }
 NEW="$1"; OLD="$2"; SRC="${3:-$1}"
 [ -n "$OLD" ] || { echo "usage: autotrend.sh today.brain yesterday.brain [corpus.txt]"; exit 2; }

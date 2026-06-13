@@ -15,7 +15,7 @@
 #
 # delta = old_bits_per_byte - new_bits_per_byte  (positive = rising in NEW).
 set -e
-A=./atn
+A="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/atn"
 [ -x "$A" ] || { echo "build first: make"; exit 1; }
 NEW="$1"; OLD="$2"
 [ -n "$OLD" ] || { echo "usage: trend.sh NEW.brain OLD.brain < phrases.txt"; exit 2; }

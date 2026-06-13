@@ -7,7 +7,7 @@
 #   route.sh BRAIN_DIR < queries.txt          # one query per line
 #
 # Output per query: best brain, its bits/byte, and the margin over the runner-up.
-A=./atn
+A="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/atn"
 [ -x "$A" ] || { echo "build first: make"; exit 1; }
 DIR="$1"; QUERY="$2"
 [ -d "$DIR" ] || { echo "usage: route.sh BRAIN_DIR [\"query\"]"; exit 2; }

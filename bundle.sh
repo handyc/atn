@@ -11,7 +11,7 @@
 # so material common across brains (boilerplate, shared stories) is dropped and
 # the corpus keeps more signal per byte. Env NOVEL_BPB sets the threshold
 # (default 3.0 bits/byte; higher = stricter = fewer, more distinctive lines).
-A=./atn
+A="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/atn"
 DIR="$1"; OUT="$2"; MODE="$3"
 { [ -d "$DIR" ] && [ -n "$OUT" ]; } || { echo "usage: bundle.sh BRAIN_DIR OUT.txt [--novel]"; exit 2; }
 brains=$(ls "$DIR"/*.brain 2>/dev/null) || true

@@ -44,7 +44,8 @@ PY
 
 # optional: clean it into an LLM-ready corpus in the same step
 if [ "$4" = "--prep" ] || [ "$5" = "--prep" ]; then
-    ./atn --prep "${PREFIX}.txt" > "${PREFIX}.clean.txt"
+    ATN="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/atn"
+    "$ATN" --prep "${PREFIX}.txt" > "${PREFIX}.clean.txt"
     echo "  cleaned -> ${PREFIX}.clean.txt  (ready to fine-tune a real model)"
 fi
 
