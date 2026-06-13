@@ -214,6 +214,12 @@ by whatever structure the corpus has. From the repo root:
 | `./demo-formal.sh` | generated FOL / linear algebra / set / calculus / λ / regex | formal system |
 | `./demo-all.sh` | runs the four above back to back | — |
 | `./demo-meta.sh` | the pooled corpora of the prior runs | the coarse kind (news vs language vs code vs formal) and finer structure within |
+| `./demo-route.sh` | (builds a routing tree over the prior runs) | — coarse domain gate → fine expert; sublinear routing, not a new training |
+
+`atn-ga.py route --out demo-route "text"` then routes any text in two hops:
+a coarse brain per domain picks the domain, the domain's population picks the
+expert — touching #domains + (experts in one domain) brains, not all of them.
+A scaling structure, not a smarter model (quality is still the leaf brain's).
 
 `demo-news.sh` and `demo-languages.sh` need internet; the rest are local/offline.
 `demo-meta.sh` trains on the previous trainings, so run some of the others first.

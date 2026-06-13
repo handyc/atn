@@ -835,6 +835,67 @@ def cmd_lightup(a):
     print("    trained on — that's what 'expert {}' really is.".format(win_g["expert"]))
 
 # ----------------------------------------------------------------------------
+# route: a 2-level routing TREE (hierarchical mixture of experts). A coarse gate
+# (one cheap brain per domain) picks the domain; then the chosen domain's full
+# population picks the expert. Two hops score #domains + (experts in one domain)
+# brains instead of every expert everywhere — sublinear routing at scale. The
+# manifest (built by demo-route.sh) lists the domains and their coarse brains.
+# ----------------------------------------------------------------------------
+def _score_line(atn, brain, mapbits, orders, text):
+    """Surprisal (bits/byte) of one line of text under a brain."""
+    r = subprocess.run([atn, "--score", "--brain", brain, "--map-bits", str(mapbits),
+                        "--orders", orders],
+                       input=(text + "\n").encode("utf-8", "ignore"),
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        return float(r.stdout.decode("utf-8", "ignore").split("\t")[0].strip().split()[0])
+    except (ValueError, IndexError):
+        return 99.0
+
+def cmd_route(a):
+    man = json.load(open(os.path.join(a.out, "manifest.json")))
+    co, cm = man.get("coarse_orders", "2,4,7"), man.get("coarse_mapbits", 22)
+    q = a.query
+    print(f'query: "{q}"\n')
+
+    # --- coarse gate: one brain per domain ---
+    coarse = sorted(((_score_line(a.atn, os.path.join(a.out, d["brain"]), cm, co, q), d)
+                     for d in man["domains"]), key=lambda x: x[0])
+    cbpb, dom = coarse[0]
+    print("coarse gate — one brain per domain:")
+    for bpb, d in coarse:
+        print(f"  {d['label']:10} {bpb:7.3f} bpb{'   <- routed here' if d is dom else ''}")
+
+    # --- fine route: the chosen domain's full population ---
+    rd = dom["run_dir"]
+    meta = json.load(open(os.path.join(rd, "genes.json")))
+    try:
+        cfg = json.load(open(os.path.join(rd, "config.json")))
+    except FileNotFoundError:
+        cfg = {}
+    surv = [g for g in meta["genes"] if g.get("n_owned", 0) > 0]
+    fine = sorted(((_score_line(a.atn, os.path.join(rd, g["brain"]), g.get("mapbits", 22),
+                                _orders_csv(g), q), g) for g in surv), key=lambda x: x[0])
+    fbpb, g = fine[0]
+    terms, _ = _expert_profile(rd, g, cfg)
+    print(f"\nfine route — within '{dom['label']}' ({len(surv)} experts): "
+          f"expert {g['expert']} @ {fbpb:.3f} bpb")
+    if terms:
+        print("  specializes in:", ", ".join(terms))
+
+    # --- the point: how few brains we touched ---
+    total = 0
+    for d in man["domains"]:
+        try:
+            total += sum(1 for x in json.load(open(os.path.join(d["run_dir"], "genes.json")))["genes"]
+                         if x.get("n_owned", 0) > 0)
+        except Exception:
+            pass
+    touched = len(man["domains"]) + len(surv)
+    print(f"\n[cost] scored {len(man['domains'])} coarse + {len(surv)} fine = {touched} brains; "
+          f"flat routing over the whole forest would score all {total}.")
+
+# ----------------------------------------------------------------------------
 # export: emit a built run as portable, framework-agnostic data (CSV / SQLite)
 # whose tables mirror the atlas model structure, so any downstream consumer (a
 # Django project, pandas, DB browser, …) can ingest it without re-reading the
@@ -1020,6 +1081,13 @@ def main():
     l.add_argument("--atn", default="./atn")
     l.add_argument("query")
     l.set_defaults(func=cmd_lightup)
+
+    rt = sub.add_parser("route", help="2-level routing tree: coarse domain gate -> fine expert "
+                        "(needs a route dir built by demo-route.sh)")
+    rt.add_argument("--out", required=True, help="the route directory (manifest.json + coarse brains)")
+    rt.add_argument("--atn", default="./atn")
+    rt.add_argument("query")
+    rt.set_defaults(func=cmd_route)
 
     m = sub.add_parser("mixture", help="soft online mixture of experts vs single/oracle")
     m.add_argument("--out", required=True)

@@ -26,6 +26,9 @@ patterns, routines, and anomalies live inside this exact file?).
 > corpora and evolves one meta-population spanning all of them, so a query of any
 > kind — a 1920s headline, a Dutch sentence, a C snippet, a logic formula — routes
 > to its region.
+> `./demo-route.sh` builds a 2-level routing tree over the runs: a cheap coarse
+> gate picks the domain, then that domain's population picks the expert — sublinear
+> routing (a handful of brains scored, not the whole forest).
 
 It answers three questions about any file:
 
