@@ -27,8 +27,55 @@ RNG => fully reproducible runs.
 This is corpus-agnostic: point --corpus at 25MB of news now, or a Wikipedia /
 Library-of-Congress dump later. Only the addressed slices are ever read.
 """
-import argparse, json, os, random, shutil, subprocess, sys, tempfile
+import argparse, json, os, random, re, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+# ----------------------------------------------------------------------------
+# content addressing: per-chunk MinHash signatures + nearest-neighbor table
+# (used by --locus content, so a gene gathers SIMILAR chunks, not contiguous ones)
+# ----------------------------------------------------------------------------
+NH = 32                                            # MinHash slots per chunk
+MASK = (1 << 64) - 1
+MULT = [(0x9E3779B97F4A7C15 * (2 * i + 1)) & MASK for i in range(NH)]  # fixed, deterministic
+_WORD = re.compile(r"[a-zÀ-ɏ']+")
+
+def _fnv(s):
+    h = 1469598103934665603
+    for b in s.encode("utf-8", "ignore"):
+        h = ((h ^ b) * 1099511628211) & MASK
+    return h
+
+def chunk_signature(text):
+    # MinHash over the WORD SET (vocabulary overlap), not phrase shingles. This
+    # captures topical/language similarity — same-language chunks share function
+    # words heavily — whereas 4-word shingles would only catch near-duplicates.
+    mins = [MASK] * NH
+    seen = set()
+    for w in _WORD.findall(text.lower()):
+        if w in seen:
+            continue
+        seen.add(w)
+        hw = _fnv(w)
+        for h in range(NH):
+            v = (hw * MULT[h]) & MASK
+            v ^= v >> 29
+            if v < mins[h]:
+                mins[h] = v
+    return mins
+
+def build_neighbors(chunk_texts):
+    """Return neigh[i] = chunk ids sorted by MinHash similarity to i (i first)."""
+    sigs = np.array([chunk_signature(t) for t in chunk_texts], dtype=np.uint64)
+    n = len(sigs)
+    neigh = []
+    for i in range(n):
+        sim = (sigs == sigs[i]).mean(axis=1)        # fraction of matching MinHash slots
+        neigh.append(np.argsort(-sim, kind="stable").astype(int).tolist())
+    return neigh
 
 # ----------------------------------------------------------------------------
 # corpus indexing: split into territory (trainable) + a held-out eval sample
@@ -81,42 +128,64 @@ def load_index(out):
 # genes
 # ----------------------------------------------------------------------------
 class Gene:
+    """A gene's two loci fields are mode-dependent:
+       positional: start = first chunk, span = number of contiguous chunks
+       content:    start = SEED chunk,  span = how many nearest chunks to gather"""
     __slots__ = ("start", "span", "mapbits")
     def __init__(self, start, span, mapbits):
         self.start, self.span, self.mapbits = start, span, mapbits
     def sig(self):
         return f"{self.start}_{self.span}_{self.mapbits}"
-    def clamp(self, nchunks, span_min, span_max):
-        self.span = max(span_min, min(span_max, self.span))
-        self.start = max(0, min(nchunks - self.span, self.start))
-        self.mapbits = max(16, min(26, self.mapbits))
-        return self
     def to_dict(self):
         return {"start": self.start, "span": self.span, "mapbits": self.mapbits}
+
+def clamp(g, mode, nchunks, span_min, span_max):
+    g.span = max(span_min, min(span_max, g.span))
+    if mode == "content":
+        g.start = max(0, min(nchunks - 1, g.start))     # seed is any chunk
+    else:
+        g.start = max(0, min(nchunks - g.span, g.start)) # contiguous region must fit
+    g.mapbits = max(16, min(26, g.mapbits))
+    return g
 
 # ----------------------------------------------------------------------------
 # train / score via the atn binary (cached by gene signature)
 # ----------------------------------------------------------------------------
 class Engine:
-    def __init__(self, atn, out, territory, chunks, jobs):
+    def __init__(self, atn, out, territory, chunks, jobs, mode="positional"):
         self.atn = atn
         self.out = out
         self.terr = territory
         self.chunks = chunks
         self.jobs = jobs
+        self.mode = mode
         self.cache_dir = os.path.join(out, "brains")
         os.makedirs(self.cache_dir, exist_ok=True)
         self._fp = open(territory, "rb")
+        self.neigh = None
+        if mode == "content":
+            if np is None:
+                raise SystemExit("--locus content needs numpy")
+            texts = [self._read(o, l) for (o, l) in chunks]
+            self.neigh = build_neighbors([t.decode("utf-8", "ignore") for t in texts])
+
+    def _read(self, off, length):
+        self._fp.seek(off); return self._fp.read(length)
+
+    def chunk_ids(self, g):
+        if self.mode == "content":                       # seed + its nearest neighbors
+            return self.neigh[g.start][:g.span]
+        return list(range(g.start, min(g.start + g.span, len(self.chunks))))  # contiguous
 
     def slice_bytes(self, g):
-        o0 = self.chunks[g.start][0]
-        last = min(g.start + g.span, len(self.chunks)) - 1
-        o1 = self.chunks[last][0] + self.chunks[last][1]
-        self._fp.seek(o0)
-        return self._fp.read(o1 - o0)
+        parts = []
+        for cid in self.chunk_ids(g):
+            o, l = self.chunks[cid]; parts.append(self._read(o, l))
+        return b"".join(parts)
 
     def brain_path(self, g):
-        return os.path.join(self.cache_dir, g.sig() + ".brain")
+        pre = "c" if self.mode == "content" else "p"
+        return os.path.join(self.cache_dir, pre + g.sig() + ".brain")
 
     def train(self, g):
         """Train a brain for gene g if not already cached. Returns brain path."""
@@ -204,14 +273,21 @@ def crossover(a, b, rng):
 def clone(g):
     return Gene(g.start, g.span, g.mapbits)
 
-def mutate(g, rng, nchunks, span_min, span_max, jitter):
-    if rng.random() < 0.7:
-        g.start += rng.randint(-jitter, jitter)
+def mutate(g, rng, mode, nchunks, span_min, span_max, jitter, neigh=None):
+    if mode == "content":
+        if rng.random() < 0.6 and neigh:                 # hop to a near neighbor of the seed
+            nb = neigh[g.start]
+            g.start = nb[rng.randint(1, min(6, len(nb) - 1))] if len(nb) > 1 else g.start
+        elif rng.random() < 0.2:
+            g.start = rng.randrange(nchunks)             # occasional long jump
+    else:
+        if rng.random() < 0.7:
+            g.start += rng.randint(-jitter, jitter)
     if rng.random() < 0.5:
         g.span = round(g.span * rng.uniform(0.7, 1.4))
     if rng.random() < 0.15:
         g.mapbits += rng.choice([-1, 1])
-    return g.clamp(nchunks, span_min, span_max)
+    return clamp(g, mode, nchunks, span_min, span_max)
 
 # ----------------------------------------------------------------------------
 # run
@@ -227,14 +303,15 @@ def cmd_run(a):
     print(f"[index] territory chunks={nchunks}, eval lines={M}")
     span_min, span_max = 1, max(1, nchunks // 3)
 
-    eng = Engine(a.atn, a.out, os.path.join(a.out, "territory.txt"), chunks, a.jobs)
+    print(f"[index] locus mode = {a.locus}")
+    eng = Engine(a.atn, a.out, os.path.join(a.out, "territory.txt"), chunks, a.jobs, mode=a.locus)
 
-    # init: spread P loci across territory, span ≈ a.span_chunks
+    # init: spread P loci (positional start, or content seed) across territory
     pop = []
     for i in range(a.pop):
         start = round(i * nchunks / a.pop)
         g = Gene(start + rng.randint(-1, 1), a.span_chunks, a.mapbits)
-        pop.append(g.clamp(nchunks, span_min, span_max))
+        pop.append(clamp(g, a.locus, nchunks, span_min, span_max))
 
     hist = open(os.path.join(a.out, "history.tsv"), "w")
     hist.write("gen\tcoverage_bpb\tbest_marginal\tn_owners\n")
@@ -267,7 +344,7 @@ def cmd_run(a):
                 child = crossover(rng.choice(survivors), rng.choice(survivors), rng)
             else:
                 child = clone(rng.choice(survivors))               # local search on a survivor
-            nxt.append(mutate(child, rng, nchunks, span_min, span_max, a.jitter))
+            nxt.append(mutate(child, rng, a.locus, nchunks, span_min, span_max, a.jitter, eng.neigh))
         pop = nxt
 
     print(f"[best] coverage={best_cov:.4f} bpb (finalizing this population)")
@@ -362,6 +439,8 @@ def main():
     r.add_argument("--gens", type=int, default=15)
     r.add_argument("--span-mb", type=float, default=0.5, help="target training bytes per brain (MB)")
     r.add_argument("--span-chunks", type=int, default=8, help="initial span in chunks")
+    r.add_argument("--locus", choices=["positional", "content"], default="positional",
+                   help="positional: contiguous region; content: gather MinHash-similar chunks")
     r.add_argument("--eval-frac", type=float, default=0.05)
     r.add_argument("--elite", type=int, default=4)
     r.add_argument("--jitter", type=int, default=3)

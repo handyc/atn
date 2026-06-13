@@ -75,6 +75,7 @@ python3 atn-ga.py lightup --out RUNDIR "some query text"
 | `--gens` | 15 | generations |
 | `--span-mb` | 0.5 | target training bytes per brain |
 | `--span-chunks` | 8 | initial span (in chunks) of each gene |
+| `--locus` | positional | `positional` (contiguous region) or `content` (gather MinHash-similar chunks) |
 | `--eval-frac` | 0.05 | fraction of lines held out for scoring |
 | `--replace-frac` | 0.3 | worst fraction replaced each generation |
 | `--elite` | 4 | (legacy; steady-state keeps survivors) |
@@ -105,10 +106,18 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
   and `--map-bits`, not the model internals. The interesting search — *where*
   each expert sits — is exactly the locus search, so this is not a real
   constraint, but richer genes would need a runtime order flag.
-- Loci are **contiguous** byte regions. That suits data where nearby text is
-  related (a sorted/sharded corpus). For unsorted data, a *content* locus (seed
-  doc → gather similar chunks via the MinHash in `prep.c`) would let experts
-  specialize topically regardless of position — a natural next gene type.
+- **Content loci (`--locus content`, implemented).** A positional gene is a
+  contiguous byte region — fine when nearby text is related (a sorted/sharded
+  corpus), useless when it isn't. A content gene instead names a *seed chunk* and
+  gathers its `span` nearest chunks by **word-level MinHash** similarity (shared
+  vocabulary), so an expert specializes topically regardless of position. Note
+  the signature is over single words, not phrase shingles: shingles catch
+  near-duplicates, words catch topic/language. Validated by shuffling the
+  5-language corpus at block level so contiguous regions become mixed-language:
+  positional coverage degraded to 2.74 bpb, while content **recovered to 2.69** —
+  better even than positional on the *unshuffled* corpus (2.72), because it builds
+  pure same-language training sets (top-8 neighbors are 90% same-language) instead
+  of regions that straddle boundaries.
 - Coverage uses per-line argmin (a hard MoE). A soft mixture (interpolate the
   top-k experts) would lower bpb further and is a drop-in change to `evaluate`.
 - Scaling up: the corpus is never resident — a gene addresses a slice, we stream
