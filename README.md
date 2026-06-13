@@ -11,8 +11,11 @@ patterns, routines, and anomalies live inside this exact file?).
 > `./demo-languages.sh` does the same over a seven-language Wikipedia corpus
 > (en/nl/fr/de/es/it/zh), where the experts separate crisply by language (an
 > English query lights up the English expert, Dutch the Dutch one, Chinese the
-> Chinese one…) — the clearest view of what an expert specialises in. See
-> [GA.md](GA.md) for the mixture-of-experts both build.
+> Chinese one…) — the clearest view of what an expert specialises in.
+> `./demo-code.sh` does it for *machine* text instead — C, Python, shell, x86-64
+> assembly, and hex/binary dumps sampled from the local filesystem — and the
+> experts separate by kind of code (atn on home turf). See [GA.md](GA.md) for the
+> mixture-of-experts they build.
 
 It answers three questions about any file:
 

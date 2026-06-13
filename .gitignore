@@ -46,3 +46,4 @@ demo-langs/
 web/db.sqlite3
 # the global *.html ignore above is for stray test files — keep the app's templates
 !web/corpus/templates/corpus/*.html
+demo-code/
