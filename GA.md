@@ -221,6 +221,14 @@ a coarse brain per domain picks the domain, the domain's population picks the
 expert — touching #domains + (experts in one domain) brains, not all of them.
 A scaling structure, not a smarter model (quality is still the leaf brain's).
 
+`atn-ga.py hierarchy --out RUNDIR` discovers the population's OWN tree, with no
+labels: it clusters the experts by how alike they SCORE the eval set
+(correlation of their per-line bits/byte) — a model of the model's behaviour.
+The GA's structure re-emerges from response alone: on the 7-language run, same-
+language experts merge first and Chinese falls out as the outgroup; on the
+formal run, first-order logic and lambda calculus sit closest. This is what a
+routing gate could be built from automatically, instead of hand-labelled domains.
+
 `demo-news.sh` and `demo-languages.sh` need internet; the rest are local/offline.
 `demo-meta.sh` trains on the previous trainings, so run some of the others first.
 

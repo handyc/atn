@@ -896,6 +896,88 @@ def cmd_route(a):
           f"flat routing over the whole forest would score all {total}.")
 
 # ----------------------------------------------------------------------------
+# hierarchy: discover the population's OWN tree, unsupervised. Cluster experts
+# by BEHAVIOUR — how alike they score the eval set (correlation of their per-line
+# bits/byte) — not by surface text. A model of the model. The structure the GA
+# found re-emerges: related experts merge first (Romance languages, FOL↔lambda),
+# coarse domains fall out at the top. This is what a routing gate (demo-route)
+# could be built from automatically, instead of hand-labelled domains.
+# ----------------------------------------------------------------------------
+def _corr(a, b):
+    n = len(a)
+    if n == 0:
+        return 0.0
+    ma, mb = sum(a) / n, sum(b) / n
+    va = sum((x - ma) ** 2 for x in a)
+    vb = sum((y - mb) ** 2 for y in b)
+    if va <= 0 or vb <= 0:
+        return 0.0
+    cov = sum((a[i] - ma) * (b[i] - mb) for i in range(n))
+    return cov / (va * vb) ** 0.5
+
+def cmd_hierarchy(a):
+    meta = json.load(open(os.path.join(a.out, "genes.json")))
+    try:
+        cfg = json.load(open(os.path.join(a.out, "config.json")))
+    except FileNotFoundError:
+        cfg = {}
+    surv = [g for g in meta["genes"] if g.get("n_owned", 0) > 0]
+    if len(surv) < 2:
+        print("need >=2 surviving experts"); return
+    lines = _read_lines([os.path.join(a.out, "eval.txt")])
+    if a.eval_lines and len(lines) > a.eval_lines:        # subsample for speed
+        lines = lines[:: max(1, len(lines) // a.eval_lines)]
+    print(f"[hierarchy] scoring {len(surv)} experts on {len(lines)} eval lines ...")
+    cols = _pop_scores(a, surv, lines)                    # cols[i][m] = bpb of expert i on line m
+
+    labels = []
+    for g in surv:
+        terms, _ = _expert_profile(a.out, g, cfg, n_words=4)
+        labels.append(f"e{g['expert']} ({', '.join(terms) if terms else '—'})")
+
+    P = len(surv)
+    D = [[1.0 - _corr(cols[i], cols[j]) for j in range(P)] for i in range(P)]
+    clusters = [{"m": [i], "tree": i} for i in range(P)]
+    snapshot = None
+    def cdist(c1, c2):                                    # average linkage (UPGMA)
+        return sum(D[i][j] for i in c1["m"] for j in c2["m"]) / (len(c1["m"]) * len(c2["m"]))
+    while len(clusters) > 1:
+        if len(clusters) == a.clusters:
+            snapshot = [list(c["m"]) for c in clusters]
+        bi, bj, bd = 0, 1, 1e9
+        for i in range(len(clusters)):
+            for j in range(i + 1, len(clusters)):
+                d = cdist(clusters[i], clusters[j])
+                if d < bd:
+                    bi, bj, bd = i, j, d
+        c1, c2 = clusters[bi], clusters[bj]
+        merged = {"m": c1["m"] + c2["m"], "tree": (c1["tree"], c2["tree"], 1.0 - bd)}
+        clusters = [c for k, c in enumerate(clusters) if k not in (bi, bj)] + [merged]
+
+    def show(node, depth):
+        pad = "   " * depth
+        if isinstance(node, int):
+            print(f"{pad}• {labels[node]}")
+        else:
+            l, r, corr = node
+            print(f"{pad}┐ merge @ r={corr:.2f}")
+            show(l, depth + 1); show(r, depth + 1)
+    print(f"\ndiscovered hierarchy — experts clustered by how alike they SCORE the eval set\n"
+          f"(no labels; the GA's structure re-emerges from behaviour alone):\n")
+    show(clusters[0]["tree"], 0)
+
+    if snapshot:
+        print(f"\ncut into {len(snapshot)} groups (the emergent 'domains'):")
+        from collections import Counter
+        for gi, members in enumerate(snapshot, 1):
+            top = []
+            for i in members:
+                t, _ = _expert_profile(a.out, surv[i], cfg, n_words=3)
+                top += t
+            common = ", ".join(w for w, _ in Counter(top).most_common(6))
+            print(f"  group {gi}: {len(members)} experts  [{common}]")
+
+# ----------------------------------------------------------------------------
 # export: emit a built run as portable, framework-agnostic data (CSV / SQLite)
 # whose tables mirror the atlas model structure, so any downstream consumer (a
 # Django project, pandas, DB browser, …) can ingest it without re-reading the
@@ -1088,6 +1170,15 @@ def main():
     rt.add_argument("--atn", default="./atn")
     rt.add_argument("query")
     rt.set_defaults(func=cmd_route)
+
+    h = sub.add_parser("hierarchy", help="discover the population's own tree: cluster experts by "
+                       "how alike they score the eval set (a model of the model)")
+    h.add_argument("--out", required=True)
+    h.add_argument("--atn", default="./atn")
+    h.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    h.add_argument("--clusters", type=int, default=5, help="cut the tree into this many groups")
+    h.add_argument("--eval-lines", type=int, default=400, help="cap eval lines scored (speed)")
+    h.set_defaults(func=cmd_hierarchy)
 
     m = sub.add_parser("mixture", help="soft online mixture of experts vs single/oracle")
     m.add_argument("--out", required=True)
