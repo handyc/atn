@@ -155,8 +155,10 @@ echo "  hex line -> the hex/binary expert:"
 python3 atn-ga.py lightup --out demo-code \
   "00001a40: 4889 e5 4883 ec20 488d 3d12 0000 0048  H...H.. .H.=....H"
 
-say "novelty — natural-language prose is out-of-distribution for a code corpus"
-echo "  (English prose and gibberish should both score as NOVEL)"
+say "novelty — surprise climbs as text gets less code-like"
+echo "  (watch the bpb column rise: a code line < English prose < gibberish."
+echo "   the corpus is so predictable that the NOVEL flag's auto-threshold is"
+echo "   strict — it's the ordering that's the signal, same as with lightup.)"
 printf '%s\n' \
   "int x = 0; while (x < 10) { x = x + 1; }" \
   "the quick brown fox jumps over the lazy dog near the quiet river at dawn" \
@@ -184,7 +186,7 @@ WHAT YOU JUST SAW
 
     classify : each snippet routes to the expert for its kind of code
     lightup  : shows that expert's actual vocabulary (keywords / mnemonics)
-    novelty  : flags text unlike the corpus — incl. natural-language prose
+    novelty  : best-expert surprise — climbs from code to prose to gibberish
     mixture  : blends all experts into one model over the code
 
 TRY IT YOURSELF
