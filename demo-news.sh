@@ -54,7 +54,8 @@ python3 atn-ga.py run --corpus "$WORK/clean.txt" --out demo-run \
 echo "  $(elapsed)"
 
 # 4. example queries on the evolved population
-say "classify — which slice of the news does each line fit?"
+say "classify — route each line to the expert that fits it best"
+echo "  (each headline goes to whichever expert finds it least 'surprising')"
 printf '%s\n' \
   "the president addressed congress on the new tariff bill" \
   "the home team won the championship in the ninth inning" \
@@ -62,19 +63,56 @@ printf '%s\n' \
   "the orchestra performed a symphony at the concert hall" \
   | python3 atn-ga.py classify --out demo-run
 
-say "novelty — in-period news vs out-of-distribution text"
+say "lightup — route ONE query and SEE what the chosen expert is about"
+echo "  (reads back real words + a sample line from the expert's own articles)"
+python3 atn-ga.py lightup --out demo-run "the home team won the baseball game in the ninth inning"
+
+say "novelty — tell in-period news from out-of-distribution text"
+echo "  (flags text no expert recognises: off-topic, anachronistic, or garbled)"
 printf '%s\n' \
   "a fire broke out downtown late last night" \
   "stream the viral selfie to your influencer hashtag feed" \
   "qx zzt 9999 ;;;; vbnm kkkk" \
   | python3 atn-ga.py novelty --out demo-run
 
-say "mixture — the population AS a corpus language model"
-python3 atn-ga.py mixture --out demo-run 2>&1 | grep -E "single|fixed-share|beats" || true
+say "mixture — use the whole POPULATION as one language model"
+echo "  (blends every expert per character; should beat any single expert)"
+python3 atn-ga.py mixture --out demo-run 2>&1 | grep -E "experts,|single|oracle|fixed-share|Bayes|beats|means:|character|complementary|POPULATION" || true
 
 say "done in $(( $(date +%s) - T0 ))s"
-echo "explore further:"
-echo "  python3 atn-ga.py lightup  --out demo-run \"your headline here\""
-echo "  ./classify.sh demo-run somefile.txt"
-echo "  ./novelty.sh  demo-run somefile.txt"
-echo "  ./ga-step.sh  demo-run 10           # evolve it 10 more minutes"
+
+cat <<'GUIDE'
+
+────────────────────────────────────────────────────────────────────
+WHAT YOU JUST SAW
+  We grew a POPULATION of tiny "expert" models, each trained on one
+  slice of 1920-1940 newspaper text. A genetic algorithm decided which
+  articles each expert should specialise in. Every expert measures how
+  "surprised" it is by text, in bits/byte (bpb) — lower = more familiar.
+
+    classify : route each line to its least-surprised (best-fit) expert
+    lightup  : route ONE query AND show what that expert is about
+    novelty  : flag text no expert recognises (out-of-distribution)
+    mixture  : blend all experts into one model (beats any single one)
+
+  Note: this is GENERAL news — a fairly uniform corpus — so experts
+  specialise SUBTLY (by era / section / region) more than by sharp
+  topic. The split is far crisper on topically-varied corpora (mixed
+  languages, Wikipedia articles); see GA.md for those results.
+
+TRY IT YOURSELF
+  # route a query and see the chosen expert's real vocabulary + a sample:
+  python3 atn-ga.py lightup  --out demo-run "a full sentence works best"
+
+  # batch-route or novelty-check your own file (one item per line):
+  ./classify.sh demo-run yourfile.txt
+  ./novelty.sh  demo-run yourfile.txt
+
+  # keep evolving this same population for 10 more minutes (resumable):
+  ./ga-step.sh  demo-run 10
+
+  Tip: full sentences score far better than 2-3 words — a short query
+  looks "surprising" to every expert, so trust the RANKING, not the
+  absolute bpb.
+────────────────────────────────────────────────────────────────────
+GUIDE

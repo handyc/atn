@@ -596,6 +596,11 @@ def cmd_mixture(a):
     gain = 100 * (best_single - results[best_al]) / best_single
     print(f"\n  best online mixture beats the best single expert by {gain:.1f}% "
           f"(no hindsight, deployable)")
+    print("\n  What this means: this uses the whole POPULATION as one language model.")
+    print("  For each character it blends every expert's prediction, leaning on")
+    print("  whichever has been predicting best lately. Beating the best single expert")
+    print("  (and the 'oracle' is the unbeatable best-case that peeks at the answer)")
+    print("  shows the experts learned genuinely different, complementary slices.")
 
 # ----------------------------------------------------------------------------
 # classify / novelty: apply an evolved population to new text (batch)
@@ -631,6 +636,87 @@ def _pop_scores(a, survivors, lines):
     with ThreadPoolExecutor(max_workers=a.jobs) as ex:
         return list(ex.map(score_one, survivors))
 
+# ----------------------------------------------------------------------------
+# human-readable helpers: turn an opaque "expert 3" into what it specializes in,
+# read straight from the text that expert was trained on.
+# ----------------------------------------------------------------------------
+_STOP = set(("the a an of to in and for on at by is was were be been being as it its "
+             "with from that this these those his her their our your my he she they we "
+             "you i not no but or are had has have will would can could shall should "
+             "said say says one two three new now out up off over under into onto per "
+             "who whom which what when where why how all any some such than then there "
+             "here also more most very much many other another about after before "
+             "mr mrs miss dr st am pm").split())
+
+def _load_run_config(out):
+    try:
+        return json.load(open(os.path.join(out, "config.json")))
+    except FileNotFoundError:
+        return {}
+
+_TOK = re.compile(r"[a-zà-ÿ]{4,}")          # alphabetic words, ≥4 chars (skips OCR cruft)
+
+def _expert_profile(out, gene, cfg, n_words=10, cap_chunks=40, baseline=1200):
+    """Describe an expert by reading the text it actually trained on. Returns
+    (distinctive_words, sample_line). Words are ranked by TF-IDF against a sampled
+    corpus baseline so generic news vocabulary ('day', 'city') is down-weighted in
+    favour of what makes this expert's territory distinctive. Content loci gather
+    MinHash-similar chunks; positional loci take a contiguous run."""
+    import math
+    from collections import Counter
+    try:
+        chunks = load_index(out)
+    except FileNotFoundError:
+        return [], ""
+    terr = os.path.join(out, "territory.txt")
+    try:
+        fd = os.open(terr, os.O_RDONLY)
+    except FileNotFoundError:
+        return [], ""
+
+    def read_chunk(cid):
+        o, l = chunks[cid]
+        return os.pread(fd, l, o).decode("utf-8", "ignore")
+
+    try:
+        start, span = gene["start"], gene["span"]
+        nb = os.path.join(out, "neighbors.bin")
+        if cfg.get("locus") == "content" and os.path.exists(nb):
+            ids = NeighborTable(nb).neighbors(start)[:span]
+        else:
+            ids = list(range(start, min(start + span, len(chunks))))
+        ids = ids[:cap_chunks]
+
+        # corpus baseline: document frequency over an evenly-spaced sample of chunks
+        n = len(chunks)
+        step = max(1, n // baseline)
+        sample_ids = range(0, n, step)
+        df = Counter(); nsamp = 0
+        for cid in sample_ids:
+            nsamp += 1
+            df.update({w for w in _TOK.findall(read_chunk(cid).lower()) if w not in _STOP})
+
+        # this expert's term frequencies + a clean representative line
+        tf = Counter(); best_line, best_score = "", -1
+        for cid in ids:
+            text = read_chunk(cid)
+            tf.update(w for w in _TOK.findall(text.lower()) if w not in _STOP)
+            for ln in text.splitlines():
+                toks = ln.split()
+                if len(toks) < 8:
+                    continue
+                alpha = sum(t.isalpha() for t in toks) / len(toks)   # prefer clean prose
+                if alpha > best_score:
+                    best_score, best_line = alpha, ln.strip()[:72]
+    finally:
+        os.close(fd)
+
+    # TF-IDF: frequent HERE but rare across the corpus = distinctive
+    scored = ((cnt * math.log((nsamp + 1) / (df.get(w, 0) + 1)), w)
+              for w, cnt in tf.items() if cnt >= 2)
+    top = [w for _, w in sorted(scored, reverse=True)[:n_words]]
+    return top, best_line
+
 def cmd_classify(a):
     meta = json.load(open(os.path.join(a.out, "genes.json")))
     survivors = [g for g in meta["genes"] if g["n_owned"] > 0]
@@ -647,6 +733,11 @@ def cmd_classify(a):
         g = survivors[e0]
         print(f"{g['expert']:<8}{best:<8.3f}{second-best:<8.3f}"
               f"{g['start']/nchunks:<11.3f}{line[:50]}")
+    print("\n  How to read this: each line is routed to the expert that finds it least")
+    print("  surprising (lowest bpb = bits/byte). 'margin' is how much better that")
+    print("  expert fit than the runner-up — a wide margin = a confident, distinctive")
+    print("  topical match; near 0 = two experts cover similar ground. 'territory' is")
+    print("  where that expert sits in the corpus (0=start .. 1=end).")
 
 def cmd_novelty(a):
     meta = json.load(open(os.path.join(a.out, "genes.json")))
@@ -666,12 +757,18 @@ def cmd_novelty(a):
         nflag += novel
         print(f"{m:<8.3f}{'NOVEL' if novel else 'ok':<7}{line[:56]}")
     print(f"# {nflag}/{len(lines)} flagged novel (≥{thr} bpb)")
+    print("\n  How to read this: 'bpb' is how surprised the BEST-fitting expert still")
+    print("  is — if even the closest expert is very surprised, nothing in the corpus")
+    print("  looks like this text, so it's flagged NOVEL (out-of-distribution). Useful")
+    print("  for spotting off-topic, anachronistic, or garbled input.")
 
 # ----------------------------------------------------------------------------
 # lightup: route a query against the surviving population
 # ----------------------------------------------------------------------------
 def cmd_lightup(a):
     meta = json.load(open(os.path.join(a.out, "genes.json")))
+    cfg = _load_run_config(a.out)
+    cov = meta.get("coverage_bpb")
     survivors = [g for g in meta["genes"] if g["n_owned"] > 0]
     scored = []
     for g in survivors:
@@ -697,11 +794,30 @@ def cmd_lightup(a):
     for i, (bpb, g) in enumerate(scored[:8]):
         pos = g["start"] / nchunks
         print(f"{i+1:<5}{g['expert']:<8}{bpb:<8.3f}{pos:<8.3f}chunks[{g['start']}:+{g['span']}]")
-    win = scored[0][1]["expert"]
-    print(f"\nlit up: expert {win}  (lowest surprisal)")
-    nbrs = sorted(edges.get(win, []), key=lambda x: -x[1])[:5]
+
+    win_bpb, win_g = scored[0]
+    print(f"\nlit up: expert {win_g['expert']}  ({win_bpb:.3f} bpb — lowest surprisal)")
+    top, sample = _expert_profile(a.out, win_g, cfg)
+    if top:
+        print("  specializes in:", ", ".join(top))
+    if sample:
+        print(f'  e.g. from its territory: "{sample}"')
+    nbrs = sorted(edges.get(win_g["expert"], []), key=lambda x: -x[1])[:5]
     if nbrs:
-        print("fallback neighbors (graph):", ", ".join(f"{v}(w={w})" for v, w in nbrs))
+        print("  related experts (routing fallbacks):",
+              ", ".join(f"{v}(w={w})" for v, w in nbrs))
+
+    # ---- plain-English legend so the table above is self-explanatory ----
+    print("\n  What this means:")
+    print("  • bpb = bits/byte of 'surprise' — how UNfamiliar your text is to that")
+    print("    expert. Lower = better fit; the lowest-bpb expert 'lights up'.")
+    print("  • The RANKING is the signal, not the absolute number: short, misspelled,")
+    print("    or out-of-period queries score high for everyone. Try a full sentence.")
+    if cov:
+        print(f"  • For scale, the corpus itself sits at ≈{cov:.2f} bpb; your best was "
+              f"{win_bpb:.2f}.")
+    print("  • 'specializes in' / 'e.g.' are read from the actual articles that expert")
+    print("    trained on — that's what 'expert {}' really is.".format(win_g["expert"]))
 
 # ----------------------------------------------------------------------------
 def main():
