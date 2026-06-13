@@ -118,6 +118,12 @@ void autotrain(const char *dir, const char *brainpath, bool strip_html, bool qui
 /* corpus prep (prep.c): clean + dedup + quality-filter text for LLM training */
 int prep_run(int argc, char **argv);
 
+/* content addressing (content.c): for the atn-ga brain network. Read the chunk
+ * index over a territory file, compute per-chunk MinHash/SimHash signatures, and
+ * write a binary nearest-neighbour table to outpath (replaces numpy in atn-ga). */
+int content_build_neighbors(const char *territory, const char *index,
+                            const char *outpath, const char *sigkind, double df_max);
+
 /* context-mixing coder (cm.c) */
 void cm_report(const blob *b);
 int  cm_compress_file(const blob *b, const char *outpath);

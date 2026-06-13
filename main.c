@@ -154,6 +154,10 @@ int main(int argc, char **argv) {
         {"score-bytes", no_argument, 0, 1016},
         {"orders", required_argument, 0, 1017},
         {"prep", no_argument,       0, 1015},
+        {"neighbors", no_argument,  0, 1018},
+        {"nn-index", required_argument, 0, 1019},
+        {"nn-sig", required_argument, 0, 1020},
+        {"nn-dfmax", required_argument, 0, 1021},
         {"attn", no_argument,       0, 'Z'},
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
@@ -161,8 +165,10 @@ int main(int argc, char **argv) {
 
     bool do_compress = false, do_decompress = false, do_chat = false;
     bool do_ask = false, strip_html = false, no_learn = false, do_score = false, do_score_bytes = false;
-    bool do_prep = false;
+    bool do_prep = false, do_neighbors = false;
     const char *outfile = NULL, *brainfile = NULL, *traindir = NULL;
+    const char *nn_index = NULL, *nn_sig = "minhash";
+    double nn_dfmax = 0.5;
     int opt;
     while ((opt = getopt_long(argc, argv, "ASECTFPMKDZBXxsRvcw:n:m:g:o:qhV", longopts, NULL)) != -1) {
         switch (opt) {
@@ -207,6 +213,10 @@ int main(int argc, char **argv) {
             case 1016: do_score_bytes = true; break;
             case 1017: lm_set_orders(optarg); break;
             case 1015: do_prep = true; break;
+            case 1018: do_neighbors = true; break;
+            case 1019: nn_index = optarg; break;
+            case 1020: nn_sig = optarg; break;
+            case 1021: nn_dfmax = atof(optarg); break;
             case 'c': do_chat = true; break;
             case 'o': outfile = optarg; break;
             case 'h': usage(stdout); return 0;
@@ -238,6 +248,16 @@ int main(int argc, char **argv) {
         else if (do_ask)   chat_once(bp, o.temp, !no_learn);
         else if (do_chat)  chat_session(bp, o.temp);
         return 0;
+    }
+
+    /* Content neighbour table for the atn-ga brain network: read the chunk index
+     * over a territory file, build signatures, write the binary table to -o. */
+    if (do_neighbors) {
+        if (optind == argc || !nn_index || !outfile) {
+            fprintf(stderr, "atn: --neighbors needs TERRITORY --nn-index FILE -o OUT\n");
+            return 2;
+        }
+        return content_build_neighbors(argv[optind], nn_index, outfile, nn_sig, nn_dfmax);
     }
 
     /* Corpus prep: clean + dedup + quality-filter text (files or stdin) -> stdout. */

@@ -27,134 +27,36 @@ RNG => fully reproducible runs.
 This is corpus-agnostic: point --corpus at 25MB of news now, or a Wikipedia /
 Library-of-Congress dump later. Only the addressed slices are ever read.
 """
-import argparse, json, os, random, re, subprocess, sys, tempfile, zlib
+import argparse, array, json, os, random, re, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
-try:
-    import numpy as np
-except ImportError:
-    np = None
 
 # ----------------------------------------------------------------------------
-# content addressing: per-chunk MinHash signatures, with an LSH index so a gene
-# can gather topically-SIMILAR chunks (not contiguous ones) even when there are
-# tens of thousands of document-granularity chunks (brute-force O(n^2) would die).
+# content addressing: a content gene gathers topically-SIMILAR chunks via a
+# per-chunk nearest-neighbour table. Signatures (MinHash / TF-IDF SimHash) and
+# the exact/LSH ranking now live in C (content.c, `atn --neighbors`) so this
+# script needs no numpy — the table is read back as plain int32 rows.
 # ----------------------------------------------------------------------------
-SIG_BITS = 128                                     # SimHash signature width (bits)
-_WORD = re.compile(r"[a-zà-ÿ0-9']+")
-
-def _word_bits(words):
-    """Deterministic SimHash hyperplane signs for each word: a {-1,+1}^SIG_BITS row
-    from the word's hash (two crc32s give 64 bits; tiled to SIG_BITS)."""
-    h = np.empty((len(words), (SIG_BITS + 63) // 64), dtype=np.uint64)
-    for j in range(h.shape[1]):
-        salt = bytes([j])
-        h[:, j] = np.fromiter((zlib.crc32(salt + w) | (zlib.crc32(salt + b"\x01" + w) << 32)
-                               for w in words), dtype=np.uint64, count=len(words))
-    bitpos = np.arange(SIG_BITS, dtype=np.uint64)
-    word64 = h[:, bitpos // 64]                    # pick the 64-bit word holding each bit
-    bit = (word64 >> (bitpos % np.uint64(64))) & np.uint64(1)
-    return bit.astype(np.int8) * 2 - 1             # [nwords, SIG_BITS] in {-1,+1}
-
-def _df_stats(chunk_texts):
-    from collections import Counter
-    toks, df = [], Counter()
-    for t in chunk_texts:
-        c = Counter(_WORD.findall(t.lower())); toks.append(c); df.update(c.keys())
-    return toks, df
-
-def _sig_minhash(chunk_texts, df_max, min_df):
-    """MinHash over the df-filtered word SET (estimates Jaccard of vocabularies)."""
-    NH = 32
-    mult = np.array([(0x9E3779B97F4A7C15 * (2 * i + 1)) & ((1 << 64) - 1) for i in range(NH)],
-                    dtype=np.uint64)
-    toks, df = _df_stats(chunk_texts)
-    n = len(chunk_texts); hi = df_max * n if df_max < 1 else n + 1
-    sigs = np.full((n, NH), (1 << 64) - 1, dtype=np.uint64)
-    for i, c in enumerate(toks):
-        kept = [w for w in c if min_df <= df[w] <= hi]
-        if len(kept) < 4:
-            continue
-        hs = np.fromiter((zlib.crc32(w.encode("utf-8")) for w in kept), dtype=np.uint64, count=len(kept))
-        m = hs[:, None] * mult[None, :]
-        m ^= m >> np.uint64(29)
-        sigs[i] = m.min(axis=0)
-    return sigs
-
-def _sig_simhash(chunk_texts, df_max, min_df):
-    """TF-IDF-weighted SimHash (SIG_BITS bits): rare topical words dominate the
-    signature; bit-agreement ≈ cosine of the TF-IDF vectors. Topic is carried by
-    the rare-word tail, so weighting by IDF should beat unweighted Jaccard."""
-    import math
-    toks, df = _df_stats(chunk_texts)
-    n = len(chunk_texts); hi = df_max * n if df_max < 1 else n + 1
-    vocab = [w for w in df if min_df <= df[w] <= hi]
-    vidx = {w: i for i, w in enumerate(vocab)}
-    sigs = np.zeros((n, SIG_BITS), dtype=np.uint8)
-    if not vocab:
-        return sigs
-    idf = np.array([math.log(n / df[w]) for w in vocab])
-    signs = _word_bits([w.encode("utf-8") for w in vocab])   # [V, SIG_BITS] in {-1,+1}
-    for i, c in enumerate(toks):
-        idxs, wts = [], []
-        for w, cnt in c.items():
-            j = vidx.get(w)
-            if j is not None:
-                idxs.append(j); wts.append((1.0 + math.log(cnt)) * idf[j])
-        if idxs:
-            v = (signs[idxs] * np.array(wts)[:, None]).sum(axis=0)
-            sigs[i] = (v > 0).astype(np.uint8)
-    return sigs
-
-def build_signatures(chunk_texts, df_max=0.5, min_df=2, sig="minhash"):
-    """Per-chunk content signature. `sig`: 'simhash' (TF-IDF weighted, cosine) or
-    'minhash' (word-set Jaccard). Both band for LSH the same way (per-slot equality)."""
-    return (_sig_simhash if sig == "simhash" else _sig_minhash)(chunk_texts, df_max, min_df)
-
-class LSHIndex:
-    """Banded MinHash LSH. neighbors(i) returns chunks sharing a band-bucket with
-    chunk i, ranked by full-signature similarity — O(bucket) per query, not O(n)."""
-    def __init__(self, sigs, bands=16, cap=400):
-        self.sigs = sigs; self.n = len(sigs); self.cap = cap
-        self.B = bands; self.R = max(1, sigs.shape[1] // bands)
-        self.buckets = [dict() for _ in range(self.B)]
-        for i in range(self.n):
-            for b in range(self.B):
-                key = self._key(i, b)
-                self.buckets[b].setdefault(key, []).append(i)
-        self._cache = {}
-
-    def _key(self, i, b):
-        return zlib.crc32(self.sigs[i, b * self.R:(b + 1) * self.R].tobytes())
+class NeighborTable:
+    """Reads the binary table written by `atn --neighbors`. neighbors(i) returns
+    the chunk ids most similar to i (i itself ranks first), -1 padding stripped.
+    Layout (native int32): [n, rowcap] then n rows of `rowcap` ids each."""
+    def __init__(self, path):
+        a = array.array("i")
+        with open(path, "rb") as f:
+            a.frombytes(f.read())
+        self.n, self.rowcap = a[0], a[1]
+        self._a = a
 
     def neighbors(self, i):
-        r = self._cache.get(i)
-        if r is not None:
-            return r
-        cand = set()
-        for b in range(self.B):
-            cand.update(self.buckets[b].get(self._key(i, b), ()))
-        cand.discard(i); cand = list(cand)
-        if cand:
-            sim = (self.sigs[cand] == self.sigs[i]).mean(axis=1)
-            order = np.argsort(-sim, kind="stable")[:self.cap]
-            res = [i] + [cand[j] for j in order]
-        else:
-            res = [i]
-        self._cache[i] = res
-        return res
+        base = 2 + i * self.rowcap
+        return [x for x in self._a[base:base + self.rowcap] if x >= 0]
 
-class ExactNeighbors:
-    """Brute-force exact neighbor ranking — for small chunk counts where O(n^2) is
-    fine and we want exact (not approximate) results."""
-    def __init__(self, sigs):
-        self.sigs = sigs; self.n = len(sigs); self._cache = {}
-    def neighbors(self, i):
-        r = self._cache.get(i)
-        if r is None:
-            sim = (self.sigs == self.sigs[i]).mean(axis=1)
-            r = np.argsort(-sim, kind="stable").astype(int).tolist()
-            self._cache[i] = r
-        return r
+def build_neighbor_table(atn, territory, index_tsv, out_bin, sig, df_max):
+    """Invoke the C kernel to (re)build the neighbour table, then load it."""
+    subprocess.run([atn, "--neighbors", territory, "--nn-index", index_tsv,
+                    "--nn-sig", sig, "--nn-dfmax", str(df_max), "-o", out_bin],
+                   stderr=subprocess.DEVNULL, check=True)
+    return NeighborTable(out_bin)
 
 # ----------------------------------------------------------------------------
 # corpus indexing: split into territory (trainable) + a held-out eval sample
@@ -270,17 +172,12 @@ class Engine:
         self._fd = os.open(territory, os.O_RDONLY)       # read via os.pread (thread-safe)
         self.nn = None                                   # neighbor provider (content mode)
         if mode == "content":
-            if np is None:
-                raise SystemExit("--locus content needs numpy")
-            cachef = os.path.join(out, "sigs.npy")       # cache signatures across cron ticks
-            if os.path.exists(cachef):
-                sigs = np.load(cachef)
-            else:
-                texts = [self._read(o, l).decode("utf-8", "ignore") for (o, l) in chunks]
-                sigs = build_signatures(texts, df_max=df_max, sig=sig)
-                np.save(cachef, sigs)
+            cachef = os.path.join(out, "neighbors.bin")  # cache the table across cron ticks
+            if not os.path.exists(cachef):
+                build_neighbor_table(atn, territory, os.path.join(out, "index.tsv"),
+                                     cachef, sig, df_max)
+            self.nn = NeighborTable(cachef)
             exact = len(chunks) <= 2500                  # exact for small, LSH at scale
-            self.nn = ExactNeighbors(sigs) if exact else LSHIndex(sigs, bands=16)
             print(f"[index] content index: {sig} signature, "
                   f"{'exact O(n^2)' if exact else 'LSH (16 bands)'} over {len(chunks)} chunks")
 
@@ -497,7 +394,7 @@ def cmd_run(a):
         print(f"[resume] {a.out}: at gen {gen0}, pop {len(pop)}, best {best_cov:.4f} bpb")
     else:
         if a.restart:
-            for f in ("state.json", "sigs.npy"):
+            for f in ("state.json", "neighbors.bin"):
                 try: os.remove(os.path.join(a.out, f))
                 except FileNotFoundError: pass
         # chunk size: explicit --chunk-kb, else generous cap when splitting on document
@@ -633,7 +530,7 @@ def finalize(a, eng, pop, marginal, owner, second, coverage):
 # mixture: soft combination of experts via an online fixed-share predictor
 # ----------------------------------------------------------------------------
 def _perbyte_matrix(a, survivors, eval_path):
-    """Return (Bits[P][N] per-byte surprisal, line_lengths) for the eval stream."""
+    """Return (Bits[P][N] per-byte surprisal as lists, line_lengths) for the eval stream."""
     rows = []
     line_lens = None
     for g in survivors:
@@ -649,44 +546,43 @@ def _perbyte_matrix(a, survivors, eval_path):
         rows.append(flat)
         if line_lens is None:
             line_lens = lens
-    N = min(len(x) for x in rows)
-    Bits = np.array([x[:N] for x in rows], dtype=np.float64)
+    N = min(len(x) for x in rows) if rows else 0
+    Bits = [x[:N] for x in rows]
     return Bits, line_lens
 
 def cmd_mixture(a):
-    if np is None:
-        raise SystemExit("mixture needs numpy")
+    import math
     meta = json.load(open(os.path.join(a.out, "genes.json")))
     survivors = [g for g in meta["genes"] if g["n_owned"] > 0]
     eval_path = os.path.join(a.out, "eval.txt")
     print(f"[mixture] {len(survivors)} experts, scoring per byte over the eval stream ...")
     Bits, line_lens = _perbyte_matrix(a, survivors, eval_path)
-    P, N = Bits.shape
-    P_prob = np.exp2(-Bits)                      # p_k[t] = prob expert k gave the realized byte
-    P_prob = np.clip(P_prob, 1e-12, 1.0)
+    P = len(Bits); N = len(Bits[0]) if P else 0
+    if not P or not N:
+        print("  no experts or empty eval stream"); return
+    # p_k[t] = prob expert k gave the realized byte, clipped away from 0
+    P_prob = [[min(max(2.0 ** -Bits[k][t], 1e-12), 1.0) for t in range(N)] for k in range(P)]
 
     # baselines
-    best_single = float(Bits.mean(axis=1).min())
+    best_single = min(sum(Bits[k]) / N for k in range(P))
     # oracle hard per-line routing (pick the lowest-sum expert for each line, with hindsight)
     oracle = 0.0; t = 0
     for L in line_lens:
         if L == 0: continue
-        seg = Bits[:, t:t + L].sum(axis=1)
-        oracle += seg.min(); t += L
+        oracle += min(sum(Bits[k][t:t + L]) for k in range(P)); t += L
     oracle /= max(1, N)
 
     # online fixed-share mixture: weights track the best expert through the stream,
     # with a small `alpha` leaked back to uniform each step so it can SWITCH experts.
     def run_mixture(alpha):
-        w = np.full(P, 1.0 / P); bits = 0.0
+        w = [1.0 / P] * P; bits = 0.0
         for t in range(N):
-            p = P_prob[:, t]
-            mix = float(w @ p)
-            bits += -np.log2(max(mix, 1e-12))
-            w = w * p
-            s = w.sum()
-            w = (w / s) if s > 0 else np.full(P, 1.0 / P)
-            w = (1 - alpha) * w + alpha / P     # fixed-share: enables tracking switches
+            mix = sum(w[k] * P_prob[k][t] for k in range(P))
+            bits += -math.log2(max(mix, 1e-12))
+            w = [w[k] * P_prob[k][t] for k in range(P)]
+            s = sum(w)
+            w = [wk / s for wk in w] if s > 0 else [1.0 / P] * P
+            w = [(1 - alpha) * wk + alpha / P for wk in w]   # fixed-share: tracks switches
         return bits / N
 
     alphas = [a.alpha] if a.alpha is not None else [0.0, 0.01, 0.05, 0.2]

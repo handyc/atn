@@ -233,6 +233,7 @@ python3 atn-ga.py mixture --out RUNDIR
 ```
 territory.txt   the trainable text (eval lines removed)
 index.tsv       chunk_id <tab> byte_off <tab> byte_len   (addressable slices)
+neighbors.bin   content mode: per-chunk nearest-neighbour table (atn --neighbors)
 eval.txt        held-out lines used to measure coverage
 eval_pos.tsv    each eval line's fractional position (for the tiling map)
 brains/         cached brains, named by gene signature (reused across gens)
@@ -280,6 +281,9 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
   tool — pair `--locus content` with `--chunk-on` on real corpora. Signature
   choice (`--sig`) is secondary: MinHash (Jaccard) edges TF-IDF SimHash (cosine)
   for this n-gram task, since experts reward shared exact vocabulary.
+  Signatures and the exact/LSH neighbour table are computed in C
+  (`atn --neighbors`, see `content.c`) and cached to `RUNDIR/neighbors.bin`, so
+  the GA driver runs on the Python standard library alone — no numpy.
 - **Soft mixture (`mixture` command, implemented).** Coverage uses a hard
   per-line argmin. The deployable router can't peek at the answer, so `mixture`
   runs an **online fixed-share** predictor over the eval stream: each byte is
