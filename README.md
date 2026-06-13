@@ -485,6 +485,24 @@ bundle.sh ./brains corpus.txt                          # -> a training set
 bundle.sh ./brains corpus.txt --novel                  # -> distinctive lines only
 ```
 
+### Evolving a population that tiles a huge corpus (`atn-ga.py`)
+
+The scaling story: instead of one brain on a big corpus (which saturates), grow a
+**population** of cheap brains and use a genetic algorithm to evolve *where each
+one sits*, so together they cover a corpus of any size as a routable mixture of
+experts. Fitness is **coverage** (how much each brain lowers the population's
+held-out bits/byte); a query "lights up" the brain whose territory it falls in.
+
+```
+python3 atn-ga.py run --corpus big.txt --out run --pop 24 --gens 14
+python3 atn-ga.py lightup --out run "some query text"
+```
+
+On a 5-language test corpus the experts self-organized by language with no
+labels, coverage dropped 2.83 → 2.72 bpb, and the mixture beat a single brain on
+the same data (3.11 → 2.72 bpb). Full design, results, and options in
+**[GA.md](GA.md)**.
+
 ## The filesystem as a GPT corpus (`--corpus`)
 
 This is "attention to the files in the filesystem" meeting GPT attention:

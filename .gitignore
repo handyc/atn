@@ -24,6 +24,10 @@ Hamlet*
 # scraped news working tree (data, never source)
 newsdata/
 
+# atn-ga evolution run dirs (brains, territory, eval — all derived data)
+ga-run/
+*.ga/
+
 # local editor / tool config
 .claude/
 
