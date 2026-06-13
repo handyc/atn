@@ -69,6 +69,7 @@ static void usage(FILE *o) {
 "               (cron-friendly; --no-learn to query a corpus read-only)\n"
 "  --score      per stdin line, print surprisal (bits/byte) under the brain\n"
 "               (low = fits the corpus; high = novel/off-topic)\n"
+"  --score-bytes per stdin line, print space-separated PER-BYTE surprisal (bits)\n"
 "  --prep [files] clean + dedup (exact + near-dup) + quality-filter text for LLM\n"
 "               training; streams to stdout, no model trained (~100s of MB/s)\n"
 "  --map-bits N  per-map entry cap = 2^N (default 22; higher = more fidelity on\n"
@@ -149,6 +150,7 @@ int main(int argc, char **argv) {
         {"no-learn", no_argument,   0, 1012},
         {"score", no_argument,      0, 1013},
         {"map-bits", required_argument, 0, 1014},
+        {"score-bytes", no_argument, 0, 1016},
         {"prep", no_argument,       0, 1015},
         {"attn", no_argument,       0, 'Z'},
         {"help", no_argument, 0, 'h'},
@@ -156,7 +158,7 @@ int main(int argc, char **argv) {
     };
 
     bool do_compress = false, do_decompress = false, do_chat = false;
-    bool do_ask = false, strip_html = false, no_learn = false, do_score = false;
+    bool do_ask = false, strip_html = false, no_learn = false, do_score = false, do_score_bytes = false;
     bool do_prep = false;
     const char *outfile = NULL, *brainfile = NULL, *traindir = NULL;
     int opt;
@@ -200,6 +202,7 @@ int main(int argc, char **argv) {
             case 1012: no_learn = true; break;
             case 1013: do_score = true; break;
             case 1014: lm_set_map_cap(atoi(optarg)); break;
+            case 1016: do_score_bytes = true; break;
             case 1015: do_prep = true; break;
             case 'c': do_chat = true; break;
             case 'o': outfile = optarg; break;
@@ -214,7 +217,7 @@ int main(int argc, char **argv) {
     /* Chat / train / one-shot ask: the brain sits next to the atn binary by
      * default (override with --brain). --train ingests first; --ask is one
      * stdin line -> one reply line -> exit; -c is the interactive loop. */
-    if (do_chat || traindir || do_ask || do_score) {
+    if (do_chat || traindir || do_ask || do_score || do_score_bytes) {
         char def[4096];
         const char *bp = brainfile;
         if (!bp) {
@@ -228,6 +231,7 @@ int main(int argc, char **argv) {
         }
         if (traindir) autotrain(traindir, bp, strip_html, o.quiet);
         if (do_score)      score_query(bp);
+        else if (do_score_bytes) score_query_bytes(bp);
         else if (do_ask)   chat_once(bp, o.temp, !no_learn);
         else if (do_chat)  chat_session(bp, o.temp);
         return 0;

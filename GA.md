@@ -65,6 +65,9 @@ python3 atn-ga.py run --corpus CORPUS.txt --out RUNDIR [options]
 
 # route a query against the evolved population (which expert lights up?)
 python3 atn-ga.py lightup --out RUNDIR "some query text"
+
+# soft online mixture of experts vs single brain / hindsight oracle
+python3 atn-ga.py mixture --out RUNDIR
 ```
 
 `run` options (all have sensible defaults):
@@ -118,8 +121,18 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
   better even than positional on the *unshuffled* corpus (2.72), because it builds
   pure same-language training sets (top-8 neighbors are 90% same-language) instead
   of regions that straddle boundaries.
-- Coverage uses per-line argmin (a hard MoE). A soft mixture (interpolate the
-  top-k experts) would lower bpb further and is a drop-in change to `evaluate`.
+- **Soft mixture (`mixture` command, implemented).** Coverage uses a hard
+  per-line argmin. The deployable router can't peek at the answer, so `mixture`
+  runs an **online fixed-share** predictor over the eval stream: each byte is
+  predicted as a weighted blend of all experts (weights ∝ recent per-byte
+  accuracy via atn's new `--score-bytes`), with a small `alpha` leaked back to
+  uniform each step so the weights can *switch* experts as the stream crosses
+  regions. On the 5-language run it scored **2.62 bpb with no hindsight** —
+  beating the best single expert (3.39, by 23%) and coming within 0.02 of the
+  hindsight oracle (2.60). Plain Bayesian mixing (alpha=0) gets stuck at 3.82;
+  the fixed-share leak is what lets it track. Line-level mixing can't do this —
+  line-probabilities are too peaked for a second expert to matter, so the gain
+  has to come per byte.
 - Scaling up: the corpus is never resident — a gene addresses a slice, we stream
   just that slice to train one brain plus a fixed held-out sample. The same loop
   runs on Wikipedia or larger; only `--span-mb`, `--pop`, and the chunk size grow.

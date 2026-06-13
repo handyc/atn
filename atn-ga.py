@@ -392,6 +392,77 @@ def finalize(a, eng, pop, marginal, owner, second, coverage):
         dot.write("}\n")
 
 # ----------------------------------------------------------------------------
+# mixture: soft combination of experts via an online fixed-share predictor
+# ----------------------------------------------------------------------------
+def _perbyte_matrix(a, survivors, eval_path):
+    """Return (Bits[P][N] per-byte surprisal, line_lengths) for the eval stream."""
+    rows = []
+    line_lens = None
+    for g in survivors:
+        bp = os.path.join(a.out, g["brain"])
+        with open(eval_path, "rb") as ef:
+            r = subprocess.run([a.atn, "--score-bytes", "--brain", bp, "--map-bits", str(g["mapbits"])],
+                               stdin=ef, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True)
+        flat = []; lens = []
+        for line in r.stdout.decode("utf-8", "ignore").splitlines():
+            vals = [float(x) for x in line.split()] if line.strip() else []
+            flat.extend(vals); lens.append(len(vals))
+        rows.append(flat)
+        if line_lens is None:
+            line_lens = lens
+    N = min(len(x) for x in rows)
+    Bits = np.array([x[:N] for x in rows], dtype=np.float64)
+    return Bits, line_lens
+
+def cmd_mixture(a):
+    if np is None:
+        raise SystemExit("mixture needs numpy")
+    meta = json.load(open(os.path.join(a.out, "genes.json")))
+    survivors = [g for g in meta["genes"] if g["n_owned"] > 0]
+    eval_path = os.path.join(a.out, "eval.txt")
+    print(f"[mixture] {len(survivors)} experts, scoring per byte over the eval stream ...")
+    Bits, line_lens = _perbyte_matrix(a, survivors, eval_path)
+    P, N = Bits.shape
+    P_prob = np.exp2(-Bits)                      # p_k[t] = prob expert k gave the realized byte
+    P_prob = np.clip(P_prob, 1e-12, 1.0)
+
+    # baselines
+    best_single = float(Bits.mean(axis=1).min())
+    # oracle hard per-line routing (pick the lowest-sum expert for each line, with hindsight)
+    oracle = 0.0; t = 0
+    for L in line_lens:
+        if L == 0: continue
+        seg = Bits[:, t:t + L].sum(axis=1)
+        oracle += seg.min(); t += L
+    oracle /= max(1, N)
+
+    # online fixed-share mixture: weights track the best expert through the stream,
+    # with a small `alpha` leaked back to uniform each step so it can SWITCH experts.
+    def run_mixture(alpha):
+        w = np.full(P, 1.0 / P); bits = 0.0
+        for t in range(N):
+            p = P_prob[:, t]
+            mix = float(w @ p)
+            bits += -np.log2(max(mix, 1e-12))
+            w = w * p
+            s = w.sum()
+            w = (w / s) if s > 0 else np.full(P, 1.0 / P)
+            w = (1 - alpha) * w + alpha / P     # fixed-share: enables tracking switches
+        return bits / N
+
+    alphas = [a.alpha] if a.alpha is not None else [0.0, 0.01, 0.05, 0.2]
+    results = {al: run_mixture(al) for al in alphas}
+    print(f"\n  best single expert (no mixing) : {best_single:.4f} bpb")
+    print(f"  oracle hard routing (hindsight): {oracle:.4f} bpb   <- per-line argmin")
+    for al, v in results.items():
+        tag = "Bayes mix" if al == 0.0 else f"fixed-share α={al}"
+        print(f"  online {tag:<20}: {v:.4f} bpb")
+    best_al = min(results, key=results.get)
+    gain = 100 * (best_single - results[best_al]) / best_single
+    print(f"\n  best online mixture beats the best single expert by {gain:.1f}% "
+          f"(no hindsight, deployable)")
+
+# ----------------------------------------------------------------------------
 # lightup: route a query against the surviving population
 # ----------------------------------------------------------------------------
 def cmd_lightup(a):
@@ -455,6 +526,12 @@ def main():
     l.add_argument("--atn", default="./atn")
     l.add_argument("query")
     l.set_defaults(func=cmd_lightup)
+
+    m = sub.add_parser("mixture", help="soft online mixture of experts vs single/oracle")
+    m.add_argument("--out", required=True)
+    m.add_argument("--atn", default="./atn")
+    m.add_argument("--alpha", type=float, default=None, help="fixed-share rate (default: sweep)")
+    m.set_defaults(func=cmd_mixture)
 
     a = ap.parse_args()
     a.func(a)

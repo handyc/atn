@@ -985,6 +985,39 @@ void score_query(const char *brainpath) {
     model_free(&M); free(T);
 }
 
+/* Like score_query, but prints the per-BYTE surprisal (space-separated bits) for
+ * each input line instead of the line mean. Used by the atn-ga mixture evaluator,
+ * which mixes experts position-by-position over the eval stream. */
+void score_query_bytes(const char *brainpath) {
+    unsigned char *T = NULL; size_t Tn = 0, Tcap = 1 << 16;
+    T = malloc(Tcap); if (!T) return;
+    FILE *bf = fopen(brainpath, "rb");
+    if (bf) {
+        size_t got;
+        while ((got = fread(T + Tn, 1, Tcap - Tn, bf)) > 0) {
+            Tn += got;
+            if (Tn == Tcap) { Tcap *= 2; unsigned char *nt = realloc(T, Tcap); if (!nt) break; T = nt; }
+        }
+        fclose(bf);
+    }
+    char wpath[4200]; snprintf(wpath, sizeof(wpath), "%s.weights", brainpath);
+    model M;
+    if (!load_weights(&M, (uint64_t)Tn, wpath)) {
+        blob b0 = { T, Tn }; model_build_reserve(&M, &b0, 1u << 18);
+    }
+    char line[8192];
+    while (fgets(line, sizeof(line), stdin)) {
+        size_t len = strlen(line);
+        while (len && (line[len-1] == '\n' || line[len-1] == '\r')) len--;
+        for (size_t i = 0; i < len; i++) {
+            double bits = -log2(model_prob(&M, (const unsigned char*)line, i, (unsigned char)line[i]));
+            printf(i ? " %.3f" : "%.3f", bits);
+        }
+        putchar('\n'); fflush(stdout);
+    }
+    model_free(&M); free(T);
+}
+
 /* ---------------------------------------------------------------- */
 /* Public model API (used by the filesystem-corpus mode in fleet.c)  */
 /* ---------------------------------------------------------------- */

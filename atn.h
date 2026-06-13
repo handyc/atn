@@ -106,6 +106,8 @@ void chat_session(const char *brainpath, double temp);
 void chat_once(const char *brainpath, double temp, bool learn);
 /* score: per stdin line, print surprisal (bits/byte) under the brain + the line */
 void score_query(const char *brainpath);
+/* score-bytes: per stdin line, print space-separated PER-BYTE surprisal (bits) */
+void score_query_bytes(const char *brainpath);
 /* tune the per-map entry cap to 1<<bits (more = higher fidelity, more RAM) */
 void lm_set_map_cap(int bits);
 /* autotrain (gpt.c): ingest every text file under a directory into the brain */
