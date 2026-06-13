@@ -495,13 +495,18 @@ held-out bits/byte); a query "lights up" the brain whose territory it falls in.
 
 ```
 python3 atn-ga.py run --corpus big.txt --out run --pop 24 --gens 14
-python3 atn-ga.py lightup --out run "some query text"
+python3 atn-ga.py run --corpus big.txt --out run --locus content   # gather by topic
+python3 atn-ga.py lightup --out run "some query text"              # route a query
+python3 atn-ga.py mixture --out run                                # soft online mixture
 ```
 
 On a 5-language test corpus the experts self-organized by language with no
-labels, coverage dropped 2.83 → 2.72 bpb, and the mixture beat a single brain on
-the same data (3.11 → 2.72 bpb). Full design, results, and options in
-**[GA.md](GA.md)**.
+labels, and coverage beat a single brain (3.11 → 2.72 bpb). A **soft online
+mixture** of the experts (`mixture`) beats any single brain by ~22% with no
+hindsight — at 100 MB Wikipedia scale it reaches 2.44 bpb, beating even the
+hindsight per-line oracle (2.68). Genes can address **content** (`--locus
+content`) instead of position, gathering topically-similar chunks via word-level
+MinHash. Full design, results, scale tests, and options in **[GA.md](GA.md)**.
 
 ## The filesystem as a GPT corpus (`--corpus`)
 

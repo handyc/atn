@@ -57,6 +57,39 @@ python3 atn-ga.py run --corpus corpus_multi.txt --out run \
 (German, a narrow 6% region, got absorbed by neighbors — expected when the per-
 brain span is wider than the region. Shrinking `--span-mb` recovers it.)
 
+## Scaling up: 100 MB of real Wikipedia (enwik8)
+
+The same loop, pointed at enwik8 (the standard 100 MB Wikipedia benchmark) —
+48 brains, 16 generations:
+
+```
+python3 atn-ga.py run --corpus enwik8 --out wiki --pop 48 --gens 16 \
+    --span-mb 0.6 --eval-frac 0.01
+python3 atn-ga.py mixture --out wiki
+```
+
+- **It scales:** 100 MB (20× the toy corpus) indexed and evolved in **3.5 min**,
+  peak **300 MB RAM** — only the addressed slices are ever read.
+- **The soft mixture wins big at scale:** best single expert 3.12 bpb → online
+  fixed-share mixture **2.44 bpb** (−22%), which here even **beats the hindsight
+  per-line oracle (2.68)** — real Wikipedia lines benefit from blending different
+  experts *within* a line, which one-expert-per-line routing can't capture.
+- **Honest finding — the GA needs exploitable structure.** Coverage did *not*
+  improve over generations on enwik8: the best tiling was generation 1's uniform
+  spread (2.78 bpb), and evolution drifted slightly worse. enwik8 is articles in
+  **dump order** (not topically sorted), so a contiguous positional region is an
+  unrelated grab-bag — there is no coherent territory for the GA to discover, and
+  a uniform spread is already near-optimal. This is the same homogeneity wall the
+  news corpus hit. The lever for unsorted data is **`--locus content`** (gather
+  topically-similar chunks regardless of position) — but it wants chunks at
+  *document* granularity, which at 100 MB needs LSH instead of the current
+  brute-force neighbor table (see limits).
+
+The takeaway: the evolutionary search pays off when position correlates with
+content (languages, topics, sorted/sharded data); when it doesn't, the *mixture*
+of even a uniformly-spread population is still a large, deployable win over any
+single brain.
+
 ## Usage
 
 ```
@@ -120,7 +153,12 @@ graph.dot       same graph as Graphviz (dot -Tpng graph.dot -o graph.png)
   positional coverage degraded to 2.74 bpb, while content **recovered to 2.69** —
   better even than positional on the *unshuffled* corpus (2.72), because it builds
   pure same-language training sets (top-8 neighbors are 90% same-language) instead
-  of regions that straddle boundaries.
+  of regions that straddle boundaries. Content mode currently builds a brute-force
+  O(n²) neighbor table, fine for hundreds–thousands of chunks; at document
+  granularity over 100 MB+ it needs LSH (the bands in `prep.c`) instead. At coarse
+  chunk sizes it does *not* help (each chunk is a multi-topic grab-bag, so the
+  signature blurs) — on enwik8 with 78 KB chunks it scored 2.82 vs positional's
+  2.78. Content addressing is a document-granularity tool.
 - **Soft mixture (`mixture` command, implemented).** Coverage uses a hard
   per-line argmin. The deployable router can't peek at the answer, so `mixture`
   runs an **online fixed-share** predictor over the eval stream: each byte is
