@@ -109,7 +109,7 @@ void score_query(const char *brainpath);
 /* tune the per-map entry cap to 1<<bits (more = higher fidelity, more RAM) */
 void lm_set_map_cap(int bits);
 /* autotrain (gpt.c): ingest every text file under a directory into the brain */
-void autotrain(const char *dir, const char *brainpath, bool strip_html);
+void autotrain(const char *dir, const char *brainpath, bool strip_html, bool quiet);
 
 /* context-mixing coder (cm.c) */
 void cm_report(const blob *b);

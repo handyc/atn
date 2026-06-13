@@ -35,8 +35,8 @@ if [ "$MODE" = "--novel" ] && [ "$nbrains" -gt 1 ]; then
         else head -c "$per" "$b" >> "$tmp/foldB"; fi
         i=$((i + 1))
     done
-    "$A" --train "$tmp/foldA" --brain "$tmp/mA.brain" >/dev/null 2>&1
-    "$A" --train "$tmp/foldB" --brain "$tmp/mB.brain" >/dev/null 2>&1
+    "$A" --train "$tmp/foldA" --brain "$tmp/mA.brain" -q >/dev/null 2>&1
+    "$A" --train "$tmp/foldB" --brain "$tmp/mB.brain" -q >/dev/null 2>&1
 
     inlines=0; : > "$tmp/all"; i=0
     for b in $brains; do

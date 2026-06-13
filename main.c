@@ -63,6 +63,7 @@ static void usage(FILE *o) {
 "  -c        chat: a minimal terminal chat that learns from what you type\n"
 "            (persists a 'brain' next to the atn binary; --brain FILE to override)\n"
 "  --train DIR  ingest every text file under DIR into the brain (then -c to chat)\n"
+"               (add -q to skip the learnability pass: ~2-3x faster training)\n"
 "  --strip-html with --train, strip HTML tags/entities (clean prose corpora)\n"
 "  --ask        one-shot: read one line from stdin, print one reply, exit\n"
 "               (cron-friendly; --no-learn to query a corpus read-only)\n"
@@ -220,7 +221,7 @@ int main(int argc, char **argv) {
             else snprintf(def, sizeof(def), "atn.brain");   /* fallback: cwd */
             bp = def;
         }
-        if (traindir) autotrain(traindir, bp, strip_html);
+        if (traindir) autotrain(traindir, bp, strip_html, o.quiet);
         if (do_score)      score_query(bp);
         else if (do_ask)   chat_once(bp, o.temp, !no_learn);
         else if (do_chat)  chat_session(bp, o.temp);

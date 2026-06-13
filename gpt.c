@@ -785,7 +785,7 @@ static void train_walk(const char *path, FILE *bw, uint64_t *files, uint64_t *by
     closedir(dp);
 }
 
-void autotrain(const char *dir, const char *brainpath, bool strip_html) {
+void autotrain(const char *dir, const char *brainpath, bool strip_html, bool quiet) {
     FILE *bw = fopen(brainpath, "ab");
     if (!bw) { fprintf(stderr, "atn: cannot open brain %s\n", brainpath); return; }
 
@@ -816,10 +816,12 @@ void autotrain(const char *dir, const char *brainpath, bool strip_html) {
                    files, bytes, brain.len);
             if (brain.len > MODEL_CAP) printf(" (model uses first %u MiB)", MODEL_CAP >> 20);
             printf("\n");
-            double bpb = model_bpb_online(&brain);
-            histogram h; hist_build(&brain, &h); double e0 = hist_entropy(&h);
-            printf("atn: learnability %.3f bits/byte under the model (order-0 entropy %.3f; "
-                   "lower = more predictable corpus)\n", bpb, e0);
+            if (!quiet) {       /* the learnability pass is a second full O(n) pass; skip with -q */
+                double bpb = model_bpb_online(&brain);
+                histogram h; hist_build(&brain, &h); double e0 = hist_entropy(&h);
+                printf("atn: learnability %.3f bits/byte under the model (order-0 entropy %.3f; "
+                       "lower = more predictable corpus)\n", bpb, e0);
+            }
             free(brain.data);
         }
         fclose(bf);
