@@ -162,6 +162,7 @@ int main(int argc, char **argv) {
         {"nn-index", required_argument, 0, 1019},
         {"nn-sig", required_argument, 0, 1020},
         {"nn-dfmax", required_argument, 0, 1021},
+        {"seed", required_argument, 0, 1022},
         {"attn", no_argument,       0, 'Z'},
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
@@ -216,6 +217,7 @@ int main(int argc, char **argv) {
             case 1014: lm_set_map_cap(atoi(optarg)); break;
             case 1016: do_score_bytes = true; break;
             case 1017: lm_set_orders(optarg); break;
+            case 1022: lm_set_seed(strtoull(optarg, NULL, 10)); break;
             case 1015: do_prep = true; break;
             case 1018: do_neighbors = true; break;
             case 1019: nn_index = optarg; break;

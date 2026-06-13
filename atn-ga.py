@@ -1096,6 +1096,58 @@ def cmd_mixcompare(a):
         print("    trades that for scale.")
 
 # ----------------------------------------------------------------------------
+# loop: close the loop. Route the text to the expert that fits it best, let that
+# expert GENERATE a continuation, feed the output back, re-route, repeat. Because
+# the active brain changes with the content, the trajectory can wander across
+# territories — until it falls into an attractor (a fixed point, or a short cycle
+# among a few experts). That attractor structure is what "pops out": not a mind,
+# a dynamical system finding its drain.
+# ----------------------------------------------------------------------------
+def cmd_loop(a):
+    meta = json.load(open(os.path.join(a.out, "genes.json")))
+    try:
+        cfg = json.load(open(os.path.join(a.out, "config.json")))
+    except FileNotFoundError:
+        cfg = {}
+    surv = [g for g in meta["genes"] if g.get("n_owned", 0) > 0]
+    if not surv:
+        print("no surviving experts"); return
+    termcache = {}
+    def terms_of(g):
+        k = g["expert"]
+        if k not in termcache:
+            t, _ = _expert_profile(a.out, g, cfg, n_words=3)
+            termcache[k] = ", ".join(t) if t else "—"
+        return termcache[k]
+
+    text = a.seed_text
+    print(f'seed: "{text}"\n')
+    print(f"{'step':<5}{'expert':<7}{'bpb':<7}{'lit territory':<26}what it generated")
+    seen = {}
+    for step in range(1, a.steps + 1):
+        best, bb = None, 1e18
+        for g in surv:
+            s = _score_line(a.atn, os.path.join(a.out, g["brain"]), g.get("mapbits", 22),
+                            _orders_csv(g), text)
+            if s < bb:
+                bb, best = s, g
+        r = subprocess.run([a.atn, "--ask", "--brain", os.path.join(a.out, best["brain"]),
+                            "--no-learn", "--map-bits", str(best.get("mapbits", 22)),
+                            "--orders", _orders_csv(best), "--temp", str(a.temp)],
+                           input=(text + "\n").encode("utf-8", "ignore"),
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        reply = r.stdout.decode("utf-8", "ignore").strip().replace("\n", " ")[:160]
+        print(f"{step:<5}e{best['expert']:<6}{bb:<7.2f}{terms_of(best)[:24]:<26}{reply[:58]}")
+        key = (best["expert"], reply)
+        if key in seen:
+            print(f"\n[attractor] back to step {seen[key]}'s state — a cycle of period "
+                  f"{step - seen[key]}. The loop has found its drain; stopping.")
+            return
+        seen[key] = step
+        text = reply or text
+    print("\n[no exact cycle within the step budget — still drifting]")
+
+# ----------------------------------------------------------------------------
 # export: emit a built run as portable, framework-agnostic data (CSV / SQLite)
 # whose tables mirror the atlas model structure, so any downstream consumer (a
 # Django project, pandas, DB browser, …) can ingest it without re-reading the
@@ -1304,6 +1356,15 @@ def main():
     mc.add_argument("--atn", default="./atn")
     mc.add_argument("--per-domain", type=int, default=15, help="eval lines sampled per domain")
     mc.set_defaults(func=cmd_mixcompare)
+
+    lp = sub.add_parser("loop", help="dream loop: route -> generate -> feed back -> re-route, "
+                        "until the population falls into an attractor")
+    lp.add_argument("--out", required=True)
+    lp.add_argument("--atn", default="./atn")
+    lp.add_argument("--steps", type=int, default=24)
+    lp.add_argument("--temp", type=float, default=0.8)
+    lp.add_argument("--seed-text", default="in the beginning there was")
+    lp.set_defaults(func=cmd_loop)
 
     m = sub.add_parser("mixture", help="soft online mixture of experts vs single/oracle")
     m.add_argument("--out", required=True)

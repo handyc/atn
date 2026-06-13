@@ -112,6 +112,10 @@ void score_query_bytes(const char *brainpath);
 void lm_set_map_cap(int bits);
 /* set the context orders from a CSV like "2,4,7" (each 1..7, up to 6 orders) */
 void lm_set_orders(const char *csv);
+/* override the generation seed (--seed); lets an external deterministic novelty
+ * source (e.g. a cellular automaton advanced per call) vary sampling while
+ * staying reproducible. 0 = default content-tied seed. */
+void lm_set_seed(uint64_t s);
 /* autotrain (gpt.c): ingest every text file under a directory into the brain */
 void autotrain(const char *dir, const char *brainpath, bool strip_html, bool quiet);
 

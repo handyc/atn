@@ -38,6 +38,13 @@ static uint64_t rng_u64(void) {
 }
 static double rng_unit(void) { return (double)(rng_u64() >> 11) / (double)(1ull << 53); }
 
+/* Optional generation-seed override (--seed). XORed into the otherwise fixed,
+ * content-tied generation seed, so an EXTERNAL deterministic novelty source — a
+ * cellular automaton advanced one step per call — can make each call sample
+ * differently while the whole thing stays fully reproducible. 0 = off. */
+static uint64_t g_seed_override = 0;
+void lm_set_seed(uint64_t s) { g_seed_override = s; }
+
 /* ---- open-addressing uint64 -> uint32 count map ---- */
 typedef struct { uint64_t *k; uint32_t *v; char *used; size_t cap; } u64map;
 
@@ -905,7 +912,7 @@ void chat_session(const char *brainpath, double temp) {
     if (!load_weights(&M, (uint64_t)Tn, wpath)) {
         blob b0 = { T, Tn }; model_build_reserve(&M, &b0, 1u << 18);  /* headroom */
     }
-    rng_seed(0xC0FFEEull ^ (uint64_t)Tn ^ ((uint64_t)Tn << 21));
+    rng_seed((0xC0FFEEull ^ (uint64_t)Tn ^ ((uint64_t)Tn << 21)) ^ g_seed_override);
 
     /* Persist incrementally (append each line as it arrives) so an abrupt
      * exit — Ctrl-C, a kill, a crash — never loses what you taught it. */
@@ -972,7 +979,7 @@ void chat_once(const char *brainpath, double temp, bool learn) {
     if (!load_weights(&M, (uint64_t)Tn, wpath)) {       /* load once */
         blob b0 = { T, Tn }; model_build_reserve(&M, &b0, 1u << 18);
     }
-    rng_seed(0xC0FFEEull ^ (uint64_t)Tn ^ ((uint64_t)Tn << 17));
+    rng_seed((0xC0FFEEull ^ (uint64_t)Tn ^ ((uint64_t)Tn << 17)) ^ g_seed_override);
 
     FILE *bw = learn ? fopen(brainpath, "ab") : NULL;
     char line[8192], reply[256];
