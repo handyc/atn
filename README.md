@@ -425,10 +425,13 @@ cat corpus.txt | atn --prep > clean.txt
 It drops, in order: control chars / whitespace noise (cleaned), too-short and
 OCR-garbage lines (quality filter), exact duplicates *including* case/punctuation
 variants (normalised fingerprint), and **near-duplicates** — reworded reprints,
-the dominant redundancy in news — via MinHash + LSH. On 8 MB of article-length
-text with 10 k planted reprints it removed all of them in 0.13 s. Tunables:
-`PREP_MINLEN` (default 40), `PREP_MINALPHA` (0.55), `PREP_NEAR=0` to disable the
-near-dedup. This is the recommended path to a clean training set; the
+the dominant redundancy in news — via MinHash + LSH. It also drops **OCR garbage** — lines whose
+tokens mostly aren't real words (no vowels, broken length) — which is common in
+scanned newspapers. On 8 MB of article-length text with 10 k planted reprints it
+removed all of them in 0.13 s. Tunables: `PREP_MINLEN` (default 40),
+`PREP_MINALPHA` (0.55), `PREP_MINWORD` (0.60, the word-shape threshold),
+`PREP_NEAR=0` to disable near-dedup. Pass several corpora at once
+(`atn --prep d1.txt d2.txt ...`) to dedup *across* them in one pass. This is the recommended path to a clean training set; the
 surprisal-based `bundle --novel` below is the alternative when you want the
 filtering driven by the brains' own models.
 

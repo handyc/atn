@@ -42,5 +42,12 @@ for fn in sorted(glob.glob(os.path.join(root, "**", "*.json"), recursive=True)):
 print(f"  {n} articles -> {pref}.txt + {pref}.meta")
 PY
 
-echo "now:  ./atn --train ${PREFIX}.txt --brain ${PREFIX}.brain"
-echo "then: ./where.sh ${PREFIX}.txt \"some phrase\"     (shows states + dates)"
+# optional: clean it into an LLM-ready corpus in the same step
+if [ "$4" = "--prep" ] || [ "$5" = "--prep" ]; then
+    ./atn --prep "${PREFIX}.txt" > "${PREFIX}.clean.txt"
+    echo "  cleaned -> ${PREFIX}.clean.txt  (ready to fine-tune a real model)"
+fi
+
+echo "next:  ./atn --prep ${PREFIX}.txt > ${PREFIX}.clean.txt   (clean for LLM training)"
+echo "  or:  ./atn --train ${PREFIX}.txt --brain ${PREFIX}.brain -q   (build a brain)"
+echo "  or:  ./where.sh ${PREFIX}.txt \"some phrase\"            (where/when it appears)"

@@ -67,6 +67,7 @@ static uint64_t fnv(const unsigned char *d, size_t n, uint64_t h) {
 typedef struct {
     size_t minlen;
     double minalpha;
+    double minword;     /* min fraction of word-like tokens (OCR-garbage filter) */
     int near;
     /* MinHash / LSH */
     u64set exact, lsh;
@@ -106,8 +107,22 @@ static bool quality_ok(const char *s, size_t n, const prep *p) {
         if (isalpha(c) || c == ' ') alpha++;
         if (!distinct[c]) { distinct[c] = 1; nd++; }
     }
-    if ((double)alpha / (double)n < p->minalpha) return false;   /* OCR garbage */
+    if ((double)alpha / (double)n < p->minalpha) return false;   /* mostly non-text */
     if (nd < 8) return false;                                     /* too repetitive */
+    /* word-shape: fraction of tokens that look like real words (have a vowel,
+     * sane length). Broken OCR ("tai iSr&lly UN.S 8888") fails this. */
+    size_t words = 0, good = 0, i = 0;
+    while (i < n) {
+        while (i < n && !isalpha((unsigned char)s[i])) i++;
+        int vowel = 0, len = 0;
+        while (i < n && (isalpha((unsigned char)s[i]) || s[i] == '\'')) {
+            char c = (char)tolower((unsigned char)s[i]);
+            if (c=='a'||c=='e'||c=='i'||c=='o'||c=='u'||c=='y') vowel = 1;
+            len++; i++;
+        }
+        if (len > 0) { words++; if (len >= 2 && len <= 18 && vowel) good++; }
+    }
+    if (words >= 5 && (double)good / (double)words < p->minword) return false;
     return true;
 }
 
@@ -191,6 +206,7 @@ int prep_run(int argc, char **argv) {
     prep p; memset(&p, 0, sizeof(p));
     p.minlen   = (size_t)(getenv("PREP_MINLEN")   ? atoi(getenv("PREP_MINLEN"))   : 40);
     p.minalpha = getenv("PREP_MINALPHA") ? atof(getenv("PREP_MINALPHA")) : 0.55;
+    p.minword  = getenv("PREP_MINWORD")  ? atof(getenv("PREP_MINWORD"))  : 0.60;
     p.near     = getenv("PREP_NEAR") ? atoi(getenv("PREP_NEAR")) : 1;
     set_init(&p.exact); set_init(&p.lsh);
 
