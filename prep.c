@@ -104,7 +104,9 @@ static bool quality_ok(const char *s, size_t n, const prep *p) {
     size_t nd = 0;
     for (size_t i = 0; i < n; i++) {
         unsigned char c = (unsigned char)s[i];
-        if (isalpha(c) || c == ' ') alpha++;
+        /* count UTF-8 multibyte bytes (>=0x80) as text too, so non-Latin scripts
+         * (Chinese, Cyrillic, …) aren't dropped as garbage for lacking ASCII letters */
+        if (isalpha(c) || c == ' ' || c >= 0x80) alpha++;
         if (!distinct[c]) { distinct[c] = 1; nd++; }
     }
     if ((double)alpha / (double)n < p->minalpha) return false;   /* mostly non-text */
@@ -126,13 +128,17 @@ static bool quality_ok(const char *s, size_t n, const prep *p) {
     return true;
 }
 
-/* normalised fingerprint hash: lowercase, alnum-only, single spaces */
+/* normalised fingerprint hash: lowercase alnum + UTF-8 bytes, single spaces.
+ * High bytes (>=0x80) are hashed verbatim so non-Latin lines (Chinese, …) get
+ * distinct fingerprints instead of all collapsing to one "no alnum" hash. */
 static uint64_t fingerprint(const char *s, size_t n) {
     uint64_t h = 1469598103934665603ull; int sp = 1;
     for (size_t i = 0; i < n; i++) {
         unsigned char c = (unsigned char)s[i];
-        if (isalnum(c)) { c = (unsigned char)tolower(c); h ^= c; h *= 1099511628211ull; sp = 0; }
-        else if (!sp) { h ^= ' '; h *= 1099511628211ull; sp = 1; }
+        if (isalnum(c) || c >= 0x80) {
+            if (c < 0x80) c = (unsigned char)tolower(c);
+            h ^= c; h *= 1099511628211ull; sp = 0;
+        } else if (!sp) { h ^= ' '; h *= 1099511628211ull; sp = 1; }
     }
     return h;
 }
