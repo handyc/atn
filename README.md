@@ -43,10 +43,16 @@ It answers three questions about any file:
 
 ```sh
 make            # produces ./atn   (needs a C11 compiler + libm)
+make test       # fast, deterministic, network-free regression suite
 make install    # to $PREFIX/bin (default /usr/local)
 ./demo.sh       # narrated tour of the whole "files -> GPT attention -> working transformer" arc
 ./explore.sh F  # interactive menu to poke at every feature on a file
 ```
+
+The **[web/](web/)** corpus atlas turns a built population into interactive
+teaching visualizations: the GA's learning curve, a corpus **tiling map**, a live
+per-character **surprisal heatmap** (watch the model read), a next-byte
+**prediction** chart (watch it guess), the routing graph, and live query routing.
 
 See **[PREDICTION.md](PREDICTION.md)** for a focused guide to the prediction
 features (`-Z` attention/LM, `-B` feedback loop, `-X` compression, `--corpus`).
