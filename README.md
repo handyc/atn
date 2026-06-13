@@ -409,6 +409,29 @@ many queries as **one piped batch** loads it once and then costs ~0.1 s each, so
 N queries take roughly `load + N × 0.1 s` instead of `N × (load + 0.1 s)`. The
 training time is mostly the one-time learnability pass over the corpus.
 
+### Preparing data for a real model — `--prep` (fast, training-free)
+
+To prepare a corpus for actually training a neural model you don't need atn's
+n-gram models at all — you need to **clean, de-duplicate, and quality-filter the
+text**, which is the standard front of an LLM data pipeline. `--prep` does that
+in a single streaming pass (no model trained, ~100s of MB/s, a few MB of RAM):
+
+```
+atn --prep raw1.txt raw2.txt > clean.txt      # files
+build-corpus.sh 1934 d - 16000000 | ...        # or pipe a corpus in
+cat corpus.txt | atn --prep > clean.txt
+```
+
+It drops, in order: control chars / whitespace noise (cleaned), too-short and
+OCR-garbage lines (quality filter), exact duplicates *including* case/punctuation
+variants (normalised fingerprint), and **near-duplicates** — reworded reprints,
+the dominant redundancy in news — via MinHash + LSH. On 8 MB of article-length
+text with 10 k planted reprints it removed all of them in 0.13 s. Tunables:
+`PREP_MINLEN` (default 40), `PREP_MINALPHA` (0.55), `PREP_NEAR=0` to disable the
+near-dedup. This is the recommended path to a clean training set; the
+surprisal-based `bundle --novel` below is the alternative when you want the
+filtering driven by the brains' own models.
+
 ### Combining many brains (toward a real model)
 
 You can't merge n-gram brains into one neural net — the parameter types are

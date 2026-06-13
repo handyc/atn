@@ -3,7 +3,7 @@ CFLAGS  ?= -std=c11 -O2 -Wall -Wextra
 LDLIBS  := -lm
 PREFIX  ?= /usr/local
 
-SRC := main.c util.c magic.c stats.c structure.c scan.c dump.c disasm.c yara.c fleet.c attn.c gpt.c cm.c
+SRC := main.c util.c magic.c stats.c structure.c scan.c dump.c disasm.c yara.c fleet.c attn.c gpt.c cm.c prep.c
 OBJ := $(SRC:.c=.o)
 
 atn: $(OBJ)

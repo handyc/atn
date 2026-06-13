@@ -111,6 +111,9 @@ void lm_set_map_cap(int bits);
 /* autotrain (gpt.c): ingest every text file under a directory into the brain */
 void autotrain(const char *dir, const char *brainpath, bool strip_html, bool quiet);
 
+/* corpus prep (prep.c): clean + dedup + quality-filter text for LLM training */
+int prep_run(int argc, char **argv);
+
 /* context-mixing coder (cm.c) */
 void cm_report(const blob *b);
 int  cm_compress_file(const blob *b, const char *outpath);

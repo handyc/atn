@@ -35,6 +35,15 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-13 ("efficiency: --prep, -q")
+- [x] train -q: skip the learnability pass -> ~2.8x faster training (1.67->0.59s
+      on 6MB). bundle --novel uses it.
+- [x] --prep (prep.c): training-free LLM data prep in one streaming pass —
+      clean + quality-filter + exact dedup (normalised) + near-dup dedup
+      (MinHash+LSH). ~60-330 MB/s, few MB RAM. Caught all 10k planted reprints
+      in 8MB in 0.13s. This sidesteps model training for corpus prep entirely.
+      Recommended path to a clean training set (vs bundle --novel which trains).
+
 ## Session 2026-06-13 ("scale novelty to ~64 brains")
 - [x] bundle.sh --novel rewritten as 2-FOLD held-out (was leave-one-out): split
       brains into 2 folds, sample each brain so a fold fits MODEL_CAP, train 2
