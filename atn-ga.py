@@ -1173,13 +1173,17 @@ def cmd_loop(a):
         if len(rule) != _CA_CELLS:
             print(f"bad LUT (need {_CA_CELLS} bytes, got {len(rule)})"); return
         board = _ca_init(a.seed_text)
-        print(f"novelty: class-4 hex CA {os.path.basename(a.ca_lut)} "
-              f"({a.ca_ticks} tick/step) → --seed\n")
+    has_seed = (rule is not None) or a.entropy
+    src = " + ".join(([f"class-4 hex CA {os.path.basename(a.ca_lut)} ({a.ca_ticks} tick/step)"] if rule else [])
+                     + (["/dev/urandom (true entropy)"] if a.entropy else []))
+    if has_seed:
+        print(f"novelty: {src} → --seed"
+              + ("   [REPRODUCIBLE]\n" if (rule and not a.entropy) else "   [NOT reproducible]\n"))
 
     text = a.seed_text
     print(f'seed: "{text}"\n')
     head = f"{'step':<5}{'expert':<7}{'bpb':<7}{'lit territory':<24}"
-    print(head + ("ca-seed   " if rule else "") + "what it generated")
+    print(head + ("seed     " if has_seed else "") + "what it generated")
     seen = {}
     for step in range(1, a.steps + 1):
         best, bb = None, 1e18
@@ -1192,10 +1196,15 @@ def cmd_loop(a):
                "--map-bits", str(best.get("mapbits", 22)), "--orders", _orders_csv(best),
                "--temp", str(a.temp)]
         seedcol = ""
-        if rule is not None:
-            for _ in range(a.ca_ticks):
-                board = _hex_step(board, rule)
-            sd = _ca_seed(board)
+        if has_seed:
+            sd = 0
+            if rule is not None:                      # reproducible: class-4 CA
+                for _ in range(a.ca_ticks):
+                    board = _hex_step(board, rule)
+                sd ^= _ca_seed(board)
+            if a.entropy:                              # true entropy: kernel CSPRNG
+                sd ^= int.from_bytes(os.urandom(8), "little")
+            sd = sd & 0xFFFFFFFFFFFFFFFF or 1
             cmd += ["--seed", str(sd)]
             seedcol = f"{sd & 0xffffff:06x}  "
         r = subprocess.run(cmd, input=(text + "\n").encode("utf-8", "ignore"),
@@ -1209,8 +1218,14 @@ def cmd_loop(a):
             return
         seen[key] = step
         text = reply or text
-    tail = ("the CA keeps perturbing it — no fixed point, still exploring"
-            if rule else "still drifting")
+    if a.entropy and rule:
+        tail = "CA-shaped but entropy-perturbed — open-ended, and a different walk every run"
+    elif a.entropy:
+        tail = "true entropy — open-ended, never the same twice"
+    elif rule:
+        tail = "the CA keeps perturbing it — open-ended, but identical every run"
+    else:
+        tail = "still drifting"
     print(f"\n[no cycle within the step budget — {tail}]")
 
 # ----------------------------------------------------------------------------
@@ -1434,6 +1449,9 @@ def main():
                     help="a 16384-byte class-4 hex-CA LUT (mandelhunt .lut) to drive --seed; "
                          "without it the loop collapses to a fixed point")
     lp.add_argument("--ca-ticks", type=int, default=6, help="CA ticks advanced per loop step")
+    lp.add_argument("--entropy", action="store_true",
+                    help="draw true entropy from /dev/urandom each step (non-reproducible); "
+                         "combine with --ca-lut to XOR structured + random")
     lp.set_defaults(func=cmd_loop)
 
     m = sub.add_parser("mixture", help="soft online mixture of experts vs single/oracle")

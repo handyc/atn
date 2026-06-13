@@ -247,7 +247,10 @@ experiments) — and the CA, advanced `--ca-ticks` per step, drives atn's new
 `--seed`: deterministic, reproducible, never-repeating edge-of-chaos novelty, so
 the loop keeps exploring instead of draining. Cheap novelty without breaking
 determinism. (The novelty is the CA's, injected — a richer dynamical process,
-not a mind.)
+not a mind.) For the other fork, `--entropy` draws the per-step seed from
+`/dev/urandom` instead — true, non-reproducible unpredictability; pass both and
+they XOR (CA-shaped but a different walk every run). So the same `--seed` hook
+gives either a reproducible drive (CA) or genuine entropy, your choice.
 
 `demo-news.sh` and `demo-languages.sh` need internet; the rest are local/offline.
 `demo-meta.sh` trains on the previous trainings, so run some of the others first.
