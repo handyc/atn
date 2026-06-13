@@ -18,4 +18,8 @@ install: atn
 clean:
 	rm -f atn $(OBJ)
 
-.PHONY: install clean
+# fast, deterministic, network-free regression suite
+test: atn
+	@sh tests/regression.sh
+
+.PHONY: install clean test
