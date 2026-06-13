@@ -409,6 +409,31 @@ many queries as **one piped batch** loads it once and then costs ~0.1 s each, so
 N queries take roughly `load + N × 0.1 s` instead of `N × (load + 0.1 s)`. The
 training time is mostly the one-time learnability pass over the corpus.
 
+### Combining many brains (toward a real model)
+
+You can't merge n-gram brains into one neural net — the parameter types are
+incommensurable, and the counts are a lossy summary of the text the brains
+already hold. But a *collection* of brains is useful in three honest ways, one
+script each (all just orchestrate `--score` and the corpora):
+
+- **`route.sh BRAIN_DIR "query"`** — a mixture-of-experts router: scores the
+  query under every brain and picks the one that fits best (lowest surprisal).
+  A cheap, interpretable "which domain/day/topic is this about" front-end.
+- **`recall.sh BRAIN_DIR "context"`** — non-parametric retrieval: returns the
+  *real* passages that followed that context, with provenance `[brain:line]`.
+  Grounded source text (the surface-level cousin of a kNN-LM datastore), not a
+  remix — so no hallucination.
+- **`bundle.sh BRAIN_DIR out.txt`** — the actual path to a real model: merge the
+  brains' transcripts and de-duplicate into one clean corpus, then fine-tune a
+  neural model on `out.txt`. The counts are discarded; the *text* is the asset
+  the trainer relearns and surpasses.
+
+```
+route.sh ./brains "the federal reserve raised rates"   # -> finance (1.4 bpb)
+recall.sh ./brains "the federal reserve"               # -> the real passages
+bundle.sh ./brains corpus.txt                          # -> a training set
+```
+
 ## The filesystem as a GPT corpus (`--corpus`)
 
 This is "attention to the files in the filesystem" meeting GPT attention:

@@ -35,6 +35,19 @@ Completed Phase 3 (induction circuit) + demo this increment. NOT done: logistic
 context-mixing (deferred, lower value). No more wakeups scheduled (machine will
 sleep). Everything is on disk and tested.
 
+## Session 2026-06-13 ("combining brains")
+- [x] route.sh: mixture-of-atn-experts — score a query under every brain in a
+      dir, route to the lowest-surprisal one (+ margin). Demoed: topic queries
+      route to the right topic brain.
+- [x] recall.sh: non-parametric retrieval — return the REAL passages following a
+      context, with [brain:line] provenance (kNN-LM-style surface lookup; grounded,
+      not a remix).
+- [x] bundle.sh: merge + dedup brain transcripts into one clean corpus to
+      fine-tune a real model on (the honest "fold brains into an LLM" = train on
+      the text). Counts discarded; text is the asset.
+- Context: answered "can we fold brains into one LLM" — no weight merge (param
+  types incommensurable), but route/recall/bundle are the legit interfaces.
+
 ## Session 2026-06-13 ("auto-trending / locate")
 - [x] autotrend.sh: mines frequent content trigrams from today's corpus and
       ranks by FREQUENCY-WEIGHTED rise (score = rise * log10(freq+1)), so
