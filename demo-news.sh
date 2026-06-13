@@ -6,7 +6,7 @@
 #
 #   ./demo-news.sh [MINUTES]      # total time target, default 8
 #
-# Needs: a C compiler + make, python3, curl. No pre-existing data.
+# Needs: a C compiler + make, python3 with numpy, curl. No pre-existing data.
 set -e
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 cd "$HERE"
@@ -14,6 +14,14 @@ BUDGET="${1:-8}"
 T0=$(date +%s)
 say() { printf '\n\033[1m== %s ==\033[0m\n' "$1" 2>/dev/null || printf '\n== %s ==\n' "$1"; }
 elapsed() { echo "[t+$(( $(date +%s) - T0 ))s]"; }
+
+# fail fast on missing prerequisites, BEFORE the long corpus fetch.
+# numpy is required by the content-loci and mixture steps below.
+python3 -c 'import numpy' 2>/dev/null || {
+    echo "error: this demo needs numpy (used by --locus content and the mixture step)."
+    echo "       install it with:  python3 -m pip install numpy"
+    exit 1
+}
 
 say "atn news demo  (target ~${BUDGET} min)"
 
