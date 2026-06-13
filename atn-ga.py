@@ -696,18 +696,16 @@ def _expert_profile(out, gene, cfg, n_words=10, cap_chunks=40, baseline=1200):
             nsamp += 1
             df.update({w for w in _TOK.findall(read_chunk(cid).lower()) if w not in _STOP})
 
-        # this expert's term frequencies + a clean representative line
-        tf = Counter(); best_line, best_score = "", -1
+        # this expert's term frequencies + candidate lines to sample from
+        tf = Counter(); cands = []
         for cid in ids:
             text = read_chunk(cid)
             tf.update(w for w in _TOK.findall(text.lower()) if w not in _STOP)
             for ln in text.splitlines():
                 toks = ln.split()
-                if len(toks) < 8:
-                    continue
-                alpha = sum(t.isalpha() for t in toks) / len(toks)   # prefer clean prose
-                if alpha > best_score:
-                    best_score, best_line = alpha, ln.strip()[:72]
+                if len(toks) >= 8 and sum(t.isalpha() for t in toks) / len(toks) > 0.6:
+                    if len(cands) < 120:
+                        cands.append(ln.strip())
     finally:
         os.close(fd)
 
@@ -715,7 +713,12 @@ def _expert_profile(out, gene, cfg, n_words=10, cap_chunks=40, baseline=1200):
     scored = ((cnt * math.log((nsamp + 1) / (df.get(w, 0) + 1)), w)
               for w, cnt in tf.items() if cnt >= 2)
     top = [w for _, w in sorted(scored, reverse=True)[:n_words]]
-    return top, best_line
+    # pick the sample line that best reflects the distinctive words, so the
+    # example is in the same language/topic the expert specialises in.
+    topset = set(top)
+    best_line = max(cands, key=lambda ln: sum(
+        w in topset for w in _TOK.findall(ln.lower())), default="")
+    return top, best_line[:72]
 
 def cmd_classify(a):
     meta = json.load(open(os.path.join(a.out, "genes.json")))
