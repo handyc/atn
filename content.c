@@ -93,6 +93,18 @@ static int cp_in_class(uint32_t cp) {            /* [a-z à-ÿ 0-9 '] */
 static int cp_is_cjk(uint32_t cp) {
     return cp >= 0x3400 && cp <= 0x9FFF;
 }
+/* Math / logic / Greek symbols, each its own token — so formal notation
+ * (∀∃∈∪∩⊆ for logic/sets, λ for lambda calculus, ∫∂Σ→ for calculus, ℝℕℤ…)
+ * clusters on the operators that actually define it, instead of being stripped
+ * to bare letters. These ranges are essentially absent from prose/code/news,
+ * so existing corpora are unaffected. */
+static int cp_is_sym(uint32_t cp) {
+    return (cp >= 0x0370 && cp <= 0x03FF) ||   /* Greek (λ Σ α β θ π …)        */
+           (cp >= 0x2100 && cp <= 0x214F) ||   /* letterlike (ℝ ℕ ℤ ℚ ℂ …)     */
+           (cp >= 0x2190 && cp <= 0x21FF) ||   /* arrows (→ ↔ ⇒ ↦ …)          */
+           (cp >= 0x2200 && cp <= 0x22FF) ||   /* operators (∀ ∃ ∈ ∪ ∧ ∫ ∂ …) */
+           cp == 0x00AC;                       /* ¬                            */
+}
 /* append the UTF-8 encoding of code point cp (up to 3 bytes) to buf at *n */
 static void cp_emit(unsigned char *buf, size_t *n, uint32_t cp) {
     if (cp < 0x80) {
@@ -107,14 +119,14 @@ static void cp_emit(unsigned char *buf, size_t *n, uint32_t cp) {
 }
 
 /* Tokenise [text,text+len); for each token call cb(word,wlen,udata). Latin
- * runs form words; each CJK character is its own token (no spaces in Chinese). */
+ * runs form words; each CJK char or math/logic symbol is its own token. */
 typedef void (*tok_cb)(const unsigned char *word, size_t wlen, void *udata);
 static void tokenize(const unsigned char *text, size_t len, tok_cb cb, void *udata) {
     unsigned char tok[1024];
     size_t tn = 0, i = 0;
     while (i < len) {
         size_t adv; uint32_t cp = cp_lower(utf8_decode(text + i, len - i, &adv));
-        if (cp_is_cjk(cp)) {
+        if (cp_is_cjk(cp) || cp_is_sym(cp)) {
             if (tn) { cb(tok, tn, udata); tn = 0; }       /* flush pending Latin word */
             unsigned char c[4]; size_t cn = 0; cp_emit(c, &cn, cp); cb(c, cn, udata);
         } else if (cp_in_class(cp)) {

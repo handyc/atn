@@ -663,9 +663,10 @@ def _load_run_config(out):
 
 # A "token" for the distinctive-vocabulary display: a Latin/digit run ≥3 chars
 # (so it also surfaces code — hex groups like 4889, asm mnemonics like mov/push,
-# register names) OR a single CJK character (Chinese has no word spaces). TF-IDF
+# register names), a single CJK character, or a math/logic symbol (∀∃∈∪λ∫→…) so
+# formal notation shows its operators. Mirrors content.c's tokeniser. TF-IDF
 # weighting still pushes generic short words down, so prose profiles stay clean.
-_TOK = re.compile(r"[a-zà-ÿ0-9]{3,}|[㐀-鿿]")
+_TOK = re.compile(r"[a-zà-ÿ0-9]{3,}|[㐀-鿿]|[Ͱ-Ͽ℀-⅏←-⋿¬]")
 
 def _expert_profile(out, gene, cfg, n_words=10, cap_chunks=40, baseline=1200):
     """Describe an expert by reading the text it actually trained on. Returns
