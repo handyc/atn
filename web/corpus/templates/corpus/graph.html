@@ -1,0 +1,32 @@
+{% extends "corpus/base.html" %}
+{% block title %}routing graph · atn atlas{% endblock %}
+{% block content %}
+  <h1>Routing graph</h1>
+  <p class="sub">Each node is an expert (sized by how much it owns, coloured by its guessed
+     language/topic); edges are the routing fallbacks the GA wired between related territories.
+     Click a node to open its territory.</p>
+  <div id="net" style="height:640px;background:var(--card);border:1px solid var(--line);border-radius:10px"></div>
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <script>
+    fetch("{% url 'graph_json' %}{% if run %}?run={{ run.name|urlencode }}{% endif %}")
+      .then(r => r.json())
+      .then(data => {
+        const pk = {};
+        const nodes = new vis.DataSet(data.nodes.map(n => {
+          pk[n.id] = n.pk;
+          return {id:n.id, label:n.label, group:n.group, value:n.value, title:n.title};
+        }));
+        const edges = new vis.DataSet(data.edges.map(e => ({from:e.from, to:e.to, value:e.value})));
+        const net = new vis.Network(document.getElementById("net"), {nodes, edges}, {
+          nodes:{shape:"dot", scaling:{min:8,max:34}, font:{size:13}},
+          edges:{color:{color:"#c7ccd6",highlight:"#3b5bdb"}, smooth:{type:"continuous"},
+                 arrows:{to:{enabled:true,scaleFactor:.4}}},
+          physics:{stabilization:true, barnesHut:{springLength:140, gravitationalConstant:-9000}},
+          interaction:{hover:true},
+        });
+        net.on("click", params => {
+          if (params.nodes.length) { const p = pk[params.nodes[0]]; if (p) location.href = "/expert/"+p+"/"; }
+        });
+      });
+  </script>
+{% endblock %}

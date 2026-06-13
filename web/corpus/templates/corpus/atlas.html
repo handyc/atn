@@ -1,0 +1,26 @@
+{% extends "corpus/base.html" %}
+{% block content %}
+  {% if run %}
+    <h1>{{ run.name }}</h1>
+    <p class="sub">{{ run.n_experts }} surviving experts · corpus coverage <code>{{ run.coverage_bpb|floatformat:3 }}</code> bpb ·
+       each card is one territory the GA carved out of the corpus. Click to explore.</p>
+    <div class="grid">
+      {% for e in experts %}
+        <a class="card" href="{% url 'territory' e.pk %}">
+          <div>
+            {% if e.label %}<span class="chip">{{ e.label }}</span>{% else %}<span class="chip muted">territory</span>{% endif %}
+            <span class="eid">· expert {{ e.expert_id }} · owns {{ e.n_owned }}</span>
+          </div>
+          <div class="terms">{{ e.terms|default:"—" }}</div>
+          {% if e.sample %}<div class="sample">“{{ e.sample|truncatechars:90 }}”</div>{% endif %}
+        </a>
+      {% empty %}
+        <p>No experts imported yet. Run <code>python manage.py import_run</code>.</p>
+      {% endfor %}
+    </div>
+  {% else %}
+    <h1>No run imported</h1>
+    <p class="sub">Build a population (e.g. <code>./demo-languages.sh</code>) then
+       <code>python manage.py import_run --name demo-langs</code>.</p>
+  {% endif %}
+{% endblock %}

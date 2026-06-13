@@ -1,0 +1,53 @@
+{% extends "corpus/base.html" %}
+{% block title %}live query · atn atlas{% endblock %}
+{% block content %}
+  <h1>Live query</h1>
+  <p class="sub">Type text in any language the corpus covers. Every expert scores how
+     <em>surprised</em> it is (bits/byte); the least-surprised one lights up. This runs the
+     real atn brains live — same as the <code>lightup</code> command.</p>
+
+  <form class="qbox" method="get" action="{% url 'query' %}">
+    <input type="text" name="q" value="{{ q }}" autofocus
+           placeholder="e.g. de regering heeft een nieuwe wet aangenomen">
+    <button type="submit">Route it</button>
+  </form>
+
+  {% if q and not winner %}
+    <p class="sub">No experts to score (is a run imported?).</p>
+  {% endif %}
+
+  {% if winner %}
+    <div class="card winner">
+      <div>
+        {% if winner.label %}<span class="chip">{{ winner.label }}</span>{% endif %}
+        <span class="eid">lit up: expert {{ winner.expert_id }} · {{ winner_bpb|floatformat:3 }} bpb</span>
+      </div>
+      <div class="terms">{{ winner.terms }}</div>
+      {% if winner.sample %}<div class="sample">“{{ winner.sample|truncatechars:120 }}”</div>{% endif %}
+      <div style="margin-top:10px">
+        <a href="{% url 'territory' winner.pk %}">open territory →</a>
+        {% for n in neighbors %}
+          <a class="chip muted" style="margin-left:6px" href="{% url 'territory' n.pk %}">{{ n.label|default:n.expert_id }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <h2>Full ranking</h2>
+    <table>
+      <tr><th>rank</th><th>expert</th><th>territory</th><th>bpb</th></tr>
+      {% for r in rows %}
+        <tr>
+          <td class="num">{{ forloop.counter }}</td>
+          <td class="num"><a href="{% url 'territory' r.e.pk %}">{{ r.e.expert_id }}</a></td>
+          <td>{{ r.e.label|default:"—" }}</td>
+          <td class="num bpb">{{ r.bpb|floatformat:3 }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+
+    <div class="note">
+      The <b>ranking</b> is the signal, not the absolute number — short or out-of-domain
+      text scores high for everyone. A clear winner with a wide gap to second = a confident match.
+    </div>
+  {% endif %}
+{% endblock %}

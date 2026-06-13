@@ -41,3 +41,8 @@ __pycache__/
 # demo output
 demo-run/
 demo-langs/
+
+# web app dev database (regenerate with manage.py migrate + import_run)
+web/db.sqlite3
+# the global *.html ignore above is for stray test files — keep the app's templates
+!web/corpus/templates/corpus/*.html

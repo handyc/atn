@@ -1,0 +1,31 @@
+{% extends "corpus/base.html" %}
+{% block title %}{{ e.label|default:"territory" }} · atn atlas{% endblock %}
+{% block content %}
+  <a class="back" href="{% url 'atlas' %}">← atlas</a>
+  <h1>
+    {% if e.label %}<span class="chip">{{ e.label }}</span>{% endif %}
+    expert {{ e.expert_id }}
+  </h1>
+  <div class="meta">
+    owns {{ e.n_owned }} eval lines · marginal {{ e.marginal|floatformat:4 }} ·
+    orders {{ e.orders }} · position {{ e.pos_lo|floatformat:2 }}–{{ e.pos_hi|floatformat:2 }}
+    (centroid {{ e.centroid|floatformat:2 }})
+  </div>
+
+  <h2>Distinctive vocabulary</h2>
+  <div class="terms">{{ e.terms|default:"—" }}</div>
+
+  <h2>Sample passages from its territory</h2>
+  {% for p in passages %}
+    <div class="card" style="margin-bottom:10px"><div class="sample" style="font-style:normal">{{ p.text }}</div></div>
+  {% empty %}<p class="sub">none</p>{% endfor %}
+
+  <h2>Related experts (routing graph)</h2>
+  {% for n in neighbors %}
+    <a class="chip" style="margin:2px" href="{% url 'territory' n.pk %}">{{ n.label|default:"expert" }} · {{ n.expert_id }}</a>
+  {% empty %}<p class="sub">no outgoing edges</p>{% endfor %}
+
+  <div class="note" style="margin-top:24px">
+    Test it: <a href="{% url 'query' %}">route a sentence</a> and see whether it lights up this expert.
+  </div>
+{% endblock %}
