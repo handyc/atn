@@ -978,6 +978,124 @@ def cmd_hierarchy(a):
             print(f"  group {gi}: {len(members)} experts  [{common}]")
 
 # ----------------------------------------------------------------------------
+# mixcompare: the honest measured tradeoff. On one mixed eval stream, compare
+#   FLAT  — the online fixed-share mixture over EVERY expert in the forest, vs
+#   HIER  — route each line to its domain (coarse gate), then mix only within
+#           that domain's experts.
+# Expectation (stated up front): HIER is a touch WORSE in bits/byte (no cross-
+# line warmup + the occasional misroute) but touches far fewer brains. Hierarchy
+# buys scale, not accuracy. Needs a route dir (demo-route.sh) for the gate.
+# ----------------------------------------------------------------------------
+def cmd_mixcompare(a):
+    import math, random
+    man = json.load(open(os.path.join(a.out, "manifest.json")))
+    co, cm = man.get("coarse_orders", "2,4,7"), man.get("coarse_mapbits", 22)
+    rng = random.Random(1)
+
+    # mixed eval stream: K lines from each domain's held-out eval set
+    stream, truth = [], []
+    for d in man["domains"]:
+        lines = [ln.rstrip("\n") for ln in open(os.path.join(d["run_dir"], "eval.txt"),
+                 encoding="utf-8", errors="ignore") if ln.strip()]
+        rng.shuffle(lines)
+        for ln in lines[:a.per_domain]:
+            stream.append(ln[:200]); truth.append(d["label"])
+    order = list(range(len(stream))); rng.shuffle(order)
+    stream = [stream[i] for i in order]; truth = [truth[i] for i in order]
+    blob = ("\n".join(stream) + "\n").encode("utf-8", "ignore")
+
+    # the forest: every surviving expert across every domain
+    experts = []   # (domain_label, brain_abspath, mapbits, orders)
+    for d in man["domains"]:
+        meta = json.load(open(os.path.join(d["run_dir"], "genes.json")))
+        for g in meta["genes"]:
+            if g.get("n_owned", 0) > 0:
+                experts.append((d["label"], os.path.join(d["run_dir"], g["brain"]),
+                                g.get("mapbits", 22), _orders_csv(g)))
+    print(f"[mixcompare] {len(stream)} lines, {len(experts)} experts across "
+          f"{len(man['domains'])} domains — scoring per byte ...")
+
+    # per-byte surprisal of each forest expert over the stream
+    rows, line_lens = [], None
+    for (_, b, mb, od) in experts:
+        r = subprocess.run([a.atn, "--score-bytes", "--brain", b, "--map-bits", str(mb),
+                            "--orders", od], input=blob, stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL)
+        flat, lens = [], []
+        for line in r.stdout.decode("utf-8", "ignore").splitlines():
+            vals = [float(x) for x in line.split()] if line.strip() else []
+            flat.extend(vals); lens.append(len(vals))
+        rows.append(flat)
+        if line_lens is None:
+            line_lens = lens
+    N = min(len(x) for x in rows)
+    P = len(rows)
+    Prob = [[min(max(2.0 ** -rows[k][t], 1e-12), 1.0) for t in range(N)] for k in range(P)]
+    edom = [e[0] for e in experts]
+
+    def fixed_share(idx, t0, t1, alpha=0.05):    # bits over bytes [t0,t1) mixing experts in idx
+        m = len(idx)
+        if m == 0:
+            return 0.0
+        w = [1.0 / m] * m; bits = 0.0
+        for t in range(t0, t1):
+            mix = sum(w[j] * Prob[k][t] for j, k in enumerate(idx))
+            bits += -math.log2(max(mix, 1e-12))
+            w = [w[j] * Prob[k][t] for j, k in enumerate(idx)]
+            s = sum(w)
+            w = [x / s for x in w] if s > 0 else [1.0 / m] * m
+            w = [(1 - alpha) * x + alpha / m for x in w]
+        return bits
+
+    # line byte spans
+    spans, t = [], 0
+    for L in line_lens:
+        if t >= N:
+            break
+        spans.append((t, min(t + L, N))); t += L
+
+    # FLAT: one mixture over all experts, whole stream
+    bits_flat = fixed_share(list(range(P)), 0, N)
+
+    # HIER: route each line, mix within the routed domain over that line's bytes
+    dom_idx = {d["label"]: [k for k in range(P) if edom[k] == d["label"]] for d in man["domains"]}
+    coarse = {d["label"]: os.path.join(a.out, d["brain"]) for d in man["domains"]}
+    bits_hier = 0.0; touched = 0; correct = 0; bytes_cov = 0
+    for li, (t0, t1) in enumerate(spans):
+        if t1 <= t0:
+            continue
+        best, bb = None, 1e9
+        for lab, br in coarse.items():
+            s = _score_line(a.atn, br, cm, co, stream[li])
+            if s < bb:
+                bb, best = s, lab
+        correct += (best == truth[li])
+        idx = dom_idx[best] or list(range(P))
+        bits_hier += fixed_share(idx, t0, t1)
+        touched += len(man["domains"]) + len(idx); bytes_cov += (t1 - t0)
+
+    nlines = len([1 for t0, t1 in spans if t1 > t0])
+    bpb_flat = bits_flat / N
+    bpb_hier = bits_hier / max(1, bytes_cov)
+    print(f"\n  FLAT  mix over all {P} experts        : {bpb_flat:.4f} bpb   "
+          f"(consults {P} experts / line)")
+    print(f"  HIER  route → mix within one domain   : {bpb_hier:.4f} bpb   "
+          f"(consults ~{touched // max(1,nlines)} experts / line; gate {100*correct//max(1,nlines)}% correct)")
+    dq = 100 * (bpb_hier - bpb_flat) / bpb_flat
+    save = 100 * (1 - (touched / max(1, nlines)) / P)
+    print(f"\n  → hierarchy touches ~{save:.0f}% fewer experts per line, at {dq:+.1f}% bits/byte.")
+    if bpb_hier <= bpb_flat:
+        print("    Here the tree is cheaper AND a touch better — on a stream that SWITCHES")
+        print("    domain every line, the flat mixture carries one weight vector and can't")
+        print("    re-concentrate over all experts before a short line ends; routing hands")
+        print("    each line a clean, already-narrow, correct expert set. (Gate accuracy")
+        print("    is what makes this work — misroutes would hand it back.)")
+    else:
+        print("    The flat mixture is the ceiling here: longer / more stationary segments")
+        print("    let its single weight vector warm up and win on quality; the tree just")
+        print("    trades that for scale.")
+
+# ----------------------------------------------------------------------------
 # export: emit a built run as portable, framework-agnostic data (CSV / SQLite)
 # whose tables mirror the atlas model structure, so any downstream consumer (a
 # Django project, pandas, DB browser, …) can ingest it without re-reading the
@@ -1179,6 +1297,13 @@ def main():
     h.add_argument("--clusters", type=int, default=5, help="cut the tree into this many groups")
     h.add_argument("--eval-lines", type=int, default=400, help="cap eval lines scored (speed)")
     h.set_defaults(func=cmd_hierarchy)
+
+    mc = sub.add_parser("mixcompare", help="measure flat mixture (all experts) vs hierarchical "
+                        "routed mixture (gate -> domain) on a mixed eval stream")
+    mc.add_argument("--out", required=True, help="a route directory (from demo-route.sh)")
+    mc.add_argument("--atn", default="./atn")
+    mc.add_argument("--per-domain", type=int, default=15, help="eval lines sampled per domain")
+    mc.set_defaults(func=cmd_mixcompare)
 
     m = sub.add_parser("mixture", help="soft online mixture of experts vs single/oracle")
     m.add_argument("--out", required=True)

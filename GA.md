@@ -229,6 +229,15 @@ language experts merge first and Chinese falls out as the outgroup; on the
 formal run, first-order logic and lambda calculus sit closest. This is what a
 routing gate could be built from automatically, instead of hand-labelled domains.
 
+`atn-ga.py mixcompare --out demo-route` measures the flat mixture over EVERY
+expert against the hierarchical routed mixture on a mixed eval stream. Honest
+(and non-obvious) result: on a stream that switches domain every line, the
+routed mixture is both far cheaper (~70% fewer experts touched) and a touch
+better — the flat mixture carries one weight vector that can't re-concentrate
+over all experts before a short line ends, while routing hands each line a
+clean, correct expert set. The flat mixture is only the quality ceiling on
+stationary / long-segment streams; gate accuracy is what makes routing win.
+
 `demo-news.sh` and `demo-languages.sh` need internet; the rest are local/offline.
 `demo-meta.sh` trains on the previous trainings, so run some of the others first.
 
