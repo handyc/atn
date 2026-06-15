@@ -63,6 +63,15 @@ good reservoirs. That pipeline is now dual-use.
   (sha256=piece id) for dedup, shard-partitioned peers, index=tracker, query=pull.
   (Library blobs ~260MB live in outputs/, gitignored; tool + bundle committed.)
 
+### 2026-06-16 — swarm-v2: 10x scale-up -> 164k-piece distributed library
+- ALICE `swarm-v2` (800 peer-nodes x 600 candidates, job 3695457): **164,034 unique
+  class-4 pieces** (~10.1x swarm-v1). newton 52327 / julia 46913 / burning 36304 /
+  mandelbrot 28490. 13% gliders, 89% 3D-survival, ~48% C6/D6-stable — proportions
+  IDENTICAL to v1 -> discovery yield is stable/uniform, swarm scales linearly.
+  Queries: 3D-glider -> 20363; premium (3D+glider+D6-sym) -> 11055. Ran in ~3-5 min
+  wall (high cpu-short concurrency). Pulled MANIFESTS ONLY (index light); ~2.6GB of
+  pieces stay distributed on ALICE -> the federated model done right at scale.
+
 ### 2026-06-15 — cell-11 programmable frontier: gliders + a port-controlled signal GATE
 - **`cell11_prog.py`:** cell-11 as a programmable CA — port command = instruction
   (RUN/INC/SHIFT/CLEAR), programs execute exactly (8/8), base dynamics resume when
