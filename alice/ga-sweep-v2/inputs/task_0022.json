@@ -1,0 +1,1 @@
+{"corpus": "news", "seed": 8, "mode": "linear", "train_bytes": 9000, "fresh_offset": 45000, "fresh_bytes": 12000, "pop": 14, "gens": 8}

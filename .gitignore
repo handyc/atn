@@ -64,3 +64,7 @@ honest-eval.log
 caga2-eval.log
 genpool.log
 b-experiments.log
+
+alice/*/outputs/
+alice/*/watch.log
+alice/*/*.log

@@ -44,6 +44,82 @@ good reservoirs. That pipeline is now dual-use.
 
 ## Timeline
 
+### 2026-06-15 — cell-11 programmable frontier: gliders + a port-controlled signal GATE
+- **`cell11_prog.py`:** cell-11 as a programmable CA — port command = instruction
+  (RUN/INC/SHIFT/CLEAR), programs execute exactly (8/8), base dynamics resume when
+  ports off. But these ops are local slice-writes (representationally easy).
+- **`glider_screen.py` / `cell11_glider.py`:** our fractal class-4 rules have GLIDERS
+  in abundance — 1136/8000 quiescent-bg rules transport a localized signal (disp 30-39
+  cells/40 ticks). FIXED gate test (sink barrier = port writes 0s, not a nonzero source;
+  the first test was broken — nonzero wall acted as a source): found ~4 PROGRAMMABLE
+  GATES (rule#1579/47830/8615 etc.) where a glider crosses the board when open and is
+  fully ABSORBED when a port writes a sink barrier. = non-local, dynamics-driven 1-bit
+  gate under program control. The step from programmable transforms to COMPUTATION.
+- **Honest scope:** it's a controllable signal channel / 1-bit gate (collision-computing
+  PRIMITIVE), NOT yet a logic gate (AND/XOR need glider-glider collisions w/ conditional
+  outputs — Adamatzky territory).
+- **Collision-logic FRONTIER — structural null (collide.py/collide2.py):** 0 of 2500
+  quiescent fractal class-4 rules had a CONVERGENT glider pair — glider direction is fixed
+  by the RULE (seed-independent), so the rules are anisotropic/UNIDIRECTIONAL and two
+  same-velocity gliders can never collide. Mandelbrot/Julia posterisation breaks rotational
+  symmetry -> no collisions -> no collision-based logic gates with this rule family.
+  Did NOT fire an ALICE job: the limitation is structural, not search-size, so scaling
+  would only confirm the null. The path to logic gates is ISOTROPIC rules (Wuensche
+  iso-rules / Spiral rule), a different generator — not the fractal walk. See [[atn-ca-literature]].
+
+### 2026-06-15 — decoder lever + cell-11 + novelty correction
+- **n-gram + reservoir MIXTURE (lever 1, `mix.py`):** arithmetic mix beats the n-gram
+  alone, 3.807 -> 3.771 bpb, tuned weight a=0.88 (interior) -> reservoir adds a LITTLE
+  complementary info. FIRST thing to beat the n-gram; small & single-run, needs replication.
+  (Watch readout LR: at lr=0.5 on wide standardized input the logistic DIVERGED to 7.2 bpb;
+  lr=0.1 fixed it.)
+- **cell-11 (`cell11.py`, base 7->1 + 4 inert-by-default trainable ports, LUT 4^11):**
+  (a) conditional-MUX verified — ports-off=base, each port-command executes a distinct
+  action exactly (ports = extra address lines -> independent behaviour slices). But this is
+  representationally trivial (slices independent by construction). (b) reservoir A/B null:
+  4 additive ports HURT (0.177 vs base 0.232) — same as cell10. cell-11's only promise is
+  conditional COMPUTATION (Q/K/V lineage), not prediction.
+- **NOVELTY CORRECTION:** hex K=4 CA substrate = PRIOR ART (Wuensche/DDLab arXiv:2008.11279,
+  v4k4 hex + input-entropy class-4 classification). Only fractal-gen + routable-input ports
+  remain plausibly novel (2nd search cut off by session limit). NO more deep-research
+  workflows (token cost). See [[atn-ca-literature]].
+
+### 2026-06-15 — ALICE confirmation suite: structured>>random YES, class-4-specifically NO
+- **ga-sweep-v2 (ALICE, 8 seeds x 3 corpora, class4 vs LINEAR-class3 vs random):** class4
+  TIES linear-class3 (news d+0.2, code d+0.6, langs d0.0); BOTH crush random. -> the
+  confirmed claim is "structured >> random," NOT "class-4 is uniquely special." Matches
+  the literature (Yilmaz: class-3 rules work; edge-of-chaos not uniquely best). The
+  class-4-vs-random gap (ga-sweep-v1) is real & large (d=2.2-3.9); the class-4-vs-linear
+  gap is ~0.
+- **Matching pursuit (data-conditioned rule selection, the user's idea):** train-residual
+  greedy OVERFITS and loses to random (-0.052 test); held-out-residual greedy fixes the
+  overfit (val climbs, beats random on val) but TIES random on fresh test (0.249=0.249).
+  -> selecting among class-4 rules by data-fit doesn't beat a random draw on fresh data;
+  random structured reservoirs are a strong baseline (readout is the ceiling).
+- **N-dim STRUCTURED class-4 survey (ALICE, 9600 fractal rules):** %class-4 is FLAT ~1/3
+  across N=2..5 (32.5/33.6/31.1/31.5%) while RANDOM is ~0% at N>=2. The Mandelbrot/Julia
+  walk finds class-4 at a stable ~1/3 rate independent of dimension (Julia/Newton ~40%,
+  Mandelbrot ~20%). Dimension-robust generator — clean, likely-novel.
+- **Literature (deep-research):** ReCA (Yilmaz/Nichele), GA-over-CA (Mitchell), coupled-CA
+  reservoirs (Nichele&Gundersen) are PRIOR ART; "class-4 best" is CONTESTED (now confirmed
+  contested by our own v2); NOVEL = fractal->rule generation, dim-transfer, hex/ports. See
+  LITERATURE.md / [[atn-ca-literature]].
+
+### 2026-06-15 — GENERALITY: class-4 essential on CODE and LANGUAGES too (+ caga3 result)
+- **caga3 (Julia+Newton pool + per-node symmetry gene, news):** best both_acc 0.281,
+  just BELOW the mandelhunt ceiling 0.3037; GA kept symmetry mostly OFF. Generator
+  upgrades don't move the readout-capped prediction number. (As expected.)
+- **CODE (demo-code) class-4-vs-random, fresh region:** class-4 reservoir res_acc
+  0.253 vs RANDOM 0.061 (×4; random far below unigram). class-4 essential CONFIRMED.
+  Note: on code, deep literal ctx is strong (ctx-16 acc 0.308) — code has long-range
+  repetition — but class-4+ctx (0.322) still edges it; the class-4≫random gap is huge.
+- **LANGUAGES (demo-langs) class-4-vs-random, fresh region:** class-4 res_acc 0.145
+  vs RANDOM 0.079–0.096 (~×2; random hurts, negative lift). class-4 essential CONFIRMED
+  (tiny corpus → noisier, but the gap is clear).
+- **Conclusion:** the "class-4 is doing the work, random rules collapse" result is now
+  replicated across THREE corpora (news, code, languages). The user's central hunch is
+  robust and general. (The prediction *ceiling* is still the linear readout everywhere.)
+
 ### 2026-06-15 — forced-on rich routing (cell10ga2): LOSES to ports-off, even forced
 - **`cell10ga2.py` + `cell10net2.py`:** ports FORCED on (no off, port_w in {1,2,3}),
   rich source menu (node/self/input/pbyte/pboard/clock/func) per the user's "connect

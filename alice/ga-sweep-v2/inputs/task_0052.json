@@ -1,0 +1,1 @@
+{"corpus": "langs", "seed": 2, "mode": "linear", "train_bytes": 8000, "fresh_offset": 10000, "fresh_bytes": 9000, "pop": 14, "gens": 8}

@@ -1,0 +1,1 @@
+{"seed": 555034, "dims": [2, 3, 4, 5], "families": ["julia", "newton", "mandelbrot", "burning"], "n_per": 25, "ticks": 14}
