@@ -14,7 +14,7 @@ import numpy as np
 import caca
 
 def feat(gene, pool, data, warmup):
-    net = caca.HexNet(gene, pool, seed=1234)
+    net = caca.build_net(gene, pool, seed=1234)
     F = net.run(data, warmup=0)
     return F, net.dim
 

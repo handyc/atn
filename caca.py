@@ -44,6 +44,47 @@ def hex_step(boards, rules, em):
     return out.reshape(boards.shape).astype(np.uint8)
 
 
+# --- hex symmetry (per-node prior): C6 rotations / D6 rotations+reflections --
+# Collapse each neighbourhood's symmetry orbit to one output -> an isotropic rule.
+# Shrinks the rule space ~6-10x; used as a GA-selectable per-node prior.
+_SYM_SHIFTS = [6, 8, 10, 0, 2, 4]   # r,ne,nw,l,sw,se  (cyclic CCW); self=bits12-13
+_CANON = {}
+
+def _canon_map(reflect):
+    key = bool(reflect)
+    if key in _CANON:
+        return _CANON[key]
+    canon = np.arange(16384, dtype=np.int64)
+    seen = np.zeros(16384, dtype=bool)
+    def mk(selfv, vals):
+        k = selfv << 12
+        for s, v in zip(_SYM_SHIFTS, vals):
+            k |= v << s
+        return k
+    for kk in range(16384):
+        if seen[kk]:
+            continue
+        selfv = (kk >> 12) & 3
+        base = [(kk >> s) & 3 for s in _SYM_SHIFTS]
+        variants = [base, base[::-1]] if reflect else [base]
+        orb = set()
+        for v0 in variants:
+            v = list(v0)
+            for _ in range(6):
+                orb.add(mk(selfv, v)); v = [v[-1]] + v[:-1]
+        c = min(orb)
+        for k in orb:
+            canon[k] = c; seen[k] = True
+    _CANON[key] = canon
+    return canon
+
+def symmetrize_rule(rule, sym):
+    """sym: 0=none, 1=C6 (rotations), 2=D6 (rotations+reflections)."""
+    if not sym:
+        return rule
+    return rule[_canon_map(sym == 2)].astype(np.uint8)
+
+
 # --- load a diverse set of class-4 rules from the mandelhunt pool ------------
 def load_pool(k, pool_dir=POOL_DIR, seed=0, by="c4"):
     files = glob.glob(os.path.join(pool_dir, "*.lut"))
@@ -101,13 +142,21 @@ class HexNet:
     def reset(self):
         self.boards[:] = 0
 
-    def feed(self, byte):
+    def feed(self, byte=None, ext=None):
         cells = self.S * self.S
         flat = self.boards.reshape(self.N, cells)
-        # drive node 0 with the byte (4 base-4 digits, redundant).
-        digs = [(byte >> (2 * k)) & 3 for k in range(4)]
-        for k in range(4):
-            flat[0, self.drive[k]] = digs[k]
+        # drive node 0: a byte (4 base-4 digits, redundant) OR an external vector
+        # (for stacked/deep reservoirs — the prior layer's sampled cell values).
+        if ext is not None:
+            e = np.mod(np.asarray(ext, dtype=np.int64), 4).astype(np.uint8)
+            if len(e):
+                for k in range(4):
+                    g = self.drive[k]
+                    flat[0, g] = e[(np.arange(len(g)) + k) % len(e)]
+        else:
+            digs = [(byte >> (2 * k)) & 3 for k in range(4)]
+            for k in range(4):
+                flat[0, self.drive[k]] = digs[k]
         # directed coupling: each node += masked, rolled parent state (mod 4).
         prev = flat.copy()
         for i, ps in enumerate(self.parents):
@@ -121,12 +170,15 @@ class HexNet:
             if self.dmask is not None:
                 flat2 = self.boards.reshape(self.N, cells)
                 flat2[self.dmask] = 0
-        # read out: one-hot of sampled cells.
+        # read out: one-hot of sampled cells (and stash raw values for stacking).
         flat = self.boards.reshape(self.N, cells)
         feats = np.zeros((self.N, self.rcells, 4), dtype=np.float32)
+        vals_all = np.empty(self.N * self.rcells, dtype=np.uint8)
         for i in range(self.N):
             vals = flat[i, self.rsel[i]]
             feats[i, np.arange(self.rcells), vals] = 1.0
+            vals_all[i * self.rcells:(i + 1) * self.rcells] = vals
+        self.last_vals = vals_all
         return feats.reshape(-1)
 
     def run(self, data, warmup=200):
@@ -136,6 +188,44 @@ class HexNet:
         for t in range(n):
             F[t] = self.feed(data[t])
         return F
+
+
+class DeepHexNet:
+    """A STACK of HexNets (deep / hierarchical reservoir = the user's 'meta-node /
+    meta-network'). Layer 0 is driven by the byte; each deeper layer is driven by
+    the previous layer's sampled cell values. Features = concat of all layers, so
+    the readout sees both shallow (input-near) and deep (abstracted) state."""
+    def __init__(self, gene, pool, seed=0):
+        self.depth = max(1, int(gene.get("depth", 1)))
+        self.layers = [HexNet(gene, pool, seed=seed + 17 * d) for d in range(self.depth)]
+        self.dim = sum(l.dim for l in self.layers)
+
+    def reset(self):
+        for l in self.layers:
+            l.reset()
+
+    def feed(self, byte):
+        out = [self.layers[0].feed(byte)]
+        prev = self.layers[0].last_vals
+        for l in self.layers[1:]:
+            out.append(l.feed(ext=prev))
+            prev = l.last_vals
+        return np.concatenate(out)
+
+    def run(self, data, warmup=0):
+        self.reset()
+        n = len(data)
+        F = np.zeros((n, self.dim), dtype=np.float32)
+        for t in range(n):
+            F[t] = self.feed(data[t])
+        return F
+
+
+def build_net(gene, pool, seed=0):
+    """HexNet, or DeepHexNet if gene asks for depth>1."""
+    if int(gene.get("depth", 1)) > 1:
+        return DeepHexNet(gene, pool, seed=seed)
+    return HexNet(gene, pool, seed=seed)
 
 
 # --- readouts + honest metrics (shared with the GA) --------------------------

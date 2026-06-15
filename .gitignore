@@ -50,3 +50,17 @@ demo-code/
 demo-formal/
 demo-meta/
 demo-route/
+
+# CA-network session: generated pools, run dirs, logs
+julnewt-pool/
+cell10-pool/
+caga-news/
+caga2-news/
+caga3-news/
+cell10ga-news/
+cell10ga2-news/
+*-news.log
+honest-eval.log
+caga2-eval.log
+genpool.log
+b-experiments.log

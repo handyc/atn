@@ -11,7 +11,7 @@ import caca
 
 def run_on(gene, pool, path, offset, nbytes, ctx, warmup, label):
     data = open(path, "rb").read(offset + nbytes)[offset:]
-    net = caca.HexNet(gene, pool, seed=1234)
+    net = caca.build_net(gene, pool, seed=1234)
     F = net.run(data, warmup=0)
     s, e = warmup, len(data) - 1
     r = caca.evaluate(F[s:e], data, s, e, ctx=ctx, full=True)
