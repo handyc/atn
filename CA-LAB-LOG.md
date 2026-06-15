@@ -44,6 +44,25 @@ good reservoirs. That pipeline is now dual-use.
 
 ## Timeline
 
+### 2026-06-15/16 — federated rule-discovery swarm ("BitTorrent for rulesets", rulehub.py)
+- Built `rulehub.py`: a federated class-4 rule-DISCOVERY swarm. Each node owns a SHARD
+  of fractal-space (distinct seed), discovers class-4 hex rules, publishes each as a
+  CONTENT-ADDRESSED piece (sha256(LUT)=piece id -> automatic dedup across peers) with
+  rich metadata (c4, 3D-class, glider, C6/D6 symmetry, family, fractal coords). Modes:
+  node / index (tracker: merge+dedup) / query (pull-by-criteria). Calibration: this is
+  the RIGHT reading of the BitTorrent idea — distribute the EXPENSIVE-to-find rules
+  (class-4 rare; cheap to use), NOT per-tick lookups (fatal latency). Infrastructure
+  win (build huge diverse libraries collaboratively), not a capability/prediction win.
+- ALICE `swarm-v1` (160 peer-nodes, job 3695071): **16,180 UNIQUE class-4 pieces**
+  discovered + content-address-deduped across the swarm. By family: newton 5142,
+  julia 4726, burning 3539, mandelbrot 2773. 13% gliders, **89% survive as 3D
+  class-4** (confirms dimension-transfer at scale), ~47-48% C6/D6-stable. Pull-by-query
+  works: "3D-class4 gliders" -> 1980 hits; "julia c4>=0.8" -> 836; "D6-symmetric" ->
+  7731. Some pieces satisfy ALL properties (2D+3D class-4 + symmetric + glider) and are
+  instantly queryable. = a working federated discovery swarm: content-addressing
+  (sha256=piece id) for dedup, shard-partitioned peers, index=tracker, query=pull.
+  (Library blobs ~260MB live in outputs/, gitignored; tool + bundle committed.)
+
 ### 2026-06-15 — cell-11 programmable frontier: gliders + a port-controlled signal GATE
 - **`cell11_prog.py`:** cell-11 as a programmable CA — port command = instruction
   (RUN/INC/SHIFT/CLEAR), programs execute exactly (8/8), base dynamics resume when
