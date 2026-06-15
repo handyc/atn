@@ -63,6 +63,22 @@ good reservoirs. That pipeline is now dual-use.
   (sha256=piece id) for dedup, shard-partitioned peers, index=tracker, query=pull.
   (Library blobs ~260MB live in outputs/, gitignored; tool + bundle committed.)
 
+### 2026-06-16 — saturation + fractal-geometry->behaviour (mining the 164k library)
+- **Saturation (`saturation.py`):** 89% of the 164k rules are BEHAVIOURAL duplicates;
+  marginal discovery decayed ~30x (1000->34 new behaviours/1k). Discrete dynamical-class
+  space saturates within a few thousand rules; residual novelty is just finer c4/act
+  bins. -> bigger swarm = finer measurement, NOT new dynamics (confirms the 100,000x
+  refusal empirically).
+- **Geometry->behaviour (`geomap.py`):** tests mandelhunt's founding hypothesis at 164k
+  scale. GLIDERS are regionally concentrated in fractal-space (Newton: top-10% of regions
+  hold 83% of gliders; zoom corr -0.32) — but class-4-ness / 3D-survival / symmetry / c4
+  are LOCATION-INDEPENDENT (~uniform). So fractal structure predicts glider-capability
+  specifically, not class-4-ness in general.
+- **Causal test (`target_gen.py`):** targeting the glider-rich Newton region (cx~0,cy~0,
+  span~0.4-0.65) -> 18.0% glider yield vs 9.8% blind walk = 1.8x. Fractal location is
+  CAUSAL for gliders; a targeted generator out-yields the blind walk. (Tighter targeting
+  would beat 1.8x.) Novel + actionable: a smarter glider generator.
+
 ### 2026-06-16 — swarm-v2: 10x scale-up -> 164k-piece distributed library
 - ALICE `swarm-v2` (800 peer-nodes x 600 candidates, job 3695457): **164,034 unique
   class-4 pieces** (~10.1x swarm-v1). newton 52327 / julia 46913 / burning 36304 /
