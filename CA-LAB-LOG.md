@@ -921,3 +921,16 @@ collision-based computers stay mostly theoretical. So "a transformer/CPU entirel
 these CAs" is blocked at composable logic, not at memory. Honest, calibrated, evidence-
 based -- the calibrated-voice payoff. Not spinning more gate searches (64 islands is
 conclusive); the bottleneck is structural, not a search-budget issue.
+
+## "Storage IS memory" — confirmed on the memory-capacity benchmark (2026-06-16)
+`memcap.py`: the SAME benchmark the analog reservoir failed (recall u_{t-k}), run on the
+shift-register storage. N=8 cells, 5 seeds x 60-bit streams: recall = 1.00 at EVERY delay
+k=1..8 -> memory capacity MC = 8.0 bits. vs the analog reservoir's MC = 0.08 bits (0
+delays). A 100x difference. So the earlier "memory failed" was specifically the ANALOG
+reservoir route; the DIGITAL storage route SOLVES working memory perfectly (MC = N).
+Corrected honest map of the CA-computer question:
+- WORKING MEMORY: SOLVED (register/shift-register, MC=N, held-out verified). ✓
+- SINGLE GATES: robust at tuned operating points (collide-v3). ~
+- GATE COMPOSITION (autonomous logic): the bottleneck (nandga-v2, 0/64 generalise). ✗
+=> a CA machine can REMEMBER reliably; what it can't yet do autonomously is COMPUTE
+(compose logic). Memory ✓, logic ✗ — the precise, evidence-based boundary.
