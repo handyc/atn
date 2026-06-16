@@ -450,3 +450,58 @@ Takeaway: the steerable region is real and now precise (median 8 deg), but bound
 by the substrate's preferred axes. Next levers: vary SPAN (does another zoom open
 the 0/-90 deg gaps + give an orthogonal SPEED knob?); the LUT-intrinsic direction
 statistic (mechanism, since rotation-equivariance is out).
+
+## SPAN sweep — speed knob? gap-filling? (2026-06-16)
+`fractal_span.py`. Two questions about zoom (span).
+
+A) Is span an ORTHOGONAL knob (speed), independent of the coordinate dial
+   (direction)? PARTIAL. Span is a STRONG speed dial: corr(log span, speed) =
+   -0.89 (zoom out -> slower glider, robust across coordinates). BUT direction
+   also DRIFTS with span (mean drift 98 deg; one coordinate swung 149 deg). So
+   speed and direction are COUPLED, not orthogonal — you can't retune speed
+   without moving the heading. We do NOT have clean two-axis (dir,speed) control.
+
+B) Do the scarce headings (0 deg ->, -90 deg up) OPEN at other zooms? NO. Their
+   counts stay 0 at every span tested (0.20, 0.53, 1.30). Reachable headings
+   cluster on specific oblique hex axes (down-right, west, up-left, up-right) and
+   never hit due east/north/south. Confirms the 2D-field gap is a real HEX-LATTICE
+   ANISOTROPY (gliders ride lattice bond directions), not a sampling gap.
+
+Net: span = a (coupled) speed dial; the reachable heading set is a discrete-ish
+set of preferred lattice axes fixed by the hex substrate. The clean controllable
+quantity remains DIRECTION (within the supported arc) via the coordinate.
+
+## MECHANISM FOUND — single-neighbor activation law (2026-06-16)
+The "why does fractal coordinate set glider direction" question is ANSWERED, and
+the answer is a substrate law, not a fractal one. `mechanism.py`,
+`mechanism_general.py`.
+
+First candidate (FAILED): a global flow vector F = sum_p corr(neighbor_p, output)
+* dir_p only weakly predicts heading (circ-circ corr ~0.4, median err 70deg). The
+static first-order correlation is not the mechanism.
+
+Winner: the SINGLE-NEIGHBOR ACTIVATION probe. For each of the 6 hex directions p,
+read the LUT output for the neighborhood where ONLY neighbor p is active (center +
+all other neighbors dead) — i.e. lut[v<<shift_p] for v in {1,2,3}: "does an
+isolated upstream cell in direction p fire the center?". Let
+   F = sum_p  mean_v[ lut[v<<shift_p] > 0 ]  *  unit_dir(p)
+Then **glider heading = angle(F) + 180deg** (one global, parameter-free sign flip;
+motion is ANTI-parallel to the activation vector, because if cells on side p fire
+the center, the pattern grows toward -p).
+
+Result (Newton, 546 rules): circ-circ corr **+0.95**, residual alignment R **0.96**,
+**median heading error 4deg**, 98% <45deg, 100% <90deg. Computed from just **18 LUT
+entries**, NO simulation.
+
+Generality (mechanism_general.py): holds for ALL families — newton corr 0.95/med
+5deg, julia 0.86/18deg, mandelbrot 0.98/7deg, burning 0.92/6deg. So it is a
+property of the HEX SUBSTRATE (LUT geometry), independent of LUT origin.
+
+This CLOSES the arc with an explanation: the fractal coordinate steers the glider
+because moving (cx,cy,span) changes the posterised escape-time values at exactly
+those 18 single-neighbor configurations, tilting F and rotating the glider. The
+0deg/-90deg heading gaps (span sweep) are now explained too: the 6 hex dir_vec(p)
+only span certain axes, so achievable angle(F) (hence headings) is constrained to
+the lattice's bond directions. Full chain: fractal coordinate -> 18 LUT activation
+entries -> activation vector F -> glider heading (angle(F)+180, ~4deg), bounded by
+hex bond axes. Novel and closed-form.
