@@ -718,3 +718,20 @@ collide-v3 (dense impact x timing x seed scan of 41 interactors): ROBUST GATES E
 implement robust XOR and AND glider-collision gates (collide-v2's coarse readout was
 operating-point-sensitive; the fine scan confirms genuine robust regions). Collision
 logic re-opened and demonstrated. NINE ALICE jobs this session complete.
+
+## Consolidation: figures, draft tightening, 4D-island theory probe (2026-06-16)
+1. FIGURES from ALICE data (`alice_figures.py` -> dissemination/): F6 universality
+   (median err vs K per 2D lattice + growth% vs dimension showing the 4D island), F7
+   speed law (measured vs drift, 7307 gliders, R^2=0.53), F8 robust collision gates
+   (XOR/AND fidelity over impact x timing). NOTE: gates are coord-sensitive at the 4th
+   decimal — F8 must use full-precision base coords (rounding 0.0576->0.058 killed the
+   AND gate); fixed by reading exact coords from collide-v3 outputs.
+2. DRAFT tightened: added contributions 5-6 (universality map, collision gates),
+   an Open Questions section (4D island, speed prefactor, gate-family completeness,
+   deriving the +180 sign), embedded F6-F8, updated figure index. PDF rebuilt.
+3. 4D-ISLAND THEORY (`island_probe.py`): tested the SELECTION hypothesis (growth
+   gliders blow up except in growth dims) -> RULED OUT. Per-dim (vN K2): explode%
+   rises monotonically 2D 7.6 -> 5D 20.8 (NOT min at 4D); transl% falls 56->11;
+   among survivors growth% = 2D 100, 3D 0.4, 4D 78, 5D 0; 3D survivors GAIN mass
+   (+0.43) yet move copy-ward. So the regime is intrinsic to the dynamics, not a
+   survival filter. The 4D island stays a genuine open puzzle (honest negative).
