@@ -349,3 +349,37 @@ if the combination beats the n-gram alone. Stop growing nodes/depth/islands.
   linear control? (Pending baseline.)
 - Does the small-network preference (3 nodes, 16×16) hold across corpora, or is it
   news-specific?
+
+## Boundary-region / collision-logic thread — closed (2026-06-16)
+Hypothesis: rules near a direction-DOMAIN boundary (dir_control showed fractal
+location sets glider direction) might be bistable and emit gliders in TWO
+directions from one rule -> two opposing gliders on one lattice -> a COLLISION
+becomes possible (re-opening collision-based logic for our anisotropic fractal
+rules). Tested in `boundary.py` (within-rule direction spread, 385 Newton glider
+rules) + `collide_one.py` (head-on collision of the one flagged rule).
+
+Result — NEGATIVE, cleanly:
+- Within-rule angle alignment R = **0.99** mean; **0%** of rules genuinely
+  multi-directional (R<0.6). Single fractal rules are essentially UNIDIRECTIONAL.
+- The lone flagged exception (0d9ff49, R=0.49, maxgap 179deg, 7 gliders) *does*
+  have a seed pair 180deg apart (seed 1034 @ -39deg, seed 1067 @ 141deg) — but
+  those gliders are SLOW (speed ~0.21-0.26, just above the 0.15 floor) and DECAY
+  to ~1 cell; in a head-on setup their mass tracks superposition exactly
+  (ratio 1.00) — they pass through WITHOUT interacting. The flag was small-sample
+  noise on near-threshold structures.
+
+Verdict: collision-based logic remains BLOCKED for fractal-walk K=4 hex rules —
+they are anisotropic/unidirectional, exactly as Wuensche's X-rule (gliders only
+E-W) and the collision-logic literature (Adamatzky/Martinez) imply. The route to
+collisions is ISOTROPIC rules (Wuensche iso-rules, Spiral rule), not boundary
+rules. The genuinely novel, defensible result stays: the continuous
+fractal-coordinate -> glider-DIRECTION control map (dir_control.py, causal).
+
+Lit review (WebSearch, 2026-06-15/16): closest prior art —
+- Martinez & Adamatzky, "Logical Gates via Gliders Collisions" (arXiv:1803.05496)
+  — collision logic, but in isotropic rules.
+- Wuensche, anisotropic X-rule (gliders only E-W) — matches our unidirectionality.
+- Lenia velocity optimisation (arXiv:2508.04167) — continuous-CA glider steering,
+  but learned, not a closed-form fractal-coordinate dial.
+No prior work found mapping a continuous fractal coordinate to glider direction;
+that map appears novel. Collision logic itself is well-trodden and isotropy-bound.
