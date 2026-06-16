@@ -858,3 +858,15 @@ SRAM. Robust (works un-optimised). The flip-flop GA (job 3772715), which selecte
 persistence, should extend retention; rerun register.py on the best genome when it lands.
 Progression this session: analog reservoir FAILED -> digital flip-flop (1 bit, rewritable)
 WORKS -> chained into an N-bit register WORKS (with DRAM-like decay). Honest memory result.
+
+## Register refresh (DRAM-style) — helps, but needs a stable cell (2026-06-16)
+Added refresh to `register.py`: every R steps, read each cell and re-pulse its winning
+layer. Fallback genome, long hold=160: NO-refresh decays to ~50% by hold 80; refresh-
+every-15 holds 86-88% at hold 80 but still falls to ~50% by hold 159. So refresh extends
+retention but doesn't fully stabilise the (unstable) fallback latch — re-pulsing the
+winner locks in errors if a cell drifted before the refresh. CONCLUSION: need a flip-flop
+cell optimised for LONG-HOLD persistence (v1's fitness only checked hold~45). Plan: (1)
+land flipflopga-v1 POC + rerun register on its best, (2) if retention still short, evolve
+flipflopga-v2 with a LONG-HOLD-stability fitness, (3) thorough ALICE register sweep
+(N x hold x words x seeds x refresh), (4) update Glider Lab. Methodical: POC -> measure
+-> evolve better -> verify -> complexify.
