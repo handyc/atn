@@ -987,3 +987,14 @@ autonomous logic AND memory -> the real foundation of a CA computer with no exte
 controller. The collision-routing negative is fully superseded: the latch-threshold gate
 + confined territory-spreading wires + walls give robust, generalising, autonomous
 computation. Verification discipline (held-out) maintained throughout.
+
+## Image-behaviour classifies rule-types for the computer (2026-06-16)
+`retain.py` (user's insight: retained-image vs wipe-effect settings). Seed the full grid
+with a structured image, run each rule, classify. 400 Newton rules: RETAIN 29 (retention
+0.98 -> identity-like = WIRE/MEMORY; e.g. newton(-0.407,-0.237,0.564)), SHIFT/WIPE 9
+(image translates, e.g. (0,-4) at newton(-0.038,0.035,0.828) -> TRANSPORT/carrier), GROW
+201 (fills -> flooding carrier used in autowire), CHAOS 161 (destroys -> useless). So a
+rule's image-behaviour CLASSIFIES which computer component it can be: RETAIN=wire/store,
+SHIFT/WIPE=directional transport, GROW=flooding carrier, CHAOS=discard. A useful map: to
+build a circuit, pick wires from RETAIN, carriers from SHIFT/GROW. Confirms the user's
+"wipe = something moving" intuition = directional signal transport.
