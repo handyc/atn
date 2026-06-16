@@ -383,3 +383,43 @@ Lit review (WebSearch, 2026-06-15/16): closest prior art —
   but learned, not a closed-form fractal-coordinate dial.
 No prior work found mapping a continuous fractal coordinate to glider direction;
 that map appears novel. Collision logic itself is well-trodden and isotropy-bound.
+
+## fractal -> glider-DIRECTION, deepened (2026-06-16)
+Pushed the one genuinely-novel result (fractal coordinate controls glider
+direction) from "two regions differ" to a characterized, invertible control law.
+Scripts: `fractal_dir_deep.py` (continuity + mechanism), `fractal_steer.py`
+(inverse control). Newton glider region cx~0.007 cy~-0.028 span~0.53.
+
+1. CONTINUITY (confirmed, strong). Sweeping cx with cy/span fixed gives a smooth,
+   near-monotone glider-angle progression (64 -> 100 -> 173 -> -116 -> -56 deg as
+   cx: -0.27 -> +0.17), **circular-linear corr(cx,angle) = 0.97**, mean
+   within-coordinate alignment R = 0.88. So fractal cx is a CONTINUOUS analog dial
+   for glider heading, not just a region label. (The script's "swing" line is a
+   bad metric — circular max-min understates a wrapped sweep that actually spans
+   ~240 deg; the 0.97 corr is the right statistic.)
+
+2. MECHANISM (hypothesis FALSIFIED, cleanly). The posterised fractal image IS the
+   LUT (pixel index = neighborhood key; row=key>>7 set by self+north neighbors,
+   col=key&127 by south/west), so I hypothesized fractal-field ORIENTATION sets the
+   propagation axis -> rotating the sampling grid by phi should rotate the glider.
+   It does NOT: R(theta-phi)=0.09, R(theta+phi)=0.14, circ-circ corr(phi,theta)
+   =-0.19, while R(theta)=0.46 (weak substrate bias independent of phi). The fixed
+   raster->neighborhood bit-map is not rotation-equivariant; rotating the image
+   scrambles the LUT. Direction is driven by the COORDINATE-dependent change in the
+   LUT's directional bias, not by image rotation. ("fractal orientation = glider
+   orientation" is dead.)
+
+3. INVERSE CONTROL (works). Built the cx->angle transfer function (19 control
+   points), then for 8 requested headings inverted to a cx, generated fresh rules,
+   and measured the realized heading: **mean steering error 22 deg (median 17)**,
+   reachable arc ~296 deg, per-point R ~ 1.00. A "fractal-coordinate glider
+   compass": request a heading, get it within tens of degrees. The two worst
+   targets (+0, +135) fell in sparse GAPS of the reachable arc, not control errors.
+
+Net: the novel, defensible contribution is now a continuous + invertible
+fractal-coordinate -> glider-direction control law. No prior work found mapping a
+continuous fractal coordinate to a steerable glider heading (closest: Lenia
+LEARNED velocity steering, arXiv:2508.04167 — ours is closed-form via the
+fractal-walk coordinate). Open: 2D (cx,cy) steering field; the true LUT-intrinsic
+direction statistic (since rotation-equivariance is out); speed (span) as a second
+orthogonal knob.
