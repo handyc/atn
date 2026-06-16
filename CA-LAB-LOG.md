@@ -565,3 +565,20 @@ F4 visually confirmed publication-quality.
 Article `glider-steering.md` updated: added Section 4.1 (from-scratch synthesis),
 real figure list (Section 8), reproducibility + abstract. Draft is arXiv-ready
 modulo reference formatting + F1 schematic polish.
+
+## Vertical-flip diagnosis — it's the template, not the law (2026-06-16)
+`vflip.py`. The de-novo synthesis 180-deg flip at headings 90/270 is NOT in the
+direction law:
+- (1) LAW via surgery on real glider bulks tracks the vertical band fine: 90->94
+  (err 4), 270->-95 (err 5), all of 70-110 & 250-290 within ~5-19 deg. The law
+  heading=angle(F)+180 is uniform over the full circle.
+- (2) The de-novo flip is a ~+-15 deg BAND (75/90/105 and 255/270/285 all snap to the
+  opposite pure-vertical heading); fine elsewhere (60,120,240,300 ok).
+- (3) Cause = hex OFFSET-LATTICE geometry: no pure N/S neighbor (only nw/ne, sw/se
+  pairs) and offset-row PARITY alternates each diagonal neighbor (b[i-1,j-1] vs
+  b[i-1,j]) by row, so the crude excitable front propagates anomalously along the
+  vertical. Even asymmetric single-neighbor builds misbehave near vertical -> NOT a
+  simple symmetric tie (my first guess was only partly right); it's parity geometry.
+Conclusion: the flip is an artifact of a PARITY-NAIVE excitable template, not the
+law. Real localized gliders (and surgery) have no vertical issue. Fix = parity-aware
+bulk template (future). Article 4.1 updated with the resolved diagnosis.
