@@ -86,3 +86,6 @@ alice/ga-sweep-*/caca.py
 alice/ga-sweep-*/caga.py
 caga-code/
 caga-langs/
+
+# rendered article PDF — local only
+glider-steering.pdf

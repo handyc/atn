@@ -630,3 +630,18 @@ Numerical confirmation:
 Upgrades the result from empirical to DERIVED: direction = exact kernel first moment
 (median 3 deg); speed = partially derived (drift R^2 0.36) + linear upper bound (82%).
 Article (local-only) gained Section 3.1; abstract + speed section updated.
+
+## Glider routing (heterogeneous CA) — PRELIMINARY, fragile (2026-06-16)
+`route.py`. Build rules from one base via surgery (differ only in the 18 direction
+entries), tile across space, route a glider. First-pass results are WEAK:
+- (A) sharp 90deg domain wall (east|south): glider survived 94 ticks but did NOT
+  reach/cross the wall (slow + heading -15 not 0); inconclusive crossing.
+- (B) graded steering field heading(col) 0->90: glider DID curve (col 18->42,
+  row 30->57 = east+south) but heading-vs-field median err 37deg (loose tracking).
+  Proof of life for a steering field, not yet clean.
+- (C) cross-domain head-on (east|west): exploded; inconclusive.
+Honest read: surgically-retargeted gliders are fragile across spatial rule changes —
+they survive but don't cleanly cross sharp walls, and field-following is loose.
+GRADED fields (B) look more promising than sharp walls. Needs: a fast/robust base
+glider (verify strong glide per region first), gentler heading gradients, bigger
+board/longer runs. Routing is plausible but not yet demonstrated. fig_route.png saved.
