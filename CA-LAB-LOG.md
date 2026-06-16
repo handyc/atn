@@ -702,3 +702,19 @@ STRIKING: the regime is DIMENSION-PARITY-like — 2D & 4D are growth-dominated (
 law holds), 3D is copy-dominated (motion toward F). Non-monotonic in dimension. Within
 3D, higher K shifts back toward growth (clean K-crossover). The growth%<->accuracy
 coupling is exact. Open: does 5D revert to copy (true even/odd parity)? -> gen-v4.
+
+## ALICE gen-v4 (dimension 2-6D) + collide-v3 (stable gates) — results (2026-06-16)
+gen-v4 (growth%/dimension, von Neumann, enlarged high-D boards): vn2 100% growth (0deg);
+vn3 0% (180deg, copy); vn4 73% (1deg, GROWTH); vn5 0% (178deg, copy); vn6 1% (179deg,
+copy); vn5/vn6 K3 ~2% (copy). VERDICT: NOT even/odd parity — 6D is even yet copy. Real
+pattern: growth at 2D and a RE-ENTRANT GROWTH ISLAND at 4D; copy dominates 3D and >=5D.
+Non-monotonic, surprising; the +180 sign is dimension-specific (4D anomaly open for theory).
+
+collide-v3 (dense impact x timing x seed scan of 41 interactors): ROBUST GATES EXIST.
+2 bases have a stable gate region (>25% of operating points, fidelity 1.0):
+- robust XOR/annihilation gate: cx=-0.178 cy=-0.032 span=0.414, **xor_region 0.64**
+- robust AND/product gate:      cx=+0.058 cy=-0.100 span=0.333, **and_region 0.69**
+7/41 bases have a perfect-fidelity gate point. So surgery-tiled heterogeneous CA domains
+implement robust XOR and AND glider-collision gates (collide-v2's coarse readout was
+operating-point-sensitive; the fine scan confirms genuine robust regions). Collision
+logic re-opened and demonstrated. NINE ALICE jobs this session complete.
