@@ -75,3 +75,14 @@ github_pat*
 
 # article figures (regenerable via figures.py)
 fig*.png
+
+# unpublished article draft — kept local, NOT in the public repo
+glider-steering.md
+# transient run logs, job ids, data dumps, bundle-duplicate scripts, GA state
+*.log
+alice/*/JOBID
+alice/**/pool.npy
+alice/ga-sweep-*/caca.py
+alice/ga-sweep-*/caga.py
+caga-code/
+caga-langs/
