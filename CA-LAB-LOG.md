@@ -1034,3 +1034,15 @@ posterize to 4 states (full grid, like retain.py) -> apply a filter; an "amount"
 CA steps (frames cached), "bake" stacks filters, PNG export. All 10 embedded filter LUTs
 verified byte-identical to rulehub (faithful, not a fake effect). Ties the computer-search
 rule taxonomy (Preserve=wire, Wipe=transport, Dissolve=carrier) to a creative tool.
+
+## CA Photoshop v2: 21 filters across 4 families + pure-JS video reel (2026-06-16)
+Expanded glider-lab9 (user: more effects + stitch runs into a video using just JS).
+select_presets.py now scans ALL four fractal families (Newton/Julia/Mandelbrot/Burning
+Ship, 4000 coords) and classifies into PRESERVE (retention ~1.0), WIPE (all 8 directions
+↑↓←→↖↗↙↘, binned by shift sign), DISSOLVE (grow), GLITCH (chaos), and a new STYLIZE bucket
+(settles to a stable pattern: low change, mid retention). 21 exemplars, all embedded LUTs
+verified byte-identical to rulehub. VIDEO: pure-JS reel — queue filter clips (each with its
+own step count), they play in order each continuing from the previous output (stitched), and
+record to a downloadable .webm via MediaRecorder + canvas.captureStream off a 3x hi-res
+canvas (no libraries; Chrome/Firefox). Plus live scrub/animate/bake-stack/PNG export from v1.
+dissemination/glider-lab9.html (local, gitignored); build_lab9.py emits it.
