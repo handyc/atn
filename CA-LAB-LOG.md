@@ -958,3 +958,16 @@ in-substrate wiring (gates physically driving each other, no controller) is the 
 engineering step. But functional universality (gates + memory) is now real and verified.
 The earlier collision-routing negative stands for THAT mechanism; the latch mechanism
 resolves it. Verification discipline (held-out + composition) makes this trustworthy.
+
+## Autonomous wiring — input-side works (2026-06-16)
+`autowire.py`: a universal gate whose INPUTS are not injected at the gate but placed at
+the far LEFT and must PROPAGATE ~76 cells to the gate at the RIGHT, in ONE continuous CA
+run, NO controller. Mechanism: input/signal layer Z on a spreading rule (territory front
+= wire), gate bias O a stable latch layer, mutual annihilation decides. TRAIN 100%,
+HELD-OUT 100%, truth = NOR {00:1,01:0,10:0,11:0}. So autonomous INPUT wiring + a universal
+gate, verified. (Bugfix: the 0.6 mass cap tripped on Z's healthy 0.68 fill -> raised to 0.92.)
+HONEST CAVEAT: the wire FLOODS omnidirectionally (Z fills the board), not a confined
+directional channel -> multiple wires would cross-talk. Needs WALLS/channels to confine
+each wire. The remaining hard piece = gate1 OUTPUT autonomously driving gate2 INPUT
+(output is a stable territory; a wire needs a propagating carrier -> the stable-vs-propagate
+conflict). Next: confined channels + a 2-gate autonomous cascade.
