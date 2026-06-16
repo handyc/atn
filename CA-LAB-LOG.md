@@ -998,3 +998,26 @@ rule's image-behaviour CLASSIFIES which computer component it can be: RETAIN=wir
 SHIFT/WIPE=directional transport, GROW=flooding carrier, CHAOS=discard. A useful map: to
 build a circuit, pick wires from RETAIN, carriers from SHIFT/GROW. Confirms the user's
 "wipe = something moving" intuition = directional signal transport.
+
+## Closing the loop: a clocked SEQUENTIAL circuit (2026-06-16)
+`seqcircuit.py` (user's hunch: redesign the failed feedback now that we know retain/shift
+rules). The old ANALOG feedback (feedback.py reservoir loop) gave only autocorr-gaming
+oscillators (MC=0.08). DIGITAL redesign: retain-rule latch = holds a bit between ticks;
+feedback = route the output bit back to the input. Two rungs, each checked vs an EXACT
+math reference on HELD-OUT seeds (unfakeable, unlike the reservoir metric):
+  RUNG 1 RING -- close the shift register into a loop; pattern 10110 (N=5) circulates
+    intact and returns to start every N clocks. Rotates correctly on all seeds incl.
+    held-out (101,250). Pure storage+shift -> output->input feedback WORKS as a process.
+  RUNG 2 LFSR -- ring + an XOR feedback tap, the XOR computed by the CA NAND gate
+    (gatecell decide, composed 4-NAND XOR). init 1000 (N=4) -> CA reproduces the EXACT
+    reference sequence 000100110101111 (period 15, maximal for a primitive 4-bit poly)
+    on train AND held-out seeds (0,7,100,250), match=True every time.
+State = CA latch (verified), logic = CA gate (verified), and now the LOOP is closed:
+a closed feedback loop computing a correct STATEFUL sequence over time = a sequential
+circuit, not just combinational logic. The analog reservoir FAILED this test; the digital
+redesign PASSES it. Honest scope unchanged: the per-tick shift/route + the clock are
+controller-orchestrated (as in shiftreg.py; a real CPU also has an external clock);
+autonomous in-substrate transport (channels carrying bits, cf. autowire2) is the next
+step. dissemination/glider-lab8.html (local, gitignored) runs this live with the REAL
+embedded latch+gate LUTs (verified byte-identical to seqcircuit.py): RING circulation +
+LFSR-vs-reference match, the genuine substrate dynamics in-browser. build_lab8.py emits it.
