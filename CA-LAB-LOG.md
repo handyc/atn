@@ -1021,3 +1021,16 @@ autonomous in-substrate transport (channels carrying bits, cf. autowire2) is the
 step. dissemination/glider-lab8.html (local, gitignored) runs this live with the REAL
 embedded latch+gate LUTs (verified byte-identical to seqcircuit.py): RING circulation +
 LFSR-vs-reference match, the genuine substrate dynamics in-browser. build_lab8.py emits it.
+
+## CA "Photoshop": the rule taxonomy as image filters (2026-06-16)
+`select_presets.py` + `build_lab9.py` (user: a mini-photoshop using the image-wiping CAs on
+arbitrary images). The retain.py categories ARE image effects, so each becomes a filter:
+PRESERVE (retain-rules, retention ~0.99 — wire/memory), WIPE ←↙→↖ (shift-rules binned by
+direction — directional transport), DISSOLVE/GROW (flooding carriers, fill->1.0), GLITCH
+(chaos-rules, change ~0.9). select_presets.py scans 900 Newton coords, classifies, picks
+faithful exemplars per category (4 distinct wipe DIRECTIONS), and exports their REAL rulehub
+LUTs (packed base64). dissemination/glider-lab9.html (local, gitignored): load any image ->
+posterize to 4 states (full grid, like retain.py) -> apply a filter; an "amount" slider scrubs
+CA steps (frames cached), "bake" stacks filters, PNG export. All 10 embedded filter LUTs
+verified byte-identical to rulehub (faithful, not a fake effect). Ties the computer-search
+rule taxonomy (Preserve=wire, Wipe=transport, Dissolve=carrier) to a creative tool.
