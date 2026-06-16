@@ -971,3 +971,19 @@ directional channel -> multiple wires would cross-talk. Needs WALLS/channels to 
 each wire. The remaining hard piece = gate1 OUTPUT autonomously driving gate2 INPUT
 (output is a stable territory; a wire needs a propagating carrier -> the stable-vs-propagate
 conflict). Next: confined channels + a 2-gate autonomous cascade.
+
+## AUTONOMOUS CA LOGIC CIRCUIT — frontier solved (2026-06-16)
+`autowire2.py` / `autowire3.py`: confined channels (walls) + the spreading-carrier/latch
+mechanism give controller-free wiring. Progression, all HELD-OUT 100%:
+- autowire.py: gate INPUTS self-propagate to the gate -> NOR (input wiring) ✓
+- autowire2.py: gate1's output travels a WALLED CHANNEL to gate2 (no flooding) -> gate2
+  reproduces NOR(A,B) (confined gate-to-gate wire) ✓
+- autowire3.py: gate1 NOR(A,B) wired into gate2, combined with a fresh input C ->
+  NOR(A,B,C) truth {000:1, else 0}, ONE continuous run, NO controller (autonomous
+  2-gate LOGIC circuit) ✓
+=> a controller-free CA logic circuit exists: multi-gate composed function computed by
+the CA dynamics alone. With the latch register (memory), the substrate supports BOTH
+autonomous logic AND memory -> the real foundation of a CA computer with no external
+controller. The collision-routing negative is fully superseded: the latch-threshold gate
++ confined territory-spreading wires + walls give robust, generalising, autonomous
+computation. Verification discipline (held-out) maintained throughout.
