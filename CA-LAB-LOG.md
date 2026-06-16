@@ -645,3 +645,27 @@ they survive but don't cleanly cross sharp walls, and field-following is loose.
 GRADED fields (B) look more promising than sharp walls. Needs: a fast/robust base
 glider (verify strong glide per region first), gentler heading gradients, bigger
 board/longer runs. Routing is plausible but not yet demonstrated. fig_route.png saved.
+
+## ALICE gen-v1 (universality) + collide-v1 (collisions) — results (2026-06-16)
+Two big array jobs landed.
+
+UNIVERSALITY of heading=angle(-F) (gen-v1, ~180k gliders across substrates):
+- sq-vN  K2 corr 1.00 (1deg, 100% growth); K3 0.90 (5deg); K4 0.55 (21deg); K5 0.60 (27deg)
+- sq-Moore K2 0.96 (3deg); K3 0.33 (17deg)
+- cube-vN (3D) K2 med-angle 178deg (60% COPY regime!); K3 50deg; K4 46deg (64% growth)
+The law is EXACT for low-state 2D CAs on EVERY lattice tested (square vN, Moore, hex),
+degrades with K, and in 3D / high-K shifts into the COPY regime (motion TOWARD F,
+heading=angle(F), no +180). The growth%<->accuracy coupling confirms the linearization:
+the +180 sign is growth-specific. => the direction law is a GENERAL PRINCIPLE of
+growth-driven CA gliders, not a hex-K4 quirk. (Random K4 gliders are noisier than
+fractal-generated ones, which select cleaner gliders.)
+
+CROSS-DOMAIN COLLISIONS (collide-v1, 644 clean tests): surgery one base into east|west
+domains so two gliders meet at the wall. 582 passthrough, **55 ANNIHILATE, 7 PRODUCT**
+=> 62/644 (10%) INTERACT; strongest annihilations reach min_ratio 0.00 (mutual
+destruction). Single-rule collisions are blocked (anisotropy), but HETEROGENEOUS
+(surgery'd) domains RE-OPEN the collision frontier: ~10% of bases give interacting
+opposing gliders. Candidate collision-logic primitive (annihilation = presence-gates).
+Caveat: these are bounded translating structures (some large), not guaranteed minimal
+gliders; need collide-v2 (impact parameter, consistent product, truth table) to claim
+a gate. Strongest annihilators near cx~-0.09..-0.18, cy~-0.0..-0.03, span~0.3..0.44.
