@@ -683,3 +683,22 @@ ALL **0.53** (vs raw |F| 0.21, v* ~0). Multi-feature (drift,v*,lambda) R^2 0.58 
 pushed/localized, slower than the linear pulled front. Speed law: partly DERIVED
 (drift, R^2~0.5-0.7) + linear upper bound (v*, 89%), residual nonlinear. Completes the
 speed section. ALL FIVE ALICE JOBS (route/gen-v1/collide/gen-v2/speed) now in.
+
+## ALICE collide-v2 (gates) + gen-v3 (dimension crossover) — results (2026-06-16)
+collide-v2 (40 interactor bases -> gate truth tables vs impact parameter):
+COLLISION LOGIC PRIMITIVES EXIST. Best AND/product gate and_frac **1.00** (cx=-0.122
+cy=-0.012 span=0.502); best XOR/annihilation gate xor_frac **0.70** (cx=-0.178
+cy=-0.032 span=0.414). 3/40 consistent (>60% one type); most impact-parameter-
+sensitive. Heterogeneous (surgery-tiled) CA collisions CAN implement gate primitives;
+needs collide-v3 (fine impact/timing scan) for a stable truth table. Re-opens
+collision logic that single-rule anisotropy blocks.
+
+gen-v3 (growth->copy crossover vs dimension & K, von Neumann, ~56k gliders):
+- vn2 (2D): K2 corr 1.00 (0deg, 100% growth); K3 0.89 (8deg, 99% growth)  -> GROWTH
+- vn3 (3D): K2 179deg (0% growth, PURE COPY); K3 135deg/27%; K4 120/38%; K5 106/42%;
+  K6 93deg/45% growth  -> COPY at low K, drifting to ~50/50 as K rises
+- vn4 (4D): K2 1deg (73% growth); K3 45deg (68% growth)  -> GROWTH again
+STRIKING: the regime is DIMENSION-PARITY-like — 2D & 4D are growth-dominated (+180
+law holds), 3D is copy-dominated (motion toward F). Non-monotonic in dimension. Within
+3D, higher K shifts back toward growth (clean K-crossover). The growth%<->accuracy
+coupling is exact. Open: does 5D revert to copy (true even/odd parity)? -> gen-v4.
