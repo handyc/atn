@@ -63,6 +63,18 @@ good reservoirs. That pipeline is now dual-use.
   (sha256=piece id) for dedup, shard-partitioned peers, index=tracker, query=pull.
   (Library blobs ~260MB live in outputs/, gitignored; tool + bundle committed.)
 
+### 2026-06-16 — fractal location CONTROLS glider direction (novel, causal)
+- **`glider_dir.py`:** glider velocity vs fractal location (1119 Newton gliders). Global
+  angle alignment R=0.54 (multi-modal — several directions), but WITHIN a fractal region
+  R=0.87 -> each region emits gliders heading a specific way. Speed vs log(span/zoom)
+  r=-0.18 (shallower zoom -> faster gliders).
+- **`dir_control.py` (causal):** picked two regions (predicted headings 74.5 vs -121.9 deg),
+  generated fresh rules in each -> gliders went 69.0 deg (R=0.92) and -115.7 deg (R=0.89).
+  Generated headings match predictions AND differ -> fractal location CAUSALLY controls
+  glider direction. Fractal-space = a steering wheel for glider dynamics (presence +
+  direction + roughly speed). Strongest fractal->behaviour result; extends mandelhunt's
+  founding hypothesis into a quantitative, controllable map.
+
 ### 2026-06-16 — saturation + fractal-geometry->behaviour (mining the 164k library)
 - **Saturation (`saturation.py`):** 89% of the 164k rules are BEHAVIOURAL duplicates;
   marginal discovery decayed ~30x (1000->34 new behaviours/1k). Discrete dynamical-class
