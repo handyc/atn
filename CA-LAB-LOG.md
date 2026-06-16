@@ -1131,3 +1131,21 @@ circulating register — a ring of latch cells, the bit pattern rotates each clo
 shows how they compose into CA-1 (runs programs) and an honest footer states the open frontier
 (a 2nd spreading layer for fully-autonomous universality). Steps one CA step/frame so all
 panels animate smoothly together — the actual substrate dynamics, not a schematic.
+
+## The 2nd-spreading-layer frontier: a well-characterised NEGATIVE (2026-06-17)
+`cadual.py` + sweeps. Tested the named primitive — a SECOND SPREADING LAYER so routed carriers
+can invert each other (Z and Y, two copies of the carrier rule that mutually annihilate; a
+routed Y suppresses a Z-source -> Z = NOT(Y); chains by alternating layers). RESULT: it does
+NOT give a clean inverter. A self-emitting source re-seeded each step vs a spreading suppressor
+reaches a leaky annihilation EQUILIBRIUM: emit(no-input)=375 vs emit(input)=83 (~3x, ~30%
+leak) — not the clean ~370-vs-0 the stable-O suppressor gave in cainv. Confining the source in
+a small walled pocket (so the suppressor is trapped on target) did NOT help (still ~3x).
+ROOT CAUSE (the precise finding): a clean suppressor must sit ON the source and STAY (the
+stable bias O does -> cainv is 100%), but anything that SPREADS (hence is routable) flows
+off-target and lets the continuously-re-seeded source re-establish. The property that makes a
+carrier routable (spreading) is exactly what makes it a poor suppressor. So with THIS 2-layer
+mutual-annihilation substrate, a clean ROUTABLE inverter does not exist via identical spreading
+rules. SHARPENED FRONTIER: not "need a 2nd spreading layer" (tried, leaky) but "need a clean
+routable inverter"; open whether an ASYMMETRIC rule-pair (a dominant/flooding suppressor rule)
+or a carrier->stable converter could provide it. Practical universal route remains calayout
+(orchestrated transport). Honest negatives logged; verification discipline intact.
