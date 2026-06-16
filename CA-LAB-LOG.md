@@ -602,3 +602,31 @@ ARTICLE FINISHED for posting: references formatted (14 entries, years/arXiv, wit
 "verify before submission" note); F1 upgraded to a proper schematic (7-cell hex
 neighborhood + bit-layout + rule-as-image, `fig1_schematic.png`). glider-steering.md
 is arXiv-ready (nlin.CG) modulo a final DOI/year pass.
+
+## THEORY — the direction law is the linear front drift (2026-06-16)
+`theory.py`. Derived the empirical law heading=angle(F)+180 from a linearization of
+the update at the quiescent state. At the leading edge (low density invading 0):
+   n_{t+1}(x) = a_self*n(x) + sum_p a_p*n(x+d_p),
+with a_p the single-neighbor activation and a_self=frac_v[LUT[v<<12]>0]. A feature is
+transported by -d_p with weight a_p, so mean drift = -F/(a_self+sum a_p) ->
+heading = angle(-F) = angle(F)+180. DERIVED, not fitted.
+
+Numerical confirmation:
+- (1) DIRECTION: simulating the LINEAR operator alone (real-valued, no threshold)
+  from a point source reproduces the measured glider heading to MEDIAN 3 deg
+  (circ-corr 0.94), identical to analytic angle(-F). The linearization IS the
+  mechanism. The +180 is explained: density flows FROM the firing neighbor TO center.
+- (2) SPEED: the derived DRIFT speed |F|/(a_self+sum a_p) predicts measured glider
+  speed at R^2=0.36 (corr 0.60) — 3x the raw-|F| R^2=0.12. The marginal-stability
+  pulled-front speed v*=min_lambda (1/lambda)ln[a_self+sum a_p e^{lambda d_p.F/|F|}]
+  doesn't predict speed (gliders are localized/pushed, not pulled) but UPPER-BOUNDS
+  it for 82% of rules. Speed = transcendental saddle-point functional -> no closed
+  form in |F| (the speed null EXPLAINED); partial law via drift speed.
+- VERTICAL: linear angle(F) points anywhere (continuous combo of 6 d_p) -> vertical
+  reachable (surgery confirms). The de-novo XOR ("exactly one of nw,ne") birth rule is
+  NONLINEAR -> breaks superposition -> the vertical-band template artifact; the theory
+  applies to the additive growth regime.
+
+Upgrades the result from empirical to DERIVED: direction = exact kernel first moment
+(median 3 deg); speed = partially derived (drift R^2 0.36) + linear upper bound (82%).
+Article (local-only) gained Section 3.1; abstract + speed section updated.
