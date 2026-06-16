@@ -423,3 +423,30 @@ LEARNED velocity steering, arXiv:2508.04167 — ours is closed-form via the
 fractal-walk coordinate). Open: 2D (cx,cy) steering field; the true LUT-intrinsic
 direction statistic (since rotation-equivariance is out); speed (span) as a second
 orthogonal knob.
+
+## 2D (cx,cy) glider steering FIELD (2026-06-16)
+Extended the cx dial to the full fractal plane: `fractal_field2d.py` maps (cx,cy)
+-> mean glider heading over an 11x11 grid at fixed span (~0.53), renders it as an
+arrow field, and runs 2D inverse control. Output field saved to
+`fractal_field2d.json` (cx, cy, heading_deg, R, n) for possible web viz.
+
+Findings (honest):
+- SPARSE but CLEAN: only 36/121 cells (30%) host a clean directed glider (gliders
+  are spatially concentrated, as geomap found) — but where present, mean
+  within-cell alignment R = 0.98. Glider-rich locus is a diagonal band near the
+  library-median cy ~ -0.028.
+- FULL CIRCLE represented across the plane (~359 deg of headings appear somewhere).
+- cx is the DOMINANT dial (circular-linear corr cx=0.58); cy is NOT an independent
+  steering axis (corr 0.05). The 2D field's benefit is a richer candidate set (more
+  cells -> finer heading match), not a genuine second control knob.
+- 2D INVERSE CONTROL improves precision: mean steering error 15 deg (median 8) vs
+  22 deg for the 1D cx-only dial; most targets land within single-digit degrees.
+- BOUNDARY CONDITION: two headings stay hard even in 2D — 0 deg (->, err 55) and
+  -90 deg (up, err 26). Those directions are genuinely scarce in this Newton region:
+  a hex-LATTICE anisotropy (favored glider axes) that the fractal coordinate cannot
+  override. Consistent with the unidirectionality seen in the collision thread.
+
+Takeaway: the steerable region is real and now precise (median 8 deg), but bounded
+by the substrate's preferred axes. Next levers: vary SPAN (does another zoom open
+the 0/-90 deg gaps + give an orthogonal SPEED knob?); the LUT-intrinsic direction
+statistic (mechanism, since rotation-equivariance is out).
