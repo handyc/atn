@@ -870,3 +870,15 @@ land flipflopga-v1 POC + rerun register on its best, (2) if retention still shor
 flipflopga-v2 with a LONG-HOLD-stability fitness, (3) thorough ALICE register sweep
 (N x hold x words x seeds x refresh), (4) update Glider Lab. Methodical: POC -> measure
 -> evolve better -> verify -> complexify.
+
+## SOLID: stable CA memory register on the evolved flip-flop (2026-06-16)
+flipflopga-v1: 60/60 islands found CLEAN flippable flip-flops on HELD-OUT seeds (best
+fit 0.995, set->(647,0) reset->(0,653) set->(635,9) — near-total dominance, loser=0).
+Best genome: layerA=[-0.105,-0.135,0.152] layerB=[-0.205,-0.24,0.276] psize=24 pt=10.
+register.py on this evolved genome: N=8 AND N=16-bit registers read back **100% at
+hold 10, 80, AND 159 — NO refresh, NO decay** (vs the fallback which decayed to chance).
+=> a STABLE, SRAM-like multi-bit CA memory register. The evolved latch's perfect
+dominance (loser=0) makes cells non-volatile, so chaining gives a stable register.
+Memory arc complete: analog reservoir FAILED -> evolved digital flip-flop (verified)
+-> stable N-bit register. Next: thorough ALICE sweep (N up to 32, hold to 600, many
+words x seeds, top-K genomes) to map capacity & true retention; then complexify.
