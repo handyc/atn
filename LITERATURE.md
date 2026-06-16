@@ -53,3 +53,32 @@ skepticism); ReLiCADA 2023 (linear-rule pre-selection, arXiv:2308.11522). Venues
 ## Refuted in verification (do NOT cite as support)
 - "ReCA needs orders of magnitude less compute than ESNs" — refuted (0-3).
 - "Fractal-generating rules exhibit class-4 transients" — refuted (1-2).
+
+## Lit-review checkpoint 2026-06-16 — direction law + surgery + fractal generation
+Searched (WebSearch) for prior art on the three claims behind glider-steering.md.
+
+- CLOSED-FORM GLIDER-DIRECTION PREDICTOR from the transition table: none found.
+  Glider velocity is defined/measured as displacement/period; Wuensche's
+  Z-parameter / input-entropy predict glider LIKELIHOOD, not direction. => our
+  18-entry single-neighbor activation law (heading = angle(F)+180, corr 0.86-0.98)
+  appears NOVEL.
+- GLIDER "DESIGN": prior art = evolutionary SEARCH for gliders/glider-guns (Sapin,
+  Bull, Adamatzky; GA approaches). Direct ANALYTIC construction by editing 18 table
+  entries ("glider surgery") not found => NOVEL.
+- CA ANISOTROPY / direction-from-neighbor-asymmetry: studied, but as an ARTIFACT to
+  REDUCE (solidification/diffusion front anisotropy; grid-anisotropy reduction
+  methods) or as a property to ENCODE in graph CA — never as a predictive/generative
+  closed-form steering law. Context, not precedent. (Sci.Direct S0303264796016644;
+  "Grid anisotropy of propagation fronts in CA and its reduction methods".)
+- FRACTAL-IMAGE -> CA-RULE (posterize escape-time -> K=4 LUT): not indexed. The known
+  direction is the REVERSE (CA generate fractals — Wolfram, "Inherent Generation of
+  Fractals by CA"). => fractal-walk generation appears NOVEL (modulo indexing).
+- COLLISION LOGIC: Adamatzky & Martínez (arXiv:1803.05496), Rule 54 gates — isotropic
+  rules. Confirms our blocked-collision result is consistent with the field.
+- CONTINUOUS-CA STEERING: Lenia velocity optimization (arXiv:2508.04167) is LEARNED,
+  not closed-form; closest cousin to our coordinate dial.
+
+Verdict: three defensible novel pieces (direction law, surgery, fractal generation);
+prior art is substrate (hex K=4: Wuensche/DDLab), ReCA, and collision logic. Next
+review trigger: after the speed problem or a from-scratch (no base rule) glider
+construction.

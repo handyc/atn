@@ -505,3 +505,35 @@ only span certain axes, so achievable angle(F) (hence headings) is constrained t
 the lattice's bond directions. Full chain: fractal coordinate -> 18 LUT activation
 entries -> activation vector F -> glider heading (angle(F)+180, ~4deg), bounded by
 hex bond axes. Novel and closed-form.
+
+## DIRECT-DESIGN INVERSION — the law is GENERATIVE ("glider surgery") (2026-06-16)
+`design.py`. Took 18 working Newton glider rules and, for each of 12 target
+headings, EDITED ONLY the 18 single-neighbor LUT entries to aim F at the target
+(a_p ~ max(0,cos(ang_p - phi))), leaving the rest of the rule intact. Result:
+- glider survival after surgery: **100%** (editing 18 entries never killed it).
+- mean steering error to requested heading: **4 deg**; the edited rule's own
+  angle(F)+180 prediction matches the realized heading at residual R = 0.99.
+- CONTINUOUS 360 deg: off-axis targets (30,150,210,330) hit within 1-10 deg while
+  sitting 23-31 deg from the nearest hex axis -> gliders go where DESIGNED, they do
+  NOT snap to lattice axes. err->target (4) < err->nearest-hex-axis (15).
+
+CORRECTION to the span-sweep claim: the 0deg/-90deg "gaps" are NOT a hard hex-
+lattice anisotropy — they are a SAMPLING BIAS of the fractal generator (escape-time
+geometry rarely yields F pointing there). By direct design those headings are
+reached at ~6 deg (0->-6, 90->+95.6, 270->-95.2). The substrate forbids no
+direction; only the fractal walk under-samples some.
+
+=> The single-neighbor activation law is GENERATIVE, not merely predictive: steer a
+glider to any heading by editing 18 LUT entries, no fractal search. ("Glider
+surgery" — also a candidate app/tool name per the user.)
+
+## SPEED sub-law — weak / emergent (2026-06-16)
+`speed_law.py`. Tested whether a LUT-intrinsic statistic predicts glider SPEED the
+way the 18-entry activation vector predicts DIRECTION. It does NOT, cleanly: over
+551 Newton glider rules (speed 0.56+-0.24 cells/tick), corr(|F|, speed)=+0.39,
+corr(aniso,speed)=+0.38, births ~0, lambda -0.11; best single-feature linear
+R^2=0.15, 2-feature (|F|,births) R^2=0.21. So there's a sensible weak trend (more
+activation anisotropy -> faster) but speed is governed by more of the bulk dynamics
+than these single-neighbor features capture. Asymmetry of the result: DIRECTION has
+a near-exact closed-form law (~4 deg); SPEED does not. Speed remains controllable
+only coarsely (via span, coupled) — an open problem.
