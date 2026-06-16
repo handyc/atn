@@ -775,3 +775,26 @@ glider fingerprints (PCA), with the baseline-comparison table shown alongside so
 result is transparent, + optional STACKED (×3 annihilation-coupled) encoding toggle.
 Did NOT oversell it as a classifier. (stack.py annihilation-coupling = the real
 bounded-interaction regime, reused as the stacked encoder.)
+
+## NAND artifact (rejected) + stackga-v2 emergent gliders (verified) (2026-06-16)
+NANDGA-V1: 70/70 islands "100% NAND" — but REJECTED on verification. Replaying a
+winning genome on 8 fresh seeds with a FIXED threshold: detector mass is input-
+INDEPENDENT (~31-32 for all of 00/01/10/11; separation ratio 0.97). The "100%" was a
+fitness artifact (per-genome calibrated threshold over only 3 seeds overfit). So
+universality is NOT demonstrated. We DO have robust AND+XOR (collide-v3, held-out-
+verified) but {AND,XOR} isn't complete; a real NAND/NOT in-substrate remains unshown.
+Fix for a retry: held-out-seed fitness + fixed threshold (non-gameable).
+
+STACKGA-V2 (deeper stacking): VERIFIED REAL. Best genome motion 1.00, driftR 1.00,
+occ 0.002 (~10-cell intersection structure) on train seeds AND on 8 HELD-OUT seeds
+(motion 1.00+-0.00, alive 8/8) -> generalizes, not overfit. 66/80 islands found an
+emergent intersection-glider (motion>0.4, driftR>0.6, localized, persistent). So
+stacking 2-3 glider environments reliably breeds a coherent, localized, TRANSLATING
+structure at the layer overlap that no single layer has. Winning ops diverse (setmax
+29, birth 16, kill 13, flip/decay 11); L=2 dominant (51/80); vertical coupling mostly
+UNUSED (top-20 vc mean 0.06) -> emergence is from same-cell coupling + diverse rules,
+not the vertical axis. Verification discipline: caught the NAND fake, confirmed this real.
+
+Glider Lab 3 built (local, dissemination/glider-lab3.html): rule studio (4 families,
+import/export rulesets, scrollable 7->1 rule sidebar + cell-11 additional-elements list)
++ word->glider linguistics tab + "why it matters" framing for LLM-curious non-mathematicians.
