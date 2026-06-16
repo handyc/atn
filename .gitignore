@@ -73,11 +73,10 @@ alice/*/*.log
 github_pat*
 *.pat
 
-# article figures (regenerable via figures.py)
+# dissemination dir — article drafts, PDFs, figures: ALL local, never in the repo
+dissemination/
 fig*.png
 
-# unpublished article draft — kept local, NOT in the public repo
-glider-steering.md
 # transient run logs, job ids, data dumps, bundle-duplicate scripts, GA state
 *.log
 alice/*/JOBID
@@ -87,5 +86,3 @@ alice/ga-sweep-*/caga.py
 caga-code/
 caga-langs/
 
-# rendered article PDF — local only
-glider-steering.pdf

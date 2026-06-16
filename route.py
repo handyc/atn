@@ -142,7 +142,8 @@ def figure(tA, regA, wallA, tB, fieldB, H=150):
     if len(tB): a2.plot(tB[:, 2], tB[:, 1], "r.-", ms=3, lw=1)
     a2.set_title("B. graded steering field (0→90°): glider curves", fontsize=9)
     a2.set_xlabel("col"); a2.set_ylabel("row"); fig.colorbar(im, ax=a2, label="field heading (deg)", shrink=0.8)
-    fig.tight_layout(); fig.savefig("fig_route.png", dpi=130); plt.close()
+    os.makedirs("dissemination", exist_ok=True)
+    fig.tight_layout(); fig.savefig("dissemination/fig_route.png", dpi=130); plt.close()
     print("\nsaved fig_route.png")
 
 def main():

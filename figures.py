@@ -14,6 +14,7 @@ import rulehub, glider_dir
 from mechanism import flow_angle, measured_heading, cmean, cR, cdiff, DIRV, SHIFT
 from design import design_edit, DIR_ANG
 
+OUT = "dissemination"; os.makedirs(OUT, exist_ok=True)
 LIB = "alice/swarm-v1/outputs"
 BLOBS = os.path.join(LIB, "blobs")
 FAM_COL = {"newton": "#d62728", "julia": "#1f77b4", "mandelbrot": "#2ca02c", "burning": "#9467bd"}
@@ -54,7 +55,7 @@ def fig1():
     axi.set_xlabel("low 7 bits (se, sw, w)"); axi.set_ylabel("high 7 bits (self, nw, ne)")
     fig.colorbar(im, ax=axi, shrink=0.8, ticks=[0, 1, 2, 3], label="output state")
     fig.suptitle("F1. Substrate and fractal-walk rule generation", fontsize=9, y=1.0)
-    fig.tight_layout(); fig.savefig("fig1_schematic.png", dpi=130); plt.close()
+    fig.tight_layout(); fig.savefig(f"{OUT}/fig1_schematic.png", dpi=130); plt.close()
     print("F1 done")
 
 def fig2(rng):
@@ -80,7 +81,7 @@ def fig2(rng):
     plt.xlabel("predicted heading  angle(F)+180°  (deg)"); plt.ylabel("measured glider heading (deg)")
     plt.title("F2. The single-neighbor direction law (18 LUT entries, no simulation)", fontsize=8)
     plt.legend(fontsize=7, loc="upper left"); plt.tight_layout()
-    plt.savefig("fig2_direction_law.png", dpi=130); plt.close()
+    plt.savefig(f"{OUT}/fig2_direction_law.png", dpi=130); plt.close()
     print("F2 done", stats)
 
 def fig3():
@@ -97,7 +98,7 @@ def fig3():
     plt.xlabel("fractal cx"); plt.ylabel("fractal cy")
     plt.title("F3. 2-D fractal-coordinate steering field\n(arrow = glider heading; color = angle)", fontsize=8)
     plt.colorbar(label="heading (deg)", shrink=0.8)
-    plt.tight_layout(); plt.savefig("fig3_steering_field.png", dpi=130); plt.close()
+    plt.tight_layout(); plt.savefig(f"{OUT}/fig3_steering_field.png", dpi=130); plt.close()
     print("F3 done")
 
 def fig4(rng):
@@ -123,7 +124,7 @@ def fig4(rng):
     plt.plot([0, 360], [0, 360], "k--", lw=1, label="requested = realized")
     plt.xlabel("requested heading (deg)"); plt.ylabel("realized glider heading (deg)")
     plt.title("F4. Glider surgery: steering by editing 18 LUT entries\n(100% survival, continuous 360°)", fontsize=8)
-    plt.legend(fontsize=7); plt.tight_layout(); plt.savefig("fig4_surgery.png", dpi=130); plt.close()
+    plt.legend(fontsize=7); plt.tight_layout(); plt.savefig(f"{OUT}/fig4_surgery.png", dpi=130); plt.close()
     print("F4 done")
 
 def fig5(rng):
@@ -145,7 +146,7 @@ def fig5(rng):
     plt.plot(xs, np.polyval(A, xs), "r-", lw=1.5)
     plt.xlabel("|F|  (single-neighbor activation magnitude)"); plt.ylabel("glider speed (cells/tick)")
     plt.title(f"F5. Speed has NO sharp law: corr={r:+.2f}, R²={r*r:.2f}\n(contrast the ~4° direction law)", fontsize=8)
-    plt.tight_layout(); plt.savefig("fig5_speed_null.png", dpi=130); plt.close()
+    plt.tight_layout(); plt.savefig(f"{OUT}/fig5_speed_null.png", dpi=130); plt.close()
     print("F5 done")
 
 def main():
