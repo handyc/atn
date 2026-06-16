@@ -1065,3 +1065,21 @@ PROGRAMS RUN CORRECTLY (output matches reference, real loops + CA-decided branch
 So the proven primitives compose into one system: genuine CA storage + genuine CA arithmetic
 running a real program with control flow. Remaining rung: place RAM+ALU as autonomous walled
 regions with in-substrate routing (autowire2) so the datapath self-wires, not just self-computes.
+
+## autowire4: the autonomous wiring kit composes — depth + fan-out (2026-06-17)
+`autowire4.py` (next rung after CA-1: can the confined-channel wire self-compose so the
+datapath wires itself, not just computes?). Tests the two primitives missing beyond a single
+autowire2 hop, both held-out:
+  TEST A ROUTING DEPTH — NOR(A,B) carried across TWO channel hops + an intermediate relay
+    chamber (no bias, pure conduction): TRAIN 100%, HELD-OUT 100%. Signals cross the chip.
+    (First run showed all-0 — a geometry bug: readout bias at col 128 but readout region
+    cols 140-156, and the bias rule LO doesn't spread, so the region was empty; the 01/10/11
+    cases reading 0 actually proved the carrier crossed. Moved bias into the readout region
+    -> 100%. Verification discipline: the "failure" was mine, not the mechanism's.)
+  TEST B FAN-OUT — gate1 NOR(A,B) forks through a vertical bus to TWO readouts; both
+    reproduce NOR(A,B): TRAIN 100%/100%, HELD-OUT 100%/100%. A branching wire works.
+VERDICT: with gate-combining (autowire3, 2-gate NOR(A,B,C)) + long-distance relay routing +
+fan-out, the autonomous (no-controller) wiring kit is COMPLETE. The remaining gap to a
+self-wiring CA-1 datapath is a PLACE-AND-ROUTE LAYOUT ALGORITHM (software that positions
+chambers/channels/walls for an arbitrary gate netlist), not a missing CA primitive. Sharpens
+the standing caveat: not "autonomous wiring is unsolved" but "auto-layout is the open work."
