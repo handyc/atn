@@ -1168,3 +1168,10 @@ MEASURED: CA NAND 12.5ms (216k cell-updates); 8-bit ADD 1.47s; CA-1 = 2.5 instr/
 frame ~4.4 hours. DOOM.md = the full honest writeup. Scaling: capability scales trivially (wider
 words/more RAM/ISA = more of the same), speed does not (216k cell-updates/gate x astronomical
 gate-counts). Verdict: a teaching computer that renders Doom's algorithm and will never run Doom.
+
+## Doom-reduced — genuine-CA verification + walkthrough artifact (2026-06-17, cont.)
+genuine_ca_replay.py result: a raycaster frame performs 9,358 arithmetic ops; replayed a
+random 400 on the GENUINE CA gates (cacpu) -> 400/400 bit-identical (521s). So the raycaster's
+math is provably computed by the cellular automaton; the browser VM (glider-lab11) just runs the
+identical ISA ~1e8x faster. walkthrough.py renders a scripted maze walk to RAYCAST_WALKTHROUGH.txt
+(viewable ASCII frames; shows real motion/perspective). Deliverable complete and honest.

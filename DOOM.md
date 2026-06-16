@@ -20,10 +20,14 @@ arithmetic — is a genuine cellular automaton; see `cacpu.py`), we added the re
 - **`glider-lab11.html`** (local) — a **playable** in-browser CA-1 virtual machine running the
   exact same machine code, driven by WASD/arrows. The VM is the identical ISA; it just runs
   ~10⁸× faster than the real CA so it's interactive.
-- **`genuine_ca_replay.py`** — logs every arithmetic op a frame performs and **replays a sample
-  on the genuine CA gates**, confirming the CA reproduces the raycaster's arithmetic exactly.
+- **`genuine_ca_replay.py`** — logs every arithmetic op a frame performs (**9,358** ADD/SUB/
+  AND/OR ops per frame) and **replays a sample on the genuine CA gates**: **400/400 reproduced
+  bit-identically** on the mutual-annihilation latch gates. The CA *is* doing the raycaster's math.
+- **`walkthrough.py` / `RAYCAST_WALKTHROUGH.txt`** — a scripted walk through the maze rendered by
+  the CA-1 program, saved as ASCII frames (a browser-free, viewable artifact showing real motion).
 
-So: **Doom's rendering algorithm runs on a real CA computer.** That part is done and honest.
+So: **Doom's rendering algorithm runs on a real CA computer.** That part is done and honest —
+every pixel's arithmetic is a CA computation, verified.
 
 ## The measured numbers
 
