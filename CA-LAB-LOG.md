@@ -735,3 +735,24 @@ logic re-opened and demonstrated. NINE ALICE jobs this session complete.
    among survivors growth% = 2D 100, 3D 0.4, 4D 78, 5D 0; 3D survivors GAIN mass
    (+0.43) yet move copy-ward. So the regime is intrinsic to the dynamics, not a
    survival filter. The 4D island stays a genuine open puzzle (honest negative).
+
+## Stacked glider environments + linguistics application demo (2026-06-16)
+STACKING (`stack.py`): L=3 hex-CA layers, each surgically steered to a different glider
+direction, coupled at intersections (cells where >=2 layers active). Three coupling
+modes over 6 seeds each:
+- none (independent): all alive, ~8947 cells, layers just fill/pass through.
+- ignite (intersection turns cells on): all EXPLODE — runaway positive feedback.
+- annihilate (intersection destroys, matching our collision result): all ALIVE,
+  bounded ~3600 cells, with SUSTAINED ~913 intersection-cells/step. The interesting
+  regime: an annihilation-coupled stack self-organises around moving intersections
+  (bounded + persistently interacting) rather than exploding or merely overlapping.
+Honest: ignite=explode, none=fill, annihilate=bounded-sustained-interaction.
+
+LINGUISTICS DEMO (`dissemination/linguistics-demo.html`, self-contained JS, local):
+text steers a single glider char-by-char (each char -> a heading via the direction
+law), tracing a trajectory = a deterministic, ORDER-SENSITIVE signature of the string.
+Verified (python mirror): identical 100%, anagram listen/silent 85% (<100 -> order
+encoded), minimal pair cat/cut 56%, spelling colour/color 89% (graded). Honest pitch
+for a linguist: a transparent GPU-free order-sensitive sequence-FEATURE extractor for
+DH (clustering/variation/authorship/similarity), a teaching instrument, and reservoir-
+computing-on-text with interpretable encoding — NOT a replacement for statistical NLP.
