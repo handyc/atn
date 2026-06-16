@@ -904,3 +904,20 @@ flip-flop (1 bit) -> parallel register (>=32 bits, verified) -> serial shift reg
 the bit cell-to-cell, no controller) -- ties back to the glider-routing work; harder.
 Honest caveat: a full pure-CA sequential machine still needs reliable GATE COMPOSITION
 (the NAND search failed/overfit), so autonomous clocking/logic is the real open problem.
+
+## Gate composition — the honest bottleneck (nandga-v2, 2026-06-16)
+Disciplined search (anchored threshold + 10 seeds + input-dependence + held-out on 14
+fresh seeds), 64 islands: best HELD-OUT 39%, median 35%, 0/64 >=95%. One genome hit
+TRAIN 92% but HELD-OUT 38% -- the exact overfit the held-out check exposes (and confirms
+v1's "100% NAND" was this artifact). VERDICT: no generalising universal gate emerges from
+the routing-fabric/glider-collision approach. EVIDENCE-BACKED MAP of the CA-computer
+question:
+- MEMORY: works & robust (flip-flop 60/60, register 32-bit/100%/held-out, shift register) ✓
+- SINGLE GATES: AND/XOR robust only at tuned operating points (collide-v3) ~
+- GATE COMPOSITION: does NOT generalise (this result) ✗  <- the wall
+Gliders route ~14%, gates are impact-parameter-sensitive; composing many fragile
+operations that all generalise across input-seed randomness fails. Consistent with why
+collision-based computers stay mostly theoretical. So "a transformer/CPU entirely out of
+these CAs" is blocked at composable logic, not at memory. Honest, calibrated, evidence-
+based -- the calibrated-voice payoff. Not spinning more gate searches (64 islands is
+conclusive); the bottleneck is structural, not a search-budget issue.
