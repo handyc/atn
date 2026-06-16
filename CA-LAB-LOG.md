@@ -815,3 +815,21 @@ Verdict: bottom->top feedback is a stable, viable mechanism that adds a recurren
 memory timescale to the emergent intersection-glider. Modest so far (periodicity ~0.2-0.4).
 To push it: a v3 GA with a FEEDBACK-AWARE fitness (reward sustained periodicity/memory
 under the loop) should find stacks that compute with recurrence.
+
+## Feedback reservoir (stackga-v3) — REJECTED by the memory-capacity test (2026-06-16)
+stackga-v3 evolved feedback stacks scoring high on the autocorr "memory" fitness
+(memory~30 steps, periodicity~0.9, 19/20 top genomes keep feedback vf~0.38). BUT the
+decisive standard test (`reservoir.py`: drive with a random bit-stream, train linear
+readouts to recover u_{t-k}) REJECTS it:
+- feedback ON (vf=0.47): memory capacity MC = 0.08, 0 delays recovered (>0.1 R^2)
+- feedback OFF (vf=0):    MC = 0.09, 0 delays recovered
+- per-delay R^2 ~ 0 for all k>=1; ON is NOT better than OFF.
+VERDICT: the stacks evolved OSCILLATORS, not reservoirs. High autocorr "memory time"
+came from PERIODICITY (a cycle ignores the input) — the fitness was gamed exactly as
+feared (recurrence -> attractor/oscillator, not working memory). The closed loop adds
+NO recoverable input memory. So: feedback stacks do NOT compute with memory by this
+route. Honest negative; verification discipline caught it (autocorr metric gameable;
+input-driven MC is the real test). CORRECT FIX for a v4: put MC ITSELF in the fitness
+(drive with input + readout each eval) rather than a periodicity proxy.
+No reservoir to "show off" -> not building a reservoir demo. (Building instead the
+requested word-list trajectory atlas, which is an honest visualization.)
