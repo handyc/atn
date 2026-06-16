@@ -1119,3 +1119,15 @@ wiring primitives are verified (autowire2-4) and the one missing primitive for f
 autonomous universality is pinned (cainv: a 2nd spreading layer). So "can you do it": the
 automatic place-and-route compiler — YES; fully-autonomous universal self-wiring — blocked
 on one concrete, named primitive, not a vague gap.
+
+## glider-lab10: the whole pipeline running live in the browser (2026-06-17)
+build_lab10.py emits dissemination/glider-lab10.html (local, gitignored): every stage of the
+CA computer as a LIVE cellular automaton on the real embedded LUTs (LO/LZ latch pair + LW wire
+carrier, all verified byte-identical to python). Panels: (1) NAND gate — cycles the 4 inputs,
+truth table fills as the CA settles; (2) latch — set/reset one bit of memory, holds; (3)
+inverter — self-emitting carrier suppressed by the input (the frontier primitive, NOT); (4)
+autonomous wire — NOR(A,B) transported through a walled channel to gate2, no controller; (5)
+circulating register — a ring of latch cells, the bit pattern rotates each clock. A flow header
+shows how they compose into CA-1 (runs programs) and an honest footer states the open frontier
+(a 2nd spreading layer for fully-autonomous universality). Steps one CA step/frame so all
+panels animate smoothly together — the actual substrate dynamics, not a schematic.
