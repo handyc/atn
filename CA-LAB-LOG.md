@@ -537,3 +537,31 @@ activation anisotropy -> faster) but speed is governed by more of the bulk dynam
 than these single-neighbor features capture. Asymmetry of the result: DIRECTION has
 a near-exact closed-form law (~4 deg); SPEED does not. Speed remains controllable
 only coarsely (via span, coupled) — an open problem.
+
+## FROM-SCRATCH synthesis + article figures (2026-06-16)
+`synthesize.py`, `figures.py`.
+
+DE-NOVO SYNTHESIS: built a glider rule from NOTHING but the direction law — a
+directed excitable medium (quiescent bg; dead cell born if exactly one TRAILING-side
+neighbor active; live cell survives only while trailing-supported). By construction
+F points at phi=target-180, so the law predicts heading=target. Result (sparse-birth
+template): clean directional movers, per-rule R=1.0; **6/8 headings within ~10 deg**
+(median ~8): 0->0, 45->43, 135->145, 180->180, 225->-128, 315->-57. The vertical
+pair (90,270) comes out exactly 180deg FLIPPED — a chirality degeneracy of the simple
+excitable front along the hex vertical. Denser-birth templates spread (don't localize).
+Honest: DIRECTION is controllable from scratch (movers go where designed, very
+cleanly), but these are directed excitable FRONTS, not guaranteed-localized gliders,
+and the simple template has a vertical 180 degeneracy. Robust localization for every
+heading needs a better bulk template — expected, since the class-4 BULK is the part
+the literature SEARCHES for; what's new is that its DIRECTION is analytically
+prescribable.
+
+FIGURES (figures.py -> fig1..fig5 *.png, matplotlib installed --break-system-packages):
+F1 rule-as-image; F2 measured-vs-predicted heading all families (med err N 3, J 16,
+M 7, B 9 deg) — points on the y=x law line; F3 2D steering field arrows; F4 surgery
+dial (clean 360deg diagonal, 100% survival); F5 speed-vs-|F| null (R^2 0.15). F2 and
+F4 visually confirmed publication-quality.
+
+Article `glider-steering.md` updated: added Section 4.1 (from-scratch synthesis),
+real figure list (Section 8), reproducibility + abstract. Draft is arXiv-ready
+modulo reference formatting + F1 schematic polish.

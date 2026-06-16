@@ -72,3 +72,6 @@ alice/*/*.log
 # never commit credentials
 github_pat*
 *.pat
+
+# article figures (regenerable via figures.py)
+fig*.png
