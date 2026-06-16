@@ -846,3 +846,15 @@ overwrite). This is the right kind of memory (digital bistable latch) vs the fai
 analog reservoir (oscillator). Next: GA over rule+coupling+pulse for a clean FLIPPABLE
 flip-flop (set->A, reset->B, set->A again, each persisting). Answers the user's "network
 of CAs like a JK flip-flop -> memory storage?" -> yes for storage; flippability pending.
+
+## CA memory register — chained flip-flops store a multi-bit word (2026-06-16)
+`register.py`: N mutual-annihilation latch cells (the flip-flop) in isolated column-cells
+on a shared board; write a random N-bit word (pulse layer A=1 / layer B=0 per cell),
+HOLD (no input), read each cell (A>B -> 1). Even with a FALLBACK (un-optimised) genome:
+- N=4/8/16-bit: readback 100% at hold 10 AND hold 30, decaying to ~50% (chance) by hold 59.
+=> a working multi-bit CA memory register: store a 16-bit word, hold, recall exactly,
+for ~30-40 steps before DECAY. Behaves like DRAM (finite retention, needs refresh), not
+SRAM. Robust (works un-optimised). The flip-flop GA (job 3772715), which selected for
+persistence, should extend retention; rerun register.py on the best genome when it lands.
+Progression this session: analog reservoir FAILED -> digital flip-flop (1 bit, rewritable)
+WORKS -> chained into an N-bit register WORKS (with DRAM-like decay). Honest memory result.
