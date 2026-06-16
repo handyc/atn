@@ -669,3 +669,17 @@ opposing gliders. Candidate collision-logic primitive (annihilation = presence-g
 Caveat: these are bounded translating structures (some large), not guaranteed minimal
 gliders; need collide-v2 (impact parameter, consistent product, truth table) to claim
 a gate. Strongest annihilators near cx~-0.09..-0.18, cy~-0.0..-0.03, span~0.3..0.44.
+
+## ALICE gen-v2 (hex K-sweep) + speed-v1 (speed law) — results (2026-06-16)
+gen-v2 (direction law on HEX vs K, ~72k gliders): hex K2 med 2deg/100% growth (corr
+0.67 noisy on discrete axes but errors tiny), K3 14deg, K4 24deg, K5 29deg, K8 36deg;
+growth% 100->83. Same K-degradation + growth->copy drift as square/cube => the
+K-dependence holds on the paper's own hex lattice.
+
+speed-v1 (7307 glider speeds, 4 fractal families): drift speed |F|/(a_self+sum a_p) is
+the leading predictor — R^2: newton 0.43, julia 0.67, mandelbrot 0.64, burning 0.62,
+ALL **0.53** (vs raw |F| 0.21, v* ~0). Multi-feature (drift,v*,lambda) R^2 0.58 overall
+(mandelbrot 0.72). v* UPPER-BOUNDS measured speed for **89%** => gliders are
+pushed/localized, slower than the linear pulled front. Speed law: partly DERIVED
+(drift, R^2~0.5-0.7) + linear upper bound (v*, 89%), residual nonlinear. Completes the
+speed section. ALL FIVE ALICE JOBS (route/gen-v1/collide/gen-v2/speed) now in.
