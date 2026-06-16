@@ -1083,3 +1083,21 @@ fan-out, the autonomous (no-controller) wiring kit is COMPLETE. The remaining ga
 self-wiring CA-1 datapath is a PLACE-AND-ROUTE LAYOUT ALGORITHM (software that positions
 chambers/channels/walls for an arbitrary gate netlist), not a missing CA primitive. Sharpens
 the standing caveat: not "autonomous wiring is unsolved" but "auto-layout is the open work."
+
+## The inverting repeater works — and pins the autonomy boundary precisely (2026-06-17)
+`cainv.py`: testing the crux primitive for autonomous universality. The passive autowire
+carrier is MONOTONE (chamber floods = OR of inputs; only the readout inverts) -> it alone
+realises a single NOR level. Tested an ACTIVE inverter: a self-emitting Z source (re-seeded
+each step at the chamber) that spreads down the output channel = "emit a carrier", SUPPRESSED
+where an opposite-layer O input (centered on the source, larger than it) annihilates it.
+Result: NOT 100%, NOR2 100%, NOR3 100% (train AND held-out). So an active NOR that emits a
+ROUTABLE carrier exists. (First attempt 50/25/12% — input patches were off-center from the
+source; centering them -> 100%. A sweep confirmed emit(no-input)=368 vs emit(input)=0.)
+PRECISE BOUNDARY (the honest finding): the inverter's INPUT must be on the stable layer O
+(to annihilate the Z source), but its OUTPUT is a spreading Z carrier. Only Z spreads, so a
+routed INTERNAL carrier (Z) cannot suppress another Z source (same layer = merge, not
+annihilate). Thus inversion is available only on EXTERNAL inputs (delivered on O) -> the
+autonomous substrate computes single-level functions over (possibly-negated) literals, NOT
+universal multi-level logic. Universal AUTONOMOUS logic needs a SECOND SPREADING LAYER so
+internal carriers can invert each other. That is now the one concrete open primitive (was a
+vague "self-wiring gap"). Orchestrated-transport routing (calayout) remains universal today.
