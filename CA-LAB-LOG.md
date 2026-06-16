@@ -833,3 +833,16 @@ input-driven MC is the real test). CORRECT FIX for a v4: put MC ITSELF in the fi
 (drive with input + readout each eval) rather than a periodicity proxy.
 No reservoir to "show off" -> not building a reservoir demo. (Building instead the
 requested word-list trajectory atlas, which is an honest visualization.)
+
+## CA flip-flop / latch — persistent memory by DESIGN works (2026-06-16)
+`flipflop.py`: two mutually-annihilating CA layers (each kills the other where they
+overlap = winner-take-all). Territory rule = newton cx=-0.255 cy=-0.077 span=0.270
+(sustained fill 0.34). Protocol SET(pulse A)->HOLD->RESET(pulse B)->HOLD:
+- after SET: massA=2738, massB=0 -> A fills & HOLDS (a stored bit, persists, no input).
+- after RESET: massA=1254, massB=824 -> A still dominant; B can't overpower the incumbent.
+VERDICT: a WRITE-ONCE persistent latch works (real 1-bit memory by design) — the honest
+positive the reservoir route failed to give. NOT yet a flippable flip-flop (reset can't
+overwrite). This is the right kind of memory (digital bistable latch) vs the failed
+analog reservoir (oscillator). Next: GA over rule+coupling+pulse for a clean FLIPPABLE
+flip-flop (set->A, reset->B, set->A again, each persisting). Answers the user's "network
+of CAs like a JK flip-flop -> memory storage?" -> yes for storage; flippability pending.
