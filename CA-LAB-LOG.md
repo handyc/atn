@@ -798,3 +798,20 @@ not the vertical axis. Verification discipline: caught the NAND fake, confirmed 
 Glider Lab 3 built (local, dissemination/glider-lab3.html): rule studio (4 families,
 import/export rulesets, scrollable 7->1 rule sidebar + cell-11 additional-elements list)
 + word->glider linguistics tab + "why it matters" framing for LLM-curious non-mathematicians.
+
+## Feedback stacks (bottom->top loop) on the verified substrate (2026-06-16)
+`feedback.py`: feed the bottom layer's output back as input to the top layer, on the
+3 best stackga-v2 emergent-glider genomes, sweeping feedback strength vf=0..0.6, 3 seeds.
+Findings (honest):
+- STABLE: all stay alive (no explode/dead) up to vf=0.6 — the closed loop does NOT
+  destabilise the emergent glider. Feedback is viable on this substrate.
+- Feedback GROWS the intersection structure (e.g. mass 10->20) and INDUCES/raises
+  PERIODICITY (recurrence): genome#2 periodicity 0.00->0.39 at vf=0.3; genome#1
+  0.21->0.28. So closing the loop turns a translating glider into a more recurrent/
+  oscillatory (memory-like) structure — as expected (recurrence -> attractor/oscillation).
+- genome#3 (L=2 setmax) is ALREADY strongly periodic (0.90) with no feedback — a
+  naturally looping emergent structure; feedback leaves it unchanged.
+Verdict: bottom->top feedback is a stable, viable mechanism that adds a recurrence/
+memory timescale to the emergent intersection-glider. Modest so far (periodicity ~0.2-0.4).
+To push it: a v3 GA with a FEEDBACK-AWARE fitness (reward sustained periodicity/memory
+under the loop) should find stacks that compute with recurrence.
