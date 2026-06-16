@@ -68,3 +68,7 @@ b-experiments.log
 alice/*/outputs/
 alice/*/watch.log
 alice/*/*.log
+
+# never commit credentials
+github_pat*
+*.pat
