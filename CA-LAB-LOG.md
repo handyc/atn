@@ -882,3 +882,13 @@ dominance (loser=0) makes cells non-volatile, so chaining gives a stable registe
 Memory arc complete: analog reservoir FAILED -> evolved digital flip-flop (verified)
 -> stable N-bit register. Next: thorough ALICE sweep (N up to 32, hold to 600, many
 words x seeds, top-K genomes) to map capacity & true retention; then complexify.
+
+## Register THOROUGHLY VERIFIED on ALICE (2026-06-16)
+regtest-v1 (30 runs: top-5 evolved flip-flop genomes x N{8,16,32} x hold{250,600},
+12 random words each): EVERY condition = 100% bit-accuracy AND 100% whole-word-perfect.
+=> stable, non-volatile CA memory register, >=32 bits, 600 steps, no refresh, NO
+cross-talk between cells on a shared board, robust across 5 genomes. Proof of concept
+LANDED and rigorously tested. The verification discipline that rejected reservoir+NAND
+confirms this is real. Next (complexify, since we're sure it works): a shift register
+(serial data movement), then toward a datapath. Glider Lab 5 (CA memory register demo)
+built; caption updated with verified numbers.
