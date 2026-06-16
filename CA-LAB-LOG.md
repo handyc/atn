@@ -1101,3 +1101,21 @@ autonomous substrate computes single-level functions over (possibly-negated) lit
 universal multi-level logic. Universal AUTONOMOUS logic needs a SECOND SPREADING LAYER so
 internal carriers can invert each other. That is now the one concrete open primitive (was a
 vague "self-wiring gap"). Orchestrated-transport routing (calayout) remains universal today.
+
+## calayout: a place-and-route COMPILER for the CA gate fabric (2026-06-17)
+`calayout.py` (answering "can you do it?" for the compute fabric). Give it ANY boolean
+function as a truth table; it SYNTHESISES a sum-of-products netlist over the universal CA
+NAND, PLACES the gates into layers automatically (floorplan: layers, depth, max fan-out),
+RUNS every gate as a REAL CA NAND (the verified latch-threshold gate), and VERIFIES vs the
+reference over ALL input combinations x held-out seeds. Results, all PASS:
+  XOR(a,b)        -> 9 gates, 5 layers  : 16/16 over 4 inputs x 4 seeds
+  MUX(s,a,b)      -> 29 gates, 11 layers: 32/32 over 8 inputs x 4 seeds
+  ADD.sum(a,b,c)  -> 31 gates, 11 layers: 32/32
+  ADD.carry(a,b,c)-> 28 gates, 11 layers: 32/32
+So arbitrary logic compiles to a verified CA-gate circuit AUTOMATICALLY (synth->place->run
+real CA->verify) — the hand-laying of the COMPUTE fabric is gone. Honest scope: inter-gate
+transport is controller-orchestrated (as in CA-1 / any CPU control unit); the autonomous
+wiring primitives are verified (autowire2-4) and the one missing primitive for fully-
+autonomous universality is pinned (cainv: a 2nd spreading layer). So "can you do it": the
+automatic place-and-route compiler — YES; fully-autonomous universal self-wiring — blocked
+on one concrete, named primitive, not a vague gap.
