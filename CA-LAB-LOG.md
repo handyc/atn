@@ -892,3 +892,15 @@ LANDED and rigorously tested. The verification discipline that rejected reservoi
 confirms this is real. Next (complexify, since we're sure it works): a shift register
 (serial data movement), then toward a datapath. Glider Lab 5 (CA memory register demo)
 built; caption updated with verified numbers.
+
+## CA shift register — serial memory works (clock-orchestrated) (2026-06-16)
+`shiftreg.py`: N=6 latch cells as a serial-in/serial-out shift register. A 24-bit stream
+fed in emerged at the output delayed by exactly N=6 clocks, 18/18 = 100% fidelity. The
+storage survives the repeated write/hold/shift cycle cleanly. HONEST framing: the CA
+cells STORE (verified stable); the SHIFT is done by a clock controller (read all cells,
+rewrite shifted) -- NOT yet autonomous in-substrate transport. Memory hierarchy now:
+flip-flop (1 bit) -> parallel register (>=32 bits, verified) -> serial shift register
+(delay line). GENUINE next step: autonomous substrate shift (a steerable glider carries
+the bit cell-to-cell, no controller) -- ties back to the glider-routing work; harder.
+Honest caveat: a full pure-CA sequential machine still needs reliable GATE COMPOSITION
+(the NAND search failed/overfit), so autonomous clocking/logic is the real open problem.
