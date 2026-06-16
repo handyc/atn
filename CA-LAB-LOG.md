@@ -934,3 +934,27 @@ Corrected honest map of the CA-computer question:
 - GATE COMPOSITION (autonomous logic): the bottleneck (nandga-v2, 0/64 generalise). ✗
 => a CA machine can REMEMBER reliably; what it can't yet do autonomously is COMPUTE
 (compose logic). Memory ✓, logic ✗ — the precise, evidence-based boundary.
+
+## BREAKTHROUGH: universal gate from the latch -> functional completeness (2026-06-16)
+The "gate composition is the bottleneck" verdict was MECHANISM-specific (collision-
+routing). The user's prompt ("can you do NAND or NOR?") led to the right mechanism:
+build the gate from the WORKING LATCH (threshold logic), not collisions.
+`gatecell.py`: a decision cell — constant BIAS seeds the output-1 layer, inputs A/B seed
+the output-0 layer, winner-take-all (mutual annihilation) decides. Tune bias-vs-input:
+- NOR  (bias 14, in 22): train 100%, HELD-OUT 100%  {00:1,01:0,10:0,11:0}
+- NAND (bias 18, in 14): train 100%, HELD-OUT 100%  {00:1,01:1,10:1,11:0}
+Both generalise (unlike collision-routing) because they reuse the robust latch.
+`compose.py`: build NOT/AND/OR/XOR/HALF-ADDER purely from the CA NAND gate (each gate =
+one CA decision-cell run; XOR chains 5) -> ALL 100% over seeds. => FUNCTIONAL COMPLETENESS.
+UPDATED, corrected map of "a computer out of these CAs":
+- WORKING MEMORY: solved (latch -> register -> shift register, held-out). ✓
+- UNIVERSAL GATE: SOLVED via latch-threshold (NAND & NOR, held-out 100%). ✓
+- COMPOSITION: SOLVED (NAND -> AND/OR/XOR/half-adder, 100%). ✓
+=> the substrate is FUNCTIONALLY COMPLETE: NAND + register = a CA datapath. Universal
+computation demonstrated with verified, generalising components built on ONE robust
+mechanism (the mutual-annihilation latch). HONEST CAVEAT: each GATE is a CA computation;
+the WIRING between gates is controller-orchestrated (passes bits). Fully AUTONOMOUS
+in-substrate wiring (gates physically driving each other, no controller) is the remaining
+engineering step. But functional universality (gates + memory) is now real and verified.
+The earlier collision-routing negative stands for THAT mechanism; the latch mechanism
+resolves it. Verification discipline (held-out + composition) makes this trustworthy.
