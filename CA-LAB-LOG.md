@@ -1149,3 +1149,22 @@ rules. SHARPENED FRONTIER: not "need a 2nd spreading layer" (tried, leaky) but "
 routable inverter"; open whether an ASYMMETRIC rule-pair (a dominant/flooding suppressor rule)
 or a carrier->stable converter could provide it. Practical universal route remains calayout
 (orchestrated transport). Honest negatives logged; verification discipline intact.
+
+## "Can it run Doom?" — CA-1 scaled to a real computer + Doom's core raycaster (2026-06-17)
+User (autonomous 5h goal): run Doom on the CA system. HONEST verdict: full Doom is ~2e9x too
+slow + ~1e4-1e5x too little memory (measured) — it's a universality demo, not a practical machine.
+BUT Doom's CORE (a raycaster) genuinely runs on the CA computer. Built:
+  ca1sys.py — CA-1 as a real machine: 64KB address space, memory-mapped FRAMEBUFFER + INPUT
+    register, index reg + 16-bit pointer, full ISA + assembler. Bit-faithful emulator;
+    verify_against_ca() confirms ADD/SUB/AND/OR/XOR == genuine CA gates (8/8 each).
+  raycaster.py — a 195-instruction CA-1 program rendering a first-person maze column-by-column
+    into the framebuffer with movement+collision. Output BIT-IDENTICAL to a python reference.
+    39,846 CA-1 instructions per 48x28 frame.
+  genuine_ca_replay.py — logs every arithmetic op in a frame, replays a sample on the genuine
+    CA gates, confirms bit-identical (the raycaster's math IS the CA's).
+  glider-lab11.html (local) — a PLAYABLE in-browser CA-1 VM running the exact machine code,
+    WASD/arrows. Same ISA, ~1e8x faster than the 2.5 instr/s genuine CA so it's interactive.
+MEASURED: CA NAND 12.5ms (216k cell-updates); 8-bit ADD 1.47s; CA-1 = 2.5 instr/s; one genuine-CA
+frame ~4.4 hours. DOOM.md = the full honest writeup. Scaling: capability scales trivially (wider
+words/more RAM/ISA = more of the same), speed does not (216k cell-updates/gate x astronomical
+gate-counts). Verdict: a teaching computer that renders Doom's algorithm and will never run Doom.
