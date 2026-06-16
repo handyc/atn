@@ -582,3 +582,23 @@ direction law:
 Conclusion: the flip is an artifact of a PARITY-NAIVE excitable template, not the
 law. Real localized gliders (and surgery) have no vertical issue. Fix = parity-aware
 bulk template (future). Article 4.1 updated with the resolved diagnosis.
+
+## Parity-aware synthesis attempt + article finishing (2026-06-16)
+`synth_clean.py` — tried to fix the de-novo vertical band; both attempts are honest
+NEGATIVES:
+- (A) ADVECTION rule (cell copies a fixed neighbor) = exactly np.roll = a TRIVIAL
+  RIGID SHIFT, Wolfram class 3, NOT an emergent glider. It moves toward the copied
+  source (heading=angle(F), no +180) — a different/trivial regime, out of scope for
+  the growth-glider law. So it neither needs nor confirms the law (my "advection
+  confirms the law" idea was misconceived).
+- (B) PARITY-SYMMETRIC birth (born only if BOTH north or BOTH south neighbors active)
+  decays to class 1-2, no glider. The vertical band genuinely resists a one-line
+  template. Robust vertical de-novo glider needs a real multi-cell motif (future).
+Reaffirmed: the LAW is clean at vertical (surgery, err ~5deg); only simple de-novo
+TEMPLATES struggle there. Added a scoping note to the article: the law is about
+growth/birth-driven gliders; rigid-copy rules are a separate trivial regime.
+
+ARTICLE FINISHED for posting: references formatted (14 entries, years/arXiv, with a
+"verify before submission" note); F1 upgraded to a proper schematic (7-cell hex
+neighborhood + bit-layout + rule-as-image, `fig1_schematic.png`). glider-steering.md
+is arXiv-ready (nlin.CG) modulo a final DOI/year pass.

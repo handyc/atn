@@ -28,15 +28,33 @@ def wrap_to(pred, meas):  # shift pred (deg) by 360k to sit nearest meas
     return pred - 360 * np.round((pred - meas) / 360)
 
 def fig1():
+    from matplotlib.patches import RegularPolygon, FancyArrow
     lut = np.fromfile(os.path.join(BLOBS, [r for r in json.load(open(os.path.join(LIB, "library.json")))
                       if r["glider"] and r["family"] == "newton"][0]["hash"] + ".lut"),
                       dtype=np.uint8, count=16384)
-    plt.figure(figsize=(4.2, 4.2))
-    plt.imshow(lut.reshape(128, 128), cmap="viridis", interpolation="nearest")
-    plt.title("F1. Fractal-walk rule = posterised escape-time image\n(flattened 128x128 = 16384-entry K=4 LUT)", fontsize=8)
-    plt.xlabel("low 7 bits of neighborhood key  (se, sw, w)"); plt.ylabel("high 7 bits  (self, nw, ne)")
-    plt.colorbar(label="output state", shrink=0.8, ticks=[0, 1, 2, 3])
-    plt.tight_layout(); plt.savefig("fig1_rule_image.png", dpi=130); plt.close()
+    fig, (axn, axi) = plt.subplots(1, 2, figsize=(9.2, 4.4),
+                                   gridspec_kw={"width_ratios": [1, 1.15]})
+    # --- left: labelled 7-cell pointy-top hex neighborhood with bit shifts ---
+    R = 1.18  # ring radius; neighbors equidistant from center (true hex neighborhood)
+    cells = {"self": (0, 0, "<<12"),
+             "e": (R, 0, "<<6"), "ne": (R*0.5, R*0.866, "<<8"), "nw": (-R*0.5, R*0.866, "<<10"),
+             "w": (-R, 0, "<<0"), "sw": (-R*0.5, -R*0.866, "<<2"), "se": (R*0.5, -R*0.866, "<<4")}
+    for name, (x, y, sh) in cells.items():
+        fc = "#ffd27f" if name == "self" else "#cfe6ff"
+        axn.add_patch(RegularPolygon((x, y), 6, radius=0.62, orientation=0,
+                                     facecolor=fc, edgecolor="k", lw=1.2))
+        axn.text(x, y + 0.10, name, ha="center", va="center", fontsize=9, weight="bold")
+        axn.text(x, y - 0.20, sh, ha="center", va="center", fontsize=7, color="#555")
+    axn.set_xlim(-2.1, 2.1); axn.set_ylim(-2.1, 2.1); axn.set_aspect("equal"); axn.axis("off")
+    axn.set_title("7-cell hex neighborhood -> 14-bit key\nkey = self<<12 | nw<<10 | ne<<8 | e<<6 | se<<4 | sw<<2 | w",
+                  fontsize=8)
+    # --- right: the rule as the posterised escape-time image ---
+    im = axi.imshow(lut.reshape(128, 128), cmap="viridis", interpolation="nearest")
+    axi.set_title("posterised fractal image = the 16384-entry K=4 LUT\n(pixel index = key; value = output state)", fontsize=8)
+    axi.set_xlabel("low 7 bits (se, sw, w)"); axi.set_ylabel("high 7 bits (self, nw, ne)")
+    fig.colorbar(im, ax=axi, shrink=0.8, ticks=[0, 1, 2, 3], label="output state")
+    fig.suptitle("F1. Substrate and fractal-walk rule generation", fontsize=9, y=1.0)
+    fig.tight_layout(); fig.savefig("fig1_schematic.png", dpi=130); plt.close()
     print("F1 done")
 
 def fig2(rng):
