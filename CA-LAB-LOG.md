@@ -1046,3 +1046,22 @@ own step count), they play in order each continuing from the previous output (st
 record to a downloadable .webm via MediaRecorder + canvas.captureStream off a 3x hi-res
 canvas (no libraries; Chrome/Firefox). Plus live scrub/animate/bake-stack/PNG export from v1.
 dissemination/glider-lab9.html (local, gitignored); build_lab9.py emits it.
+
+## CA-1: putting it together — a machine that runs a real program (2026-06-17)
+`cacpu.py` (user: assemble the primitives into a system with real storage + real computation
+that runs a small program). CA-1 is an 8-bit accumulator machine whose DATAPATH is genuine CA:
+  STORAGE — 16 bytes of RAM + an accumulator, every bit a real mutual-annihilation latch
+    (flipflopga-v1 genome). Roundtrip over all 128 RAM bits: 16/16 bytes exact (not toy).
+  ALU — add8 (ripple-carry full-adders), sub8 (two's complement), bitwise AND, and a zero
+    flag, EVERY bit computed by the verified CA NAND gate (gatecell, bias18/in14) composed
+    via NOT/AND/OR/XOR. add8 10/10 + sub8 10/10 correct on random operands.
+  CONTROL — fetch-decode-execute over a tiny ISA (LOADI/LOAD/STORE/ADD/SUB/AND/JMP/JZ/OUT/
+    HALT); PC + decode orchestrated by controller (honest: like any CPU's control unit; the
+    "latch holds without decay" was separately verified, so idle holding isn't re-simulated).
+    The conditional branch (JZ) is DECIDED BY THE CA (zero flag = CA NOR-tree over ACC bits).
+PROGRAMS RUN CORRECTLY (output matches reference, real loops + CA-decided branches):
+  multiply by repeated addition: 7*6=42 (50 instr), 9*5=45, 3*4=12;
+  sum 1..N: 1..5=15, 1..8=36 (66 instr).
+So the proven primitives compose into one system: genuine CA storage + genuine CA arithmetic
+running a real program with control flow. Remaining rung: place RAM+ALU as autonomous walled
+regions with in-substrate routing (autowire2) so the datapath self-wires, not just self-computes.
