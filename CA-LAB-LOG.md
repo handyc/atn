@@ -756,3 +756,22 @@ encoded), minimal pair cat/cut 56%, spelling colour/color 89% (graded). Honest p
 for a linguist: a transparent GPU-free order-sensitive sequence-FEATURE extractor for
 DH (clustering/variation/authorship/similarity), a teaching instrument, and reservoir-
 computing-on-text with interpretable encoding — NOT a replacement for statistical NLP.
+
+## Wiring the linguistics encoder to a corpus — HONEST verdict (2026-06-16)
+Tested whether the glider-trajectory fingerprint is a useful TEXT FEATURE on real
+tasks (`verify_corpus.py` + variant test), leave-one-out 1-NN:
+- LANGUAGE id (40 texts, 5 langs, chance 20%): glider PATH 12% (BELOW chance!),
+  glider DIR-HIST 18%, letter-freq baseline 32%. The single-glider trajectory is a
+  SEQUENCE-IDENTITY signature (high within-class variance) -> poor distributional
+  classifier.
+- SPELLING-VARIANT clustering (36 strings, 6 groups, chance 17%): glider PATH 69%,
+  DIR-HIST 75% (well above chance -> it DOES capture string similarity) BUT
+  letter-freq 100% and edit-distance 100% (the standard baselines beat it).
+VERDICT: the glider encoder UNDERPERFORMS trivial standard methods on every real text
+task tried. It is NOT a competitive text-analysis tool. Its honest value is
+pedagogical/visualization + the physics, not classification. Built
+`dissemination/corpus-explorer.html` accordingly: an interactive 2D map of texts as
+glider fingerprints (PCA), with the baseline-comparison table shown alongside so the
+result is transparent, + optional STACKED (×3 annihilation-coupled) encoding toggle.
+Did NOT oversell it as a classifier. (stack.py annihilation-coupling = the real
+bounded-interaction regime, reused as the stacked encoder.)
