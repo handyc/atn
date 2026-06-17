@@ -1657,3 +1657,19 @@ Found cached Chromium binaries (playwright's) + PIL -> could finally SEE the lab
   All round-trips verified end-to-end in headless Chromium (dump-dom + screenshots).
 Tooling note: chromium-1223/chrome --headless=new --screenshot / --dump-dom + DataTransfer file injection
 is now my browser-truth harness for the labs (previously I had no JS engine).
+
+## CA-OS/2 Writer keyboard fixes: Enter + lossless key queue (2026-06-17)
+User: "Writer doesn't know Enter and stops after a few characters" (32-bit version).
+Two real bugs, both browser-side (the OS machine code was already correct -- Python VM types,
+wraps, and newlines fine):
+1. ENTER: lab22 + caos-32-min keydown had no Enter case (only lab24 did). Added e.key==='Enter'
+   -> 0xFD (the OS already renders 0xFD as a newline).
+2. "stops after a few characters": KEY is a single register; if two keydowns land before the OS
+   samples one (slow frame / fast typing), the earlier char is lost. Added a JS key QUEUE: keydowns
+   push to keyq; each frame feeds ONE key into KEY only once the OS has consumed the previous
+   (vm.M[KEY]===0). Verified deterministically (Python mirror): a 73-char paragraph enqueued all at
+   once -> TLEN=73, 0 dropped, newlines intact. lab24 gets the same queue feeding pendKey one/frame
+   (keeps Alice/Bob in sync since each key still flows as its own delta).
+Note on tooling: headless Chromium --screenshot/--dump-dom is unreliable for rAF/timer-paced
+INTERACTIVE tests (virtual-time starves rAF vs setInterval) -- use the deterministic Python VM
+(byte-identical) for input-timing logic; reserve the browser for layout/CSS/render checks.

@@ -87,7 +87,7 @@ const vm=makeVM(OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];
 const W=OS.W,H=OS.H,FB=OS.FB;
 const sc=document.getElementById("screen"),sx=sc.getContext("2d"),im=sx.createImageData(W,H);
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
-let mx=W>>1,my=H>>1,mb=0;
+let mx=W>>1,my=H>>1,mb=0,keyq=[];
 function rel(e){const r=sc.getBoundingClientRect(),cs=getComputedStyle(sc),
   bl=parseFloat(cs.borderLeftWidth)||0,bt=parseFloat(cs.borderTopWidth)||0;   // border-exact: clientX/Y minus border, over the content box
   const x=(e.clientX-r.left-bl)/sc.clientWidth*W,y=(e.clientY-r.top-bt)/sc.clientHeight*H;
@@ -97,9 +97,9 @@ sc.addEventListener("mousemove",e=>{[mx,my]=rel(e);});
 sc.addEventListener("mousedown",e=>{[mx,my]=rel(e);mb=1;sc.focus();});window.addEventListener("mouseup",()=>mb=0);
 /* keyboard -> KEY register as (glyph index + 1); 0 = none, so digit '0' (glyph 0) isn't lost */
 sc.addEventListener("keydown",e=>{let g=-1;
- if(e.key==="Backspace")g=0xFE; else if(e.key===" ")g=(OS.GIDX[" "]||0);
+ if(e.key==="Backspace")g=0xFE; else if(e.key==="Enter")g=0xFD; else if(e.key===" ")g=(OS.GIDX[" "]||0);
  else if(e.key.length===1&&OS.GIDX[e.key]!==undefined)g=OS.GIDX[e.key];   // preserve case (font has a-z and A-Z)
- if(g>=0){e.preventDefault();wr32(OS.KEY,g+1);}});
+ if(g>=0){e.preventDefault();keyq.push(g+1);}});   // queue keys; fed one/frame so none are lost when typing fast
 /* ---- save / load: poke the CA-2 memory directly; the OS just redraws (no new machine code) ---- */
 function rd32(a){return (vm.M[a]|(vm.M[a+1]<<8)|(vm.M[a+2]<<16)|(vm.M[a+3]<<24))>>>0;}
 const REV={};for(const k in OS.GIDX)REV[OS.GIDX[k]]=k;                 // glyph index -> character
@@ -136,7 +136,9 @@ document.getElementById("pload").onclick=()=>pick("image/*",f=>{const img=new Im
     for(let y=0;y<CHp;y++)for(let x=0;x<CWp;x++){const o=(y*CWp+x)*4;vm.M[FB+(CYo+y)*W+(CXo+x)]=nearest(d[o],d[o+1],d[o+2]);}}));
   URL.revokeObjectURL(img.src);};img.src=URL.createObjectURL(f);});
 let last=performance.now(),fc=0,ipf=0;
-function frame(t){wr32(OS.MX,mx);wr32(OS.MY,my);wr32(OS.MB,mb);ipf=vm.run(OS.prog);
+function frame(t){wr32(OS.MX,mx);wr32(OS.MY,my);wr32(OS.MB,mb);
+ if(keyq.length&&vm.M[OS.KEY]===0)wr32(OS.KEY,keyq.shift());   // feed next queued key only once the OS consumed the last
+ ipf=vm.run(OS.prog);
  for(let i=0;i<W*H;i++){const v=vm.M[FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}
  sx.putImageData(im,0,0);fc++;if(t-last>=500){document.getElementById("ipf").textContent=ipf.toLocaleString();
   document.getElementById("fps").textContent=(fc*1000/(t-last)).toFixed(0);fc=0;last=t;}

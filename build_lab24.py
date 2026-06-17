@@ -308,7 +308,7 @@ function makeVM(sp){const M=new Uint8Array(0x100000),NM=0xFFFFF;let A=0,X=0,SP=s
  return {M,run};}
 /* state — declared BEFORE any load-time call */
 const $=id=>document.getElementById(id);
-let pact=null,aliceVM=null,bobVM=null,mx=80,my=70,mb=0,pendKey=0,bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
+let pact=null,aliceVM=null,bobVM=null,mx=80,my=70,mb=0,pendKey=0,keyq=[],bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
 let bobInbox=[],aliceQueue=[],server=[],srvBytes=0,bobSeq=-1;
 let bytesMouse=0,bytesKey=0,nMouse=0,nKey=0,t0=0,lastSent=0,spark=[];   // metrics
 let ipfTotal=0,aboutVisible=false;   // live CA-2 instruction counter + tab state
@@ -351,7 +351,7 @@ function rel(e){const r=sa.getBoundingClientRect(),cs=getComputedStyle(sa),
 sa.onmousemove=e=>{[mx,my]=rel(e);};sa.onmousedown=e=>{[mx,my]=rel(e);mb=1;sa.focus();};window.addEventListener("mouseup",()=>mb=0);
 sa.addEventListener("keydown",e=>{let g=-1;if(e.key==="Backspace")g=0xFE;else if(e.key==="Enter")g=0xFD;else if(e.key===" ")g=(OS.GIDX[" "]||0);
  else if(e.key.length===1&&OS.GIDX[e.key]!==undefined)g=OS.GIDX[e.key];   // preserve case
- if(g>=0){e.preventDefault();pendKey=g+1;}});
+ if(g>=0){e.preventDefault();keyq.push(g+1);}});   // queue keys; fed one/frame so none are lost when typing fast
 function syncCheck(){let same=true;for(let i=0;i<OS.W*OS.H;i++){if(aliceVM.M[OS.FB+i]!==bobVM.M[OS.FB+i]){same=false;break;}}
  $("sync").innerHTML=same?"<span class='ok'>in sync ✓</span>":"<span class='no'>diverged ✗ (Bob behind / line cut)</span>";}
 function reset(){if(raf)cancelAnimationFrame(raf);pact=buildPact($("seed").value);aliceVM=bootVM();bobVM=bootVM();
@@ -360,6 +360,7 @@ function reset(){if(raf)cancelAnimationFrame(raf);pact=buildPact($("seed").value
  $("sent").textContent=0;$("ndelta").textContent=0;$("wire").textContent="idle";drawGrids();renderServer();stats();renderMetrics();raf=requestAnimationFrame(tick);}
 let fc=0;
 function tick(){
+ if(pendKey===0&&keyq.length)pendKey=keyq.shift();   // feed one queued key per frame (lossless typing)
  // ALICE: drive locally (always — a cut line never stops her own machine)
  wr32(aliceVM,OS.MX,mx);wr32(aliceVM,OS.MY,my);wr32(aliceVM,OS.MB,mb);wr32(aliceVM,OS.KEY,pendKey);const ipf=aliceVM.run(OS.prog);ipfTotal+=ipf;blit(ctxA,imA,aliceVM);
  const mouseChanged=!lastMouse||mx!==lastMouse[0]||my!==lastMouse[1]||mb!==lastMouse[2];
