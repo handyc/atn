@@ -1623,3 +1623,11 @@ forwarded keys as glyph+1 (0=none). VERIFIED: lab24 boots byte-identical to the 
 a frame-by-frame Python mirror: Alice opens Writer + types "Hi", 5 sealed deltas cross, Bob replays
 them one-per-frame and his framebuffer RECONVERGES byte-identical to Alice's. (JS not runnable here, so
 verified by mirror + static checks, same rigor as the other labs.) Remaining: Stage 3 glider-lab hub.
+
+## Stage 3: the Glider Labs hub (build_hub.py -> dissemination/index.html) (2026-06-17)
+A single index linking all 24 labs, grouped by the arc: Foundations (rule + read/write, labs 1-7) ->
+gliders-to-computer (5,8,9,10) -> computer+OS (11-14: Doom, CA-1 98, CA-OS) -> Alice&Bob pact (15-21)
+-> CA-2 32-bit (22-24: CA-OS/2, wide-word RSA, dual-pane). Static page; links to local lab HTML by
+relative path. Verified: 24 cards, all 24 present. (index.html is local/gitignored like the labs.)
+This completes the user's 3-stage vision: full 32-bit office suite (Stage 1) + the dual-pane mega-lab
+with metrics/How-it-works/live-CA (Stage 2) + the earlier-experiments hub (Stage 3).
