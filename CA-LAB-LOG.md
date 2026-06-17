@@ -1552,3 +1552,19 @@ interactive apps in a window, all 32-bit-native on CA-2:
    launcher / palette / keypad; per-frame cursor + once-a-second uptime clock.
  - Verified on the CA-2 VM (launcher switches apps, Calc 32-bit multiply, Paint strokes); lab22
    rebuilt, 26/26 opcodes covered, embedded boots BYTE-IDENTICAL to the Python reference.
+
+## Register width is UNBOUNDED by the host (2026-06-17)
+User insight: since the CA rules run independent of the host CPU, register width can exceed the host's
+(128/256/1024-bit). CORRECT, and demonstrated:
+ - The genuine CA adder is a ripple of 1-bit CA full-adders, so a wider ALU is just more tiled gliders
+   -- no host-register ceiling. VERIFIED: cacpu.add_n at 128-bit computed 2^64+2^64=2^65 with the real
+   ca_nand gates (~24s), and verify_adder_ca(width=128, n=1) == reference on random 128-bit operands.
+   (Fixed verify_adder_ca to use Python getrandbits so any width works, not just <=64-bit numpy.)
+ - The fast emulator carries the register in a host BIGNUM (Python arbitrary precision), so it runs for
+   real at any width: added SPECS CA-3 (128-bit) and CA-4 (1024-bit); verified CA-3 holds 2^64, CA-4
+   holds 2^1000+12345, and an on-the-fly 4096-bit machine holds 2^4000+7 -- all exact.
+ - HONEST caveats: (a) the BROWSER JS VM is capped at 32-bit by JS bitwise ops (>>>0); a wider in-browser
+   machine needs BigInt (doable, not done). (b) Capability scales, SPEED never: a 128-bit genuine CA add
+   is ~24s, 1024-bit would be minutes, a physical CA astronomically slow -- the emulator is fast only
+   because it shortcuts the arithmetic via bignum. Width without wide-word software is a flex; crypto/
+   bignum workloads would be the real payoff.

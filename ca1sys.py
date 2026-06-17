@@ -106,8 +106,13 @@ class CA1Sys:
 # ----------------------------- machine registry: generate any CA computer ----------------
 # One core, many machines. Add a row to grow the family (CA-3, …); networks instantiate N of these.
 SPECS = {
-    "CA-1": dict(word_bits=8,  memsize=0x100000),   # 8-bit, 1 MB (16-bit near + 24-bit far/banked)
-    "CA-2": dict(word_bits=32, memsize=0x100000, flat=True),   # 32-bit, 1 MB FLAT (LDA/STA reach all of it; LDW/STW = 32-bit words)
+    "CA-1": dict(word_bits=8,    memsize=0x100000),   # 8-bit, 1 MB (16-bit near + 24-bit far/banked)
+    "CA-2": dict(word_bits=32,   memsize=0x100000, flat=True),   # 32-bit, 1 MB FLAT (LDW/STW = 32-bit words)
+    # The CA datapath is a ripple of 1-bit CA full-adders, so word width is UNBOUNDED by the host CPU:
+    # a wider machine is just more tiled gliders. The emulator carries the value in a host bignum, so
+    # these run for real (the genuine CA add is verified width-parametric in cacpu.verify_adder_ca).
+    "CA-3": dict(word_bits=128,  memsize=0x100000, flat=True),   # 128-bit
+    "CA-4": dict(word_bits=1024, memsize=0x100000, flat=True),   # 1024-bit — wider than any host register
 }
 def make_machine(name="CA-1", **over):
     """Instantiate a named CA computer from the registry (override any field via kwargs)."""

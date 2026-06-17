@@ -101,10 +101,11 @@ def add_n(x, y, cin=0):
 def bits_n(v, n): return [(v >> i) & 1 for i in range(n)]
 def val_n(bs): return sum((b & 1) << i for i, b in enumerate(bs))
 def verify_adder_ca(width=32, n=3, seed=7):
-    """Confirm an N-bit add computed by the genuine CA gate == reference (sum + carry-out)."""
-    rng = np.random.default_rng(seed); ok = 0; mask = (1 << width) - 1
+    """Confirm an N-bit add computed by the genuine CA gate == reference (sum + carry-out).
+    Width is unbounded by the host: the adder is a ripple of 1-bit CA full-adders (more tiled gliders)."""
+    import random as _r; rng = _r.Random(seed); ok = 0; mask = (1 << width) - 1
     for _ in range(n):
-        x = int(rng.integers(0, 1 << width)); y = int(rng.integers(0, 1 << width))
+        x = rng.getrandbits(width); y = rng.getrandbits(width)
         res, cout = add_n(bits_n(x, width), bits_n(y, width))
         ok += int(val_n(res) == ((x + y) & mask) and cout == (((x + y) >> width) & 1))
     return ok, n
