@@ -1372,3 +1372,17 @@ User: interface looks too limited (all-caps), can't reach Start button (y-shift)
    residual few-px shift from the canvas border.
  - SHEET numeric: verified typing digits into the selected cell works (57); the prior breakage was the
    imprecise clicking from the y-shift. Verified lowercase typing ('Hello'), dragging, embedded byte-identical.
+
+## CA-OFFICE Sheet: real per-cell storage — fixed the LDX/LXI bug (2026-06-17)
+User: "I can enter numbers and they only increase the total at the bottom -- I want to store
+numbers in individual cells like a real spreadsheet."
+ - ROOT CAUSE: draw_sheet rendered each cell's value with `LDX idx` (idx a compile-time constant).
+   LDX loads X *from memory address idx* (zero page, ~0), not the immediate idx. So every cell drew
+   M[CELLS+0] = cell 0's value. The typed number WAS stored in the right cell and summed into the
+   TOTAL (onclick/sheet_sum use `LDX SELC`/`LDX T0` on real var addresses, which is correct) -- it
+   just never displayed in its own cell. Hence "only the total moves." Fix: `LDX idx` -> `LXI idx`
+   (load X immediate). Verified cells 0/1/2 now render 7/42/99 independently; TOTAL 9+7 renders 16.
+ - FRESH ENTRY: added SFRESH (0x4F). Selecting a cell sets it; the first digit typed clears the cell
+   then writes (replace, not append) -- real-spreadsheet feel. Verified: cell0=42, re-select+type 9 -> 9.
+ - (WSL note: the first post-edit test runs read a stale .pyc due to sub-second mtime granularity and
+   showed 0s; fresh runs confirmed the fix. Worth remembering for future quick edit/test loops here.)

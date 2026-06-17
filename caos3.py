@@ -31,6 +31,7 @@ SUMSRC = 0x46
 BFL,BFH = 0x47,0x48      # blitglyph 16-bit font-base pointer (font table > 256 bytes)
 WX,WY,DRAG,DOFX,DOFY = 0x49,0x4A,0x4B,0x4C,0x4D   # runtime window position + drag state
 BOLD = 0x4E      # 1 = blitglyph draws 2px-wide strokes (bold heading font)
+SFRESH = 0x4F    # 1 = selected sheet cell is fresh; next digit replaces (not appends)
 FONT  = 0x0500      # 5x7 font, 7 bytes/glyph (now ~80 glyphs incl lowercase -> ~560 bytes)
 STRP  = 0x0780      # strings table base (moved past the bigger font)
 TBUF  = 0x0900      # writer text buffer (glyph indices)
@@ -263,7 +264,7 @@ def program():
         a(("LDA",SELC)); a(("CMPI",idx)); a(("JZ",f"sel{idx}")); a(("LDI",WHT)); a(("JMP",f"selc{idx}")); a((f"sel{idx}:",)); a(("LDI",LSV)); a((f"selc{idx}:",)); a(("STA",ACOL)); a(("CALL","fillrect"))
         wx(AX,bx); wy(AY,by); a(("LDI",32)); a(("STA",AW)); a(("LDI",14)); a(("STA",AH)); a(("CALL","bevel"))
         # value: 3 digits (cells hold 0-255), sized to fit the 32px cell
-        a(("LDX",idx)); a(("LDAX",CELLS)); a(("STA",NVL)); a(("LDI",0)); a(("STA",NVH)); a(("CALL","num2dig"))
+        a(("LXI",idx)); a(("LDAX",CELLS)); a(("STA",NVL)); a(("LDI",0)); a(("STA",NVH)); a(("CALL","num2dig"))  # LXI = load X immediate (LDX would load M[idx]!)
         for di,dv in enumerate([D2,D3,D4]):
             a(("LDA",dv)); a(("STA",GCH)); wx(GX,bx+8+di*7); wy(GY,by+4); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
     # +/- buttons + TOTAL
@@ -335,7 +336,9 @@ def program():
     a(("ki_sheet:",)); a(("LDA",KEY)); a(("CMPI",0xFE)); a(("JZ","ks_clr"))
     a(("LDA",KEY)); a(("CMPI",10)); a(("JNC","ks_dig"))   # KEY<10 -> a digit
     a(("JMP","ki_eat"))                                   # non-digit -> ignore
-    a(("ks_dig:",)); a(("LDX",SELC)); a(("LDAX",CELLS)); a(("CMPI",10)); a(("JC","ki_dty"))   # 2-digit cap
+    # fresh cell? clear it first so the first digit replaces the old value (real-spreadsheet feel)
+    a(("ks_dig:",)); a(("LDA",SFRESH)); a(("JZ","ks_app")); a(("LDI",0)); a(("STA",SFRESH)); a(("LDI",0)); a(("LDX",SELC)); a(("STAX",CELLS))
+    a(("ks_app:",)); a(("LDX",SELC)); a(("LDAX",CELLS)); a(("CMPI",10)); a(("JC","ki_dty"))   # 2-digit cap
     a(("SHL",)); a(("STA",T1)); a(("LDA",T1)); a(("SHL",)); a(("SHL",)); a(("ADD",T1)); a(("ADD",KEY)); a(("LDX",SELC)); a(("STAX",CELLS)); a(("JMP","ki_dty"))
     a(("ks_clr:",)); a(("LDI",0)); a(("LDX",SELC)); a(("STAX",CELLS))
     a(("ki_dty:",)); a(("LDI",1)); a(("STA",DIRTY))
@@ -370,7 +373,7 @@ def program():
     for idx,(bx,by) in enumerate(SCELLS):
         lbl=f"scm{idx}"
         hx(bx,lbl,False); hx(bx+32,lbl,True); hy(by,lbl,False); hy(by+14,lbl,True)
-        a(("LDI",idx)); a(("STA",SELC)); a(("JMP","oc_dirty")); a((f"{lbl}:",))
+        a(("LDI",idx)); a(("STA",SELC)); a(("LDI",1)); a(("STA",SFRESH)); a(("JMP","oc_dirty")); a((f"{lbl}:",))
     hx(8,"oc_minus",False); hx(24,"oc_minus",True); hy(94,"oc_minus",False); hy(108,"oc_minus",True)
     a(("LDX",SELC)); a(("LDAX",CELLS)); a(("ADDI",1)); a(("STAX",CELLS)); a(("JMP","oc_dirty"))
     a(("oc_minus:",))
