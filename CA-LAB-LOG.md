@@ -1204,3 +1204,22 @@ inverter, autonomous wire, circulating register) on the verified LUTs underneath
 re-verified: standalone VM (mirrors the JS, incl CALL/RET/PLO/PHI) renders byte-identical to caos.
 Honest: control unit (PC/stack/clock) orchestrated as in any CPU; all drawing/logic/arithmetic =
 CA-1 instructions = the cellular automaton. One OS frame on the genuine CA ~1.5 days; VM ~1e8x faster.
+
+## CA-OS v2: faster, more Windows-like, "real" (2026-06-17)
+User: make it better/more Windows/optimized/real. caos2.py rewrite, all still pure CA-1:
+  RES 256x192, PAGE-ALIGNED framebuffer (FB=0x4000 -> pixel(x,y)=0x4000+(y<<8)+x, so
+    address math is trivial: PHI=0x40+y, PLO/X=x; no row-address tables needed).
+  5x7 readable font (digits, symbols, A-Z subset) -> real window title "CALCULATOR", "START".
+  Beveled 3D Win9x chrome (white top/left, gray bottom/right) on window + buttons + taskbar +
+    Start button; navy title bar with white text; a close box.
+  SOFTWARE MOUSE CURSOR (8x12 arrow sprite) with save-under/restore.
+  DIRTY-RECTANGLE rendering: full repaint only when state changes/dragging; idle frame repaints
+    only the 8x12 area under the cursor. MEASURED: full frame 522,770 instr vs idle 4,923 instr
+    = 106x faster idle. Draggable window (grab title bar -> follows mouse).
+  BUG FOUND+FIXED: the 256x192 FB fills 0x4000-0xFFFF, but the call stack defaulted to 0x7FFF
+    INSIDE the FB -> clearbg painted over return addresses -> crash. Moved stack to 0x3F00
+    (below FB; vars/font are <0x800). Verified: renders full UI, computes 9x9=81 from clicks,
+    window drag works, embedded OS byte-identical via independent VM.
+build_lab14.py -> dissemination/glider-lab14.html (local): CA-OS v2 running (browser = dumb
+terminal) + the live lab10 CA-internals panels underneath. Honest scope unchanged; one full-
+repaint frame on the genuine CA ~2.4 days, VM ~1e8x faster.
