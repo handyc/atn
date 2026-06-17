@@ -1334,3 +1334,15 @@ sync ✓. Pre-flight: TDZ ok (lets before reset()), no display:none, all 28 opco
 GIDX char->glyph map. Browser = dumb terminal (mouse+keys); the suite + arithmetic are CA-1.
 Can't run a browser here -> residual runtime risk; user verifies. Brings back the dual view at
 office-suite scale.
+
+## Fix: CA-OFFICE garbled text (blitglyph 8-bit overflow) + spreadsheet digit overflow (2026-06-17)
+User: Start/titles garbled, sheet digits half-out, can't edit cells. ROOT CAUSE of garble: blitglyph
+computed the font address as GCH*7 in 8-BIT arithmetic and indexed the font with an 8-bit register;
+caos2 had ~22 glyphs (fit in 256B) but caos3's full A-Z = 47 glyphs (329B), so every glyph index >=37
+(letters R,S,T,U,...) overflowed -> read garbage. That's why START/SHEET/WRITER/CALC/TOTAL were garbled
+while digits (low indices) rendered. FIX: blitglyph now computes font_base = FONT + GCH*7 as a 16-bit
+value (loop-multiply) and reads rows via the 16-bit P pointer (LDPX). Verified: "START"/"SHEET" now render
+correctly. Sheet digits: drew 5 glyphs (30px) starting bx+4 in a 32px cell -> overflow; now draws the low
+3 digits (cells hold 0-255) at bx+8 spacing 7 -> fits. Editing always worked (verified cells [9,15]); the
+"can't edit" was the garbled/misplaced render. Regenerated glider-lab18/19 (local). Still TODO (larger):
+window dragging, full keyboard incl Enter / arbitrary keypress, multi-line word processor, multi-font.

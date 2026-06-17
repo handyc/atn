@@ -28,6 +28,7 @@ SX,SY,SPTR,SCOL = 0x3B,0x3C,0x3D,0x3E
 C_ACC,C_CUR,C_OP,C_FRESH = 0x40,0x41,0x42,0x43
 TLEN,SELC = 0x44,0x45
 SUMSRC = 0x46
+BFL,BFH = 0x47,0x48      # blitglyph 16-bit font-base pointer (font table > 256 bytes)
 FONT  = 0x0500
 STRP  = 0x0700      # strings (page 7) for puts2
 TBUF  = 0x0800      # writer text buffer (glyph indices), up to 96
@@ -119,12 +120,17 @@ def program():
     a(("LDA",T2)); a(("STA",AW)); a(("LDA",AY)); a(("STA",T1)); a(("LDA",AY)); a(("ADD",AH)); a(("SUBI",1)); a(("STA",AY)); a(("LDI",1)); a(("STA",AH)); a(("LDI",GRY)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("LDA",T1)); a(("STA",AY))
     a(("LDA",AX)); a(("STA",T1)); a(("LDA",AX)); a(("ADD",AW)); a(("SUBI",1)); a(("STA",AX)); a(("LDA",T3)); a(("STA",AH)); a(("LDI",1)); a(("STA",AW)); a(("LDI",GRY)); a(("STA",ACOL)); a(("CALL","fillrect"))
     a(("LDA",T1)); a(("STA",AX)); a(("LDA",T2)); a(("STA",AW)); a(("LDA",T3)); a(("STA",AH)); a(("RET",))
-    # ---- blitglyph(GX,GY,GCH,GCOL) ----
-    a(("blitglyph:",)); a(("LDA",GCH)); a(("STA",T1)); a(("SHL",)); a(("SHL",)); a(("STA",T2)); a(("LDA",T2)); a(("SHL",)); a(("SUB",T1)); a(("STA",T1))
+    # ---- blitglyph(GX,GY,GCH,GCOL) — 16-bit font addressing (font table > 256 bytes) ----
+    a(("blitglyph:",))
+    a(("LDI",0)); a(("STA",T1)); a(("STA",T2)); a(("LDI",7)); a(("STA",T3))      # acc(T1lo,T2hi)=0, counter T3=7
+    a(("bg_mul:",)); a(("LDA",T3)); a(("JZ","bg_muld"))                          # acc = GCH*7
+    a(("LDA",T1)); a(("ADD",GCH)); a(("STA",T1)); a(("JNC","bg_mnc")); a(("LDA",T2)); a(("ADDI",1)); a(("STA",T2)); a(("bg_mnc:",))
+    a(("LDA",T3)); a(("SUBI",1)); a(("STA",T3)); a(("JMP","bg_mul"))
+    a(("bg_muld:",)); a(("LDA",T1)); a(("STA",BFL)); a(("LDA",T2)); a(("ADDI",FONT>>8)); a(("STA",BFH))   # font_base = FONT + GCH*7
     a(("LDI",0)); a(("STA",T2))
     a(("bg_row:",)); a(("LDA",T2)); a(("CMPI",7)); a(("JC","bg_done"))
-    a(("LDA",T1)); a(("ADD",T2)); a(("TAX",)); a(("LDAX",FONT)); a(("STA",T3))
-    a(("LDI",0)); a(("PLO",)); a(("LDA",GY)); a(("ADD",T2)); a(("ADDI",FBPAGE)); a(("PHI",))
+    a(("LDA",BFL)); a(("PLO",)); a(("LDA",BFH)); a(("PHI",)); a(("LDX",T2)); a(("LDPX",)); a(("STA",T3))   # font byte for this row
+    a(("LDI",0)); a(("PLO",)); a(("LDA",GY)); a(("ADD",T2)); a(("ADDI",FBPAGE)); a(("PHI",))               # pixel row base
     for col in range(5):
         bit=1<<(4-col); lbl=f"bgc{col}"
         a(("LDA",T3)); a(("ANDI",bit)); a(("JZ",lbl)); a(("LDA",GX)); a(("ADDI",col)); a(("TAX",)); a(("LDA",GCOL)); a(("STPX",)); a((f"{lbl}:",))
@@ -230,9 +236,10 @@ def program():
         a(("LDI",WINX+bx)); a(("STA",AX)); a(("LDI",WINY+by)); a(("STA",AY)); a(("LDI",32)); a(("STA",AW)); a(("LDI",14)); a(("STA",AH))
         a(("LDA",SELC)); a(("CMPI",idx)); a(("JZ",f"sel{idx}")); a(("LDI",WHT)); a(("JMP",f"selc{idx}")); a((f"sel{idx}:",)); a(("LDI",LSV)); a((f"selc{idx}:",)); a(("STA",ACOL)); a(("CALL","fillrect"))
         a(("LDI",WINX+bx)); a(("STA",AX)); a(("LDI",WINY+by)); a(("STA",AY)); a(("LDI",32)); a(("STA",AW)); a(("LDI",14)); a(("STA",AH)); a(("CALL","bevel"))
-        # value
-        a(("LDX",idx)); a(("LDAX",CELLS)); a(("STA",NVL)); a(("LDI",0)); a(("STA",NVH))
-        a(("LDI",WINX+bx+4)); a(("STA",GX)); a(("LDI",WINY+by+4)); a(("STA",GY)); a(("CALL","drawnum"))
+        # value: 3 digits (cells hold 0-255), sized to fit the 32px cell
+        a(("LDX",idx)); a(("LDAX",CELLS)); a(("STA",NVL)); a(("LDI",0)); a(("STA",NVH)); a(("CALL","num2dig"))
+        for di,dv in enumerate([D2,D3,D4]):
+            a(("LDA",dv)); a(("STA",GCH)); a(("LDI",WINX+bx+8+di*7)); a(("STA",GX)); a(("LDI",WINY+by+4)); a(("STA",GY)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
     # +/- buttons + TOTAL
     a(("LDI",WINX+8)); a(("STA",AX)); a(("LDI",WINY+94)); a(("STA",AY)); a(("LDI",16)); a(("STA",AW)); a(("LDI",14)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
     a(("LDI",WINX+14)); a(("STA",GX)); a(("LDI",WINY+98)); a(("STA",GY)); a(("LDI",gi('+'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
