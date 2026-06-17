@@ -127,7 +127,8 @@ function makeVM(sp){const M=new Uint8Array(0x10000);let A=0,X=0,P=0,SP=sp||0x7FF
  return {M,run};}
 /* ── UI ── */
 const $=id=>document.getElementById(id);
-let aliceP,bobP,gen=0,sent=null;
+let aliceP,bobP,gen=0,sent=null,osVM=null,osRAF=0,mx=80,my=70,mb=0;
+function stopOS(){if(osRAF){cancelAnimationFrame(osRAF);osRAF=0;}osVM=null;}
 function rederive(){const s=$("seed").value;aliceP=buildPact(s);bobP=buildPact($("wrongseed").checked?s+" (wrong)":s);
  gen=0;sent=null;$("env").textContent="— nothing sent yet —";$("alicestat").textContent="";$("recv").disabled=true;$("tamper").disabled=true;
  $("bobstat").textContent="";$("bobinfo").textContent="waiting for a sealed computer…";$("screen").style.display="none";$("sentkb").textContent="0";stopOS();}
@@ -150,8 +151,6 @@ $("seal").onclick=()=>{const comp=+cs.value,g=gen,img=imageBytes,ks=tap(aliceP,c
  $("bobinfo").innerHTML=`a sealed desktop arrived: <b>${(ct.length/1024|0)} KB</b> at (component ${comp}, gen ${g}). Key not included.`;};
 $("tamper").onclick=()=>{if(!sent)return;sent.ct[10]^=0x55;$("env").innerHTML+="<br><span class='no'>⚡ tampered (byte 10)</span>";};
 // receive & boot the desktop
-let osVM=null,osRAF=0,mx=80,my=70,mb=0;
-function stopOS(){if(osRAF){cancelAnimationFrame(osRAF);osRAF=0;}osVM=null;}
 $("recv").onclick=()=>{if(!sent)return;const ks=tap(bobP,sent.comp,sent.gen,sent.len),pt=new Uint8Array(sent.len);
  for(let i=0;i<sent.len;i++)pt[i]=sent.ct[i]^ks[i];
  if(hex(sha256(pt).slice(0,8))!==hex(sent.tag)){$("bobstat").innerHTML="<span class='no'>✗ recovery failed — wrong pact or tampered ciphertext.</span>";$("screen").style.display="none";stopOS();return;}

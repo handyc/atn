@@ -1274,3 +1274,11 @@ VM, mouse-driven: drag the calculator window, click buttons, dirty-rect renderin
 wrong-seed -> recovery fails (MAC). Verified: the sealed {prog,mem,SP} image, reconstructed
 alone, boots to the byte-identical reference desktop frame; pure-JS SHA-256 == hashlib; full
 CA-1 VM (28 opcodes). Same pact mechanism as lab15, bigger payload = a running OS, not a toy.
+
+## Fix: lab16 buttons dead — temporal-dead-zone bug (2026-06-17)
+glider-lab16.html was fully broken (no buttons, no CA animation): rederive() runs at load and
+calls stopOS(), which reads osVM/osRAF — but those `let` vars were declared LATER in the script,
+so rederive() threw a ReferenceError (TDZ) during load, aborting the rest of the script before any
+$(...).onclick handlers attached. Fix: hoist `let osVM,osRAF,mx,my,mb` + stopOS() above the
+rederive() call. Lesson: balance/opcode/render checks don't catch JS load-time execution-order
+bugs; need to actually run the page (or lint execution order). lab15 unaffected (no stopOS).
