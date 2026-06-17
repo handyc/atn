@@ -1264,3 +1264,13 @@ CA-1 VM, e.g. 13x11=143). "Tamper a byte" and "Bob uses the wrong seed" both mak
 (MAC mismatch) -> the computer is genuinely bound to the shared cellular automaton. Honest note
 in-lab: only the ciphertext + coordinate cross; the key (CA state) is never sent. Mirrors
 atn_spoeqi.py (Python side uses ChaCha20-Poly1305; browser uses OTP-vs-tap + SHA-256 tag).
+
+## Alice & Bob: the WHOLE DESKTOP through a pact (2026-06-17)
+build_lab16.py -> dissemination/glider-lab16.html (local): extends the Alice<->Bob pact lab to
+send the entire CA-OS desktop. Payload = the whole computer image {prog (2222 instr), mem, SP}
+(~25 KB). Alice seals it against the shared CA keystream at a coordinate; Bob, from the seed
+alone, recovers and BOOTS the full interactive Windows-style desktop on a 256x192 canvas (CA-1
+VM, mouse-driven: drag the calculator window, click buttons, dirty-rect rendering). Tamper /
+wrong-seed -> recovery fails (MAC). Verified: the sealed {prog,mem,SP} image, reconstructed
+alone, boots to the byte-identical reference desktop frame; pure-JS SHA-256 == hashlib; full
+CA-1 VM (28 opcodes). Same pact mechanism as lab15, bigger payload = a running OS, not a toy.
