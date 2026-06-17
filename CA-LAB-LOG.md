@@ -1424,3 +1424,17 @@ User: "I also liked your earlier idea of a Paint clone." First of the "1998 suit
 a 30 fps full-screen stream (the line carries ~10 B/action vs 49,152 B/frame). Apps come from the
 shared caos3 export, so Minesweeper/Clock (added next) appear here automatically. Static checks pass
 (braces, 32/32 opcodes, all metric element ids present, no display:none/TDZ); embedded boots byte-identical.
+
+## CA-OFFICE: Minesweeper (5th app on CA-1) (2026-06-17)
+The quintessential 1998 app, entirely on CA-1. 8x8 grid, 10 mines. Cell byte = bit0 mine / bit1
+revealed / bit2 flagged / bit3 queued / bits4-7 neighbour count. MGRID=0x80, flood stack MSTK=0x100.
+ - Mine placement: an 8-bit LCG (seed=seed*5+1, full period) -> deterministic, so Alice & Bob get the
+   SAME board (and "New game" steps the seed, so both stay in sync over the line). Counts computed by
+   walking each mine's neighbours (+0x10).
+ - Reveal: iterative flood-fill from the click; the queued bit dedups so the stack stays <=64 deep;
+   Bob never needs it but it's all CA-1. Count>0 stops the flood. Clicking a mine -> lose (all mines
+   shown); revealing all 54 safe cells -> win. Flag-mode toggle button flags/unflags hidden cells.
+ - draw_mine unrolls the 64 cells (raised button / flag / revealed count digit / red mine). Start menu
+   grew to 5 items. VERIFIED (Python, replicating the LCG): board matches, all neighbour counts correct,
+   flood reveals, flag/unflag, lose, WIN (MNREV==54 -> MOVER=2), New resets. Regression: writer/sheet/
+   calc/paint still open. All 4 labs regenerated, boot byte-identical, 32/32 opcodes covered.

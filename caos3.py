@@ -36,6 +36,11 @@ PCOL = 0x50      # Paint: selected colour (palette index)
 PSL,PSH,DDH,DDL,PTMP,PROW = 0x52,0x53,0x54,0x55,0x56,0x57   # Paint blit pointers/scratch
 PW,PH = 96,96    # paint canvas size (px); buffer = PW*PH bytes
 PSWATCH = [0,3,4,8,9,7,5,2]   # palette swatches: BLK,GRY,WHT,RED,GRN,BLU,NAV,SIL
+# Minesweeper (APP=5): cell byte = bit0 mine, bit1 revealed, bit2 flagged, bit3 queued, bits4-7 count
+MFLAG,MOVER,MSEED,MSP,MNREV,MR,MC,MTMP,MI,MK,MIDX = 0x58,0x59,0x5A,0x5B,0x5C,0x5D,0x5E,0x5F,0x60,0x61,0x62
+MGRID = 0x0080   # 64 cells (0x80-0xBF)
+MSTK  = 0x0100   # flood-fill stack (deduped via queued bit -> <=64 deep)
+GW,MINES = 8,10  # grid 8x8, 10 mines
 FONT  = 0x0500      # 5x7 font, 7 bytes/glyph (now ~80 glyphs incl lowercase -> ~560 bytes)
 STRP  = 0x0780      # strings table base (moved past the bigger font)
 TBUF  = 0x0900      # writer text buffer (glyph indices)
@@ -96,7 +101,8 @@ def enc_rows(rows):
         out.append(b)
     return out
 STRINGS={"caoffice":("CA-Office",0x00),"start":("Start",0x10),"writer":("Writer",0x18),
-         "sheet":("Sheet",0x20),"calc":("Calc",0x28),"total":("Total",0x30),"paint":("Paint",0x38)}
+         "sheet":("Sheet",0x20),"calc":("Calc",0x28),"total":("Total",0x30),"paint":("Paint",0x38),
+         "mine":("Mines",0x40)}
 def soff(k): return STRINGS[k][1]
 
 # calculator buttons (window-relative), used by CALC app
@@ -134,6 +140,25 @@ def program():
     def wy(dest, off): a(("LDA",WY)); a(("ADDI",off)); a(("STA",dest))           # dest = WINY + off
     def hx(off, lbl, ge): a(("LDA",WX)); a(("ADDI",off)); a(("STA",T0)); a(("LDA",MX)); a(("CMP",T0)); a(("JC" if ge else "JNC",lbl))
     def hy(off, lbl, ge): a(("LDA",WY)); a(("ADDI",off)); a(("STA",T0)); a(("LDA",MY)); a(("CMP",T0)); a(("JC" if ge else "JNC",lbl))
+    # for each in-bounds neighbour of (MR,MC): compute its cell index into X, then emit action(k)
+    NB=[(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
+    def gen_neighbors(action, tag):
+        for k,(dr,dc) in enumerate(NB):
+            skip=f"{tag}_s{k}"
+            if dr==-1: a(("LDA",MR)); a(("JZ",skip))
+            if dr== 1: a(("LDA",MR)); a(("CMPI",GW-1)); a(("JC",skip))
+            if dc==-1: a(("LDA",MC)); a(("JZ",skip))
+            if dc== 1: a(("LDA",MC)); a(("CMPI",GW-1)); a(("JC",skip))
+            a(("LDA",MR))
+            if dr==-1: a(("SUBI",1))
+            if dr== 1: a(("ADDI",1))
+            a(("SHL",)); a(("SHL",)); a(("SHL",)); a(("STA",MTMP))     # nr*8
+            a(("LDA",MC))
+            if dc==-1: a(("SUBI",1))
+            if dc== 1: a(("ADDI",1))
+            a(("ADD",MTMP)); a(("TAX",))                              # X = nr*8 + nc
+            action(k)
+            a((f"{skip}:",))
     a(("JMP","boot"))
     # ---- fillrect ----
     a(("fillrect:",)); a(("LDA",AH)); a(("STA",RR)); a(("LDA",AY)); a(("STA",T0))
@@ -231,15 +256,16 @@ def program():
     wx(AX,2); wy(AY,2); a(("LDI",WW-4)); a(("STA",AW)); a(("LDI",12)); a(("STA",AH)); a(("LDI",NAV)); a(("STA",ACOL)); a(("CALL","fillrect"))
     # title text by app
     wx(SX,5); wy(SY,4); a(("LDI",WHT)); a(("STA",SCOL)); a(("LDI",1)); a(("STA",BOLD))   # bold title
-    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("CMPI",3)); a(("JZ","tc")); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("JMP","tp"))
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("CMPI",3)); a(("JZ","tc")); a(("CMPI",4)); a(("JZ","tpa")); a(("LDI",soff("mine"))); a(("STA",SPTR)); a(("JMP","tp"))
     a(("tw:",)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("JMP","tp")); a(("ts:",)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("JMP","tp"))
-    a(("tc:",)); a(("LDI",soff("calc"))); a(("STA",SPTR))
+    a(("tc:",)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("JMP","tp")); a(("tpa:",)); a(("LDI",soff("paint"))); a(("STA",SPTR))
     a(("tp:",)); a(("CALL","puts2")); a(("LDI",0)); a(("STA",BOLD))
     # close box
     wx(AX,WW-13); wy(AY,3); a(("LDI",10)); a(("STA",AW)); a(("LDI",10)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
     wx(GX,WW-11); wy(GY,4); a(("LDI",gi('x'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
     # body
-    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","body_w")); a(("CMPI",2)); a(("JZ","body_s")); a(("CMPI",3)); a(("JZ","body_c")); a(("CALL","draw_paint")); a(("RET",))
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","body_w")); a(("CMPI",2)); a(("JZ","body_s")); a(("CMPI",3)); a(("JZ","body_c")); a(("CMPI",4)); a(("JZ","body_p")); a(("CALL","draw_mine")); a(("RET",))
+    a(("body_p:",)); a(("CALL","draw_paint")); a(("RET",))
     a(("body_w:",)); a(("CALL","draw_writer")); a(("RET",))
     a(("body_s:",)); a(("CALL","draw_sheet")); a(("RET",))
     a(("body_c:",)); a(("CALL","draw_calc")); a(("RET",))
@@ -341,20 +367,85 @@ def program():
     a(("LDI",1)); a(("STA",DIRTY))
     a(("pp_no:",)); a(("RET",))
 
+    # ============ MINESWEEPER (APP=5) ============
+    # new game: clear grid, place MINES via an LCG (deterministic -> Alice/Bob identical), count neighbours
+    a(("mnew:",)); a(("LDI",0)); a(("STA",MI))
+    a(("mn_clr:",)); a(("LDX",MI)); a(("LDI",0)); a(("STAX",MGRID)); a(("LDA",MI)); a(("ADDI",1)); a(("STA",MI)); a(("CMPI",64)); a(("JNC","mn_clr"))
+    a(("LDI",0)); a(("STA",MOVER)); a(("STA",MNREV)); a(("STA",MK))
+    a(("mn_place:",)); a(("LDA",MK)); a(("CMPI",MINES)); a(("JC","mn_counts"))
+    a(("LDA",MSEED)); a(("SHL",)); a(("SHL",)); a(("STA",MTMP)); a(("LDA",MSEED)); a(("ADD",MTMP)); a(("ADDI",1)); a(("STA",MSEED))   # seed=seed*5+1
+    a(("ANDI",0x3F)); a(("STA",MIDX))
+    a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("ANDI",0x01)); a(("JNZ","mn_place"))   # already a mine -> redraw seed
+    a(("LDX",MIDX)); a(("LDI",1)); a(("STAX",MGRID)); a(("LDA",MK)); a(("ADDI",1)); a(("STA",MK)); a(("JMP","mn_place"))
+    a(("mn_counts:",)); a(("LDI",0)); a(("STA",MI))
+    a(("mn_cl:",)); a(("LDX",MI)); a(("LDAX",MGRID)); a(("ANDI",0x01)); a(("JZ","mn_cn"))
+    a(("LDA",MI)); a(("SHR",)); a(("SHR",)); a(("SHR",)); a(("STA",MR)); a(("LDA",MI)); a(("ANDI",0x07)); a(("STA",MC))
+    gen_neighbors(lambda k:(a(("LDAX",MGRID)),a(("ADDI",0x10)),a(("STAX",MGRID))), "mc")
+    a(("mn_cn:",)); a(("LDA",MI)); a(("ADDI",1)); a(("STA",MI)); a(("CMPI",64)); a(("JNC","mn_cl"))
+    a(("RET",))
+    # flood-reveal from MIDX (iterative; queued bit 0x08 dedups so the stack stays <=64 deep)
+    a(("mreveal:",)); a(("LDI",0)); a(("STA",MSP)); a(("LDX",MSP)); a(("LDA",MIDX)); a(("STAX",MSTK)); a(("LDI",1)); a(("STA",MSP))
+    a(("fl_loop:",)); a(("LDA",MSP)); a(("JZ","fl_done"))
+    a(("SUBI",1)); a(("STA",MSP)); a(("LDX",MSP)); a(("LDAX",MSTK)); a(("STA",MI))
+    a(("LDX",MI)); a(("LDAX",MGRID)); a(("ANDI",0x02)); a(("JNZ","fl_loop"))     # already revealed
+    a(("LDX",MI)); a(("LDAX",MGRID)); a(("ANDI",0x04)); a(("JNZ","fl_loop"))     # flagged -> leave
+    a(("LDX",MI)); a(("LDAX",MGRID)); a(("ADDI",2)); a(("STAX",MGRID))           # set revealed
+    a(("LDA",MNREV)); a(("ADDI",1)); a(("STA",MNREV))
+    a(("LDX",MI)); a(("LDAX",MGRID)); a(("ANDI",0xF0)); a(("JNZ","fl_loop"))     # count>0 -> stop flood here
+    a(("LDA",MI)); a(("SHR",)); a(("SHR",)); a(("SHR",)); a(("STA",MR)); a(("LDA",MI)); a(("ANDI",0x07)); a(("STA",MC))
+    def push_action(k):
+        a(("LDAX",MGRID)); a(("ANDI",0x0A)); a(("JNZ",f"fl_ps{k}"))              # revealed or queued -> skip
+        a(("LDAX",MGRID)); a(("ADDI",0x08)); a(("STAX",MGRID))                   # mark queued
+        a(("TXA",)); a(("STA",MTMP)); a(("LDX",MSP)); a(("LDA",MTMP)); a(("STAX",MSTK)); a(("LDA",MSP)); a(("ADDI",1)); a(("STA",MSP))
+        a((f"fl_ps{k}:",))
+    gen_neighbors(push_action, "fl")
+    a(("JMP","fl_loop")); a(("fl_done:",)); a(("RET",))
+    # draw the minesweeper window body (top bar + 8x8 grid, unrolled)
+    a(("draw_mine:",))
+    wx(AX,8); wy(AY,16); a(("LDI",30)); a(("STA",AW)); a(("LDI",11)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    wx(GX,13); wy(GY,18); a(("LDI",gi('N'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+    wx(AX,42); wy(AY,16); a(("LDI",30)); a(("STA",AW)); a(("LDI",11)); a(("STA",AH))
+    a(("LDA",MFLAG)); a(("JZ","dm_fn")); a(("LDI",RED)); a(("JMP","dm_fc")); a(("dm_fn:",)); a(("LDI",SIL)); a(("dm_fc:",)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    wx(GX,47); wy(GY,18); a(("LDI",gi('F'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+    a(("LDA",MOVER)); a(("CMPI",1)); a(("JZ","dm_lose")); a(("CMPI",2)); a(("JZ","dm_win")); a(("JMP","dm_grid"))
+    a(("dm_lose:",)); wx(GX,80); wy(GY,18); a(("LDI",gi('x'))); a(("STA",GCH)); a(("LDI",RED)); a(("STA",GCOL)); a(("CALL","blitglyph")); a(("JMP","dm_grid"))
+    a(("dm_win:",)); wx(GX,80); wy(GY,18); a(("LDI",gi('W'))); a(("STA",GCH)); a(("LDI",GRN)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+    a(("dm_grid:",))
+    for r in range(GW):
+        for c in range(GW):
+            idx=r*GW+c; cx=10+c*14; cy=30+r*14; t=f"cm{idx}"
+            a(("LXI",idx)); a(("LDAX",MGRID)); a(("STA",MTMP))
+            a(("ANDI",0x02)); a(("JZ",f"{t}_h"))
+            a(("LDA",MTMP)); a(("ANDI",0x01)); a(("JZ",f"{t}_sf"))
+            wx(AX,cx); wy(AY,cy); a(("LDI",13)); a(("STA",AW)); a(("STA",AH)); a(("LDI",RED)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("JMP",f"{t}_d"))
+            a((f"{t}_sf:",)); wx(AX,cx); wy(AY,cy); a(("LDI",13)); a(("STA",AW)); a(("STA",AH)); a(("LDI",WHT)); a(("STA",ACOL)); a(("CALL","fillrect"))
+            a(("LDA",MTMP)); a(("ANDI",0xF0)); a(("JZ",f"{t}_d"))
+            a(("LDA",MTMP)); a(("SHR",)); a(("SHR",)); a(("SHR",)); a(("SHR",)); a(("STA",GCH))
+            wx(GX,cx+4); wy(GY,cy+3); a(("LDI",NAV)); a(("STA",GCOL)); a(("CALL","blitglyph")); a(("JMP",f"{t}_d"))
+            a((f"{t}_h:",)); a(("LDA",MOVER)); a(("CMPI",1)); a(("JNZ",f"{t}_b")); a(("LDA",MTMP)); a(("ANDI",0x01)); a(("JZ",f"{t}_b"))
+            wx(AX,cx); wy(AY,cy); a(("LDI",13)); a(("STA",AW)); a(("STA",AH)); a(("LDI",RED)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("JMP",f"{t}_d"))
+            a((f"{t}_b:",)); wx(AX,cx); wy(AY,cy); a(("LDI",13)); a(("STA",AW)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+            a(("LDA",MTMP)); a(("ANDI",0x04)); a(("JZ",f"{t}_d"))
+            wx(GX,cx+4); wy(GY,cy+3); a(("LDI",gi('F'))); a(("STA",GCH)); a(("LDI",RED)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+            a((f"{t}_d:",))
+    a(("RET",))
+
     # ---- start menu ----
     a(("drawmenu:",))
-    a(("LDI",2)); a(("STA",AX)); a(("LDI",134)); a(("STA",AY)); a(("LDI",70)); a(("STA",AW)); a(("LDI",48)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",137)); a(("STA",SY)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",148)); a(("STA",SY)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",159)); a(("STA",SY)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",170)); a(("STA",SY)); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",2)); a(("STA",AX)); a(("LDI",123)); a(("STA",AY)); a(("LDI",70)); a(("STA",AW)); a(("LDI",59)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",126)); a(("STA",SY)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",137)); a(("STA",SY)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",148)); a(("STA",SY)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",159)); a(("STA",SY)); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",170)); a(("STA",SY)); a(("LDI",soff("mine"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
     a(("RET",))
 
     # ============ boot + main ============
     a(("boot:",)); a(("LDI",0))
-    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD,PCOL): a(("STA",v))
+    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD,PCOL,MFLAG): a(("STA",v))
     a(("LDI",1)); a(("STA",C_FRESH)); a(("STA",DIRTY))
     a(("CALL","clearpaint"))    # paint canvas starts white
+    a(("LDI",0x4D)); a(("STA",MSEED)); a(("CALL","mnew"))   # minesweeper: seed LCG + first board
     a(("LDI",80)); a(("STA",CX)); a(("STA",OCX)); a(("LDI",70)); a(("STA",CY)); a(("STA",OCY))
     a(("LDI",WINX)); a(("STA",WX)); a(("LDI",WINY)); a(("STA",WY))
     a(("main:",))
@@ -403,12 +494,12 @@ def program():
     a(("LDA",MX)); a(("CMPI",2)); a(("JNC","oc_notstart")); a(("CMPI",43)); a(("JC","oc_notstart")); a(("LDA",MY)); a(("CMPI",182)); a(("JNC","oc_notstart"))
     a(("LDA",START)); a(("JNZ","oc_sclose")); a(("LDI",1)); a(("STA",START)); a(("JMP","oc_dirty")); a(("oc_sclose:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_notstart:",))
-    # start menu items (if open): box x2..72 y134..182, items at y137/148/159/170
+    # start menu items (if open): box x2..72 y123..182, items at y126/137/148/159/170
     a(("LDA",START)); a(("JZ","oc_nomenu"))
     a(("LDA",MX)); a(("CMPI",2)); a(("JNC","oc_menudone")); a(("CMPI",72)); a(("JC","oc_menudone"))
-    a(("LDA",MY)); a(("CMPI",146)); a(("JNC","oc_pickw")); a(("CMPI",158)); a(("JNC","oc_picks")); a(("CMPI",170)); a(("JNC","oc_pickc")); a(("CMPI",182)); a(("JNC","oc_pickp")); a(("JMP","oc_menudone"))
+    a(("LDA",MY)); a(("CMPI",134)); a(("JNC","oc_pickw")); a(("CMPI",145)); a(("JNC","oc_picks")); a(("CMPI",156)); a(("JNC","oc_pickc")); a(("CMPI",167)); a(("JNC","oc_pickp")); a(("CMPI",178)); a(("JNC","oc_pickm")); a(("JMP","oc_menudone"))
     a(("oc_pickw:",)); a(("LDI",1)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_picks:",)); a(("LDI",2)); a(("STA",APP)); a(("JMP","oc_mclose"))
-    a(("oc_pickc:",)); a(("LDI",3)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickp:",)); a(("LDI",4)); a(("STA",APP))
+    a(("oc_pickc:",)); a(("LDI",3)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickp:",)); a(("LDI",4)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickm:",)); a(("LDI",5)); a(("STA",APP))
     a(("oc_mclose:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_menudone:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_nomenu:",))
@@ -421,7 +512,7 @@ def program():
     hx(2,"oc_notitle",False); hx(WW-14,"oc_notitle",True); hy(2,"oc_notitle",False); hy(14,"oc_notitle",True)
     a(("LDI",1)); a(("STA",DRAG)); a(("LDA",MX)); a(("SUB",WX)); a(("STA",DOFX)); a(("LDA",MY)); a(("SUB",WY)); a(("STA",DOFY)); a(("RET",))
     a(("oc_notitle:",))
-    a(("LDA",APP)); a(("CMPI",2)); a(("JZ","oc_sheet")); a(("CMPI",3)); a(("JZ","oc_calc")); a(("CMPI",4)); a(("JZ","oc_paint")); a(("JMP","oc_dirty"))  # writer body: nothing on click
+    a(("LDA",APP)); a(("CMPI",2)); a(("JZ","oc_sheet")); a(("CMPI",3)); a(("JZ","oc_calc")); a(("CMPI",4)); a(("JZ","oc_paint")); a(("CMPI",5)); a(("JZ","oc_mine")); a(("JMP","oc_dirty"))  # writer body: nothing on click
     # sheet clicks: cells + +/- buttons
     a(("oc_sheet:",))
     for idx,(bx,by) in enumerate(SCELLS):
@@ -453,6 +544,33 @@ def program():
         a(("LDI",col)); a(("STA",PCOL)); a(("JMP","oc_dirty")); a((f"{lbl}:",))
     hx(106,"oc_dirty",False); hx(136,"oc_dirty",True); hy(132,"oc_dirty",False); hy(145,"oc_dirty",True)
     a(("CALL","clearpaint")); a(("JMP","oc_dirty"))
+
+    # minesweeper clicks: New / Flag-toggle / grid cell
+    a(("oc_mine:",))
+    hx(8,"m_nf",False); hx(38,"m_nf",True); hy(16,"m_nf",False); hy(27,"m_nf",True)
+    a(("CALL","mnew")); a(("JMP","oc_dirty")); a(("m_nf:",))
+    hx(42,"m_ff",False); hx(72,"m_ff",True); hy(16,"m_ff",False); hy(27,"m_ff",True)
+    a(("LDA",MFLAG)); a(("JZ","m_fon")); a(("LDI",0)); a(("STA",MFLAG)); a(("JMP","oc_dirty")); a(("m_fon:",)); a(("LDI",1)); a(("STA",MFLAG)); a(("JMP","oc_dirty")); a(("m_ff:",))
+    a(("LDA",MOVER)); a(("JNZ","oc_dirty"))                       # game over -> only New/Flag act
+    hx(10,"oc_dirty",False); hx(122,"oc_dirty",True); hy(30,"oc_dirty",False); hy(142,"oc_dirty",True)
+    a(("LDA",MX)); a(("SUB",WX)); a(("SUBI",10)); a(("STA",MTMP)); a(("LDI",0)); a(("STA",MC))
+    a(("m_cd:",)); a(("LDA",MTMP)); a(("CMPI",14)); a(("JNC","m_cdd")); a(("SUBI",14)); a(("STA",MTMP)); a(("LDA",MC)); a(("ADDI",1)); a(("STA",MC)); a(("JMP","m_cd")); a(("m_cdd:",))
+    a(("LDA",MY)); a(("SUB",WY)); a(("SUBI",30)); a(("STA",MTMP)); a(("LDI",0)); a(("STA",MR))
+    a(("m_rd:",)); a(("LDA",MTMP)); a(("CMPI",14)); a(("JNC","m_rdd")); a(("SUBI",14)); a(("STA",MTMP)); a(("LDA",MR)); a(("ADDI",1)); a(("STA",MR)); a(("JMP","m_rd")); a(("m_rdd:",))
+    a(("LDA",MC)); a(("CMPI",GW)); a(("JC","oc_dirty")); a(("LDA",MR)); a(("CMPI",GW)); a(("JC","oc_dirty"))
+    a(("LDA",MR)); a(("SHL",)); a(("SHL",)); a(("SHL",)); a(("ADD",MC)); a(("STA",MIDX))
+    a(("LDA",MFLAG)); a(("JZ","m_rev"))
+    a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("ANDI",0x02)); a(("JNZ","oc_dirty"))   # revealed -> can't flag
+    a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("ANDI",0x04)); a(("JNZ","m_unflag"))
+    a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("ADDI",0x04)); a(("STAX",MGRID)); a(("JMP","oc_dirty"))
+    a(("m_unflag:",)); a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("SUBI",0x04)); a(("STAX",MGRID)); a(("JMP","oc_dirty"))
+    a(("m_rev:",))
+    a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("ANDI",0x04)); a(("JNZ","oc_dirty"))   # flagged -> don't reveal
+    a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("ANDI",0x02)); a(("JNZ","oc_dirty"))   # already revealed
+    a(("LDX",MIDX)); a(("LDAX",MGRID)); a(("ANDI",0x01)); a(("JZ","m_safe"))
+    a(("LDI",1)); a(("STA",MOVER)); a(("JMP","oc_dirty"))                         # mine -> lose
+    a(("m_safe:",)); a(("CALL","mreveal"))
+    a(("LDA",MNREV)); a(("CMPI",64-MINES)); a(("JNC","oc_dirty")); a(("LDI",2)); a(("STA",MOVER)); a(("JMP","oc_dirty"))   # all safe revealed -> win
 
     # calc ops (8-bit display via C_CUR; result shown in C_CUR)
     a(("cdig:",)); a(("LDA",C_FRESH)); a(("JZ","cd_a")); a(("LDI",0)); a(("STA",C_CUR)); a(("LDI",0)); a(("STA",C_FRESH))
