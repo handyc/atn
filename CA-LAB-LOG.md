@@ -1631,3 +1631,12 @@ gliders-to-computer (5,8,9,10) -> computer+OS (11-14: Doom, CA-1 98, CA-OS) -> A
 relative path. Verified: 24 cards, all 24 present. (index.html is local/gitignored like the labs.)
 This completes the user's 3-stage vision: full 32-bit office suite (Stage 1) + the dual-pane mega-lab
 with metrics/How-it-works/live-CA (Stage 2) + the earlier-experiments hub (Stage 3).
+
+## CA-OS/2 Writer freeze fixed: body-only redraw (2026-06-17)
+User: "Writer in 32-bit OS freezes after one character." Measured: each keystroke triggered a FULL
+512x384 redraw = 2,886,437 instr (the 196608-px background fill dominated), vs 4,712 idle -- the per-key
+redraw was so heavy it read as a freeze in the browser. Fix: a body-only redraw path (BDIRTY) that
+redraws just the active app's window interior, not the whole desktop. Content changes (typing, calc keys,
+sheet entry, paint palette) now set BDIRTY; only app-switch sets full DIRTY. Keystroke cost dropped to
+623,832 instr (~4.6x faster). caos_ca2 + labs 22/24 regenerated, boot byte-identical. Next (user QA pass):
+fonts, mouse y-shift, Writer save/load, Sheet CSV import/export, Paint save/load, visual inspection.

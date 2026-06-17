@@ -31,6 +31,7 @@ DNV, DH, DT          = 0x60, 0x64, 0x68     # decimal renderer temps (blitglyph-
 APP, DIRTY, PCOL     = 0x6C, 0x70, 0x74     # active app (0 About,1 Paint,2 Calc); redraw flag; paint colour
 CACC, CCUR, COP, CFRESH = 0x78, 0x7C, 0x80, 0x84   # calculator state (all 32-bit)
 TLEN, KEY, SELC, CWV    = 0x88, 0x8C, 0x90, 0x94   # writer length / key register / sheet sel / cell-write value
+BDIRTY                  = 0x98                      # body-only redraw (content change) — skips the full desktop
 CURBUF = 0x0100
 FONT   = 0x0400
 TBUF   = 0x0500            # writer text buffer (glyph-index bytes)
@@ -136,6 +137,14 @@ def program():
     a(("body_w:",)); a(("CALL", "draw_writer")); a(("JMP", "draw_d"))
     a(("body_s:",)); a(("CALL", "draw_sheet"))
     a(("draw_d:",)); a(("CALL", "drawclock")); a(("RET",))
+    # body-only redraw: just the active app's window interior (skips the 196608-px desktop fill)
+    a(("drawbody:",))
+    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "db_p")); a(("CMPI", 2)); a(("JZ", "db_c")); a(("CMPI", 3)); a(("JZ", "db_w")); a(("CMPI", 4)); a(("JZ", "db_s"))
+    a(("CALL", "draw_about")); a(("RET",))
+    a(("db_p:",)); a(("CALL", "draw_paint")); a(("RET",))
+    a(("db_c:",)); a(("CALL", "draw_calc")); a(("RET",))
+    a(("db_w:",)); a(("CALL", "draw_writer")); a(("RET",))
+    a(("db_s:",)); a(("CALL", "draw_sheet")); a(("RET",))
 
     # ---- About app ----
     a(("draw_about:",))
@@ -236,7 +245,7 @@ def program():
         r, c = idx//3, idx%3; cx, cy = 12+c*108, 24+r*42
         a(("LDW", MX)); a(("CMPI", WINX+cx)); a(("JNC", f"ns{idx}")); a(("CMPI", WINX+cx+102)); a(("JC", f"ns{idx}"))
         a(("LDW", MY)); a(("CMPI", WINY+cy)); a(("JNC", f"ns{idx}")); a(("CMPI", WINY+cy+36)); a(("JC", f"ns{idx}"))
-        a(("LDI", idx)); a(("STW", SELC)); a(("LDI", 1)); a(("STW", DIRTY)); a(("RET",)); a((f"ns{idx}:",))
+        a(("LDI", idx)); a(("STW", SELC)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("RET",)); a((f"ns{idx}:",))
     a(("RET",))
     # Paint: palette swatches
     a(("oc_paint:",))
@@ -244,7 +253,7 @@ def program():
         sx = WINX+10 + i*30
         a(("LDW", MX)); a(("CMPI", sx)); a(("JNC", f"np{i}")); a(("CMPI", sx+26)); a(("JC", f"np{i}"))
         a(("LDW", MY)); a(("CMPI", WINY+20)); a(("JNC", f"np{i}")); a(("CMPI", WINY+36)); a(("JC", f"np{i}"))
-        a(("LDI", col)); a(("STW", PCOL)); a(("LDI", 1)); a(("STW", DIRTY)); a(("RET",)); a((f"np{i}:",))
+        a(("LDI", col)); a(("STW", PCOL)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("RET",)); a((f"np{i}:",))
     a(("RET",))
     # Calc: keypad
     a(("oc_calc:",))
@@ -266,7 +275,7 @@ def program():
                 a(("LDI", {'+':0,'-':1,'x':2}[lab])); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH))
             elif lab == '=':
                 a(("CALL", "calc_apply")); a(("LDW", CACC)); a(("STW", CCUR)); a(("LDI", 0)); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH))
-            a(("LDI", 1)); a(("STW", DIRTY)); a(("RET",)); a((f"{t}:",))
+            a(("LDI", 1)); a(("STW", BDIRTY)); a(("RET",)); a((f"{t}:",))
     a(("RET",))
     # calc_apply: fold CCUR into CACC using COP (first op just loads CACC)
     a(("calc_apply:",))
@@ -309,13 +318,13 @@ def program():
     a(("LDW", TLEN)); a(("CMPI", 1800)); a(("JC", "ki_wd"))
     a(("LDW", TLEN)); a(("TAX",)); a(("LDW", KEY)); a(("STAX", TBUF)); a(("LDW", TLEN)); a(("ADDI", 1)); a(("STW", TLEN)); a(("JMP", "ki_wdt"))
     a(("ki_bs:",)); a(("LDW", TLEN)); a(("JZ", "ki_wd")); a(("SUBI", 1)); a(("STW", TLEN))
-    a(("ki_wdt:",)); a(("LDI", 1)); a(("STW", DIRTY)); a(("ki_wd:",)); a(("RET",))
+    a(("ki_wdt:",)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("ki_wd:",)); a(("RET",))
     a(("ki_s:",)); a(("LDW", KEY)); a(("CMPI", 0xFE)); a(("JZ", "ks_clr"))
     a(("LDW", KEY)); a(("CMPI", 10)); a(("JNC", "ks_dig")); a(("RET",))
     a(("ks_clr:",)); a(("LDI", 0)); a(("STW", CWV)); a(("CALL", "cell_write")); a(("JMP", "ks_d"))
     a(("ks_dig:",)); a(("CALL", "cell_read")); a(("STW", T3)); a(("CMPI", 100000000)); a(("JC", "ki_sd"))
     a(("LDW", T3)); shl(3); a(("STW", T2)); a(("LDW", T3)); a(("SHL",)); a(("ADDW", T2)); a(("ADDW", KEY)); a(("STW", CWV)); a(("CALL", "cell_write"))
-    a(("ks_d:",)); a(("LDI", 1)); a(("STW", DIRTY)); a(("ki_sd:",)); a(("RET",))
+    a(("ks_d:",)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("ki_sd:",)); a(("RET",))
     # cell_read -> A = CELLS[SELC] (assemble 4 bytes) ; cell_write: CWV -> CELLS[SELC]
     a(("cell_read:",)); a(("LDW", SELC)); a(("SHL",)); a(("SHL",)); a(("STW", T0)); a(("LDI", 0)); a(("STW", T1))
     for b in range(4):
@@ -332,7 +341,7 @@ def program():
 
     # ============ boot + main ============
     a(("boot:",))
-    for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP, TLEN, KEY, SELC, CWV): a(("LDI", 0)); a(("STW", v))
+    for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP, TLEN, KEY, SELC, CWV, BDIRTY): a(("LDI", 0)); a(("STW", v))
     for i in range(12): a(("LDI", 0)); a(("STW", CELLS+i*4))      # clear sheet cells
     a(("LDI", 1)); a(("STW", CFRESH)); a(("STW", DIRTY)); a(("LDI", RED)); a(("STW", PCOL))
     a(("LDI", W//2)); a(("STW", CX)); a(("STW", OCX)); a(("LDI", H//2)); a(("STW", CY)); a(("STW", OCY))
@@ -348,8 +357,11 @@ def program():
     # keyboard: KEY holds (glyph index + 1), 0 = none (so digit '0' = glyph 0 isn't lost); decode -1
     a(("LDW", KEY)); a(("JZ", "nokey")); a(("SUBI", 1)); a(("STW", KEY)); a(("CALL", "keyin")); a(("LDI", 0)); a(("STW", KEY)); a(("nokey:",))
     # full redraw on DIRTY (app switch / button / palette / paint stroke region)
-    a(("LDW", DIRTY)); a(("JZ", "nodraw")); a(("LDW", HAVES)); a(("JZ", "nrd")); a(("CALL", "restun")); a(("nrd:",))
-    a(("CALL", "draw")); a(("LDI", 0)); a(("STW", DIRTY)); a(("LDI", 0)); a(("STW", HAVES)); a(("nodraw:",))
+    a(("LDW", DIRTY)); a(("JZ", "chkbody"))
+    a(("LDW", HAVES)); a(("JZ", "nrd1")); a(("CALL", "restun")); a(("nrd1:",))
+    a(("CALL", "draw")); a(("LDI", 0)); a(("STW", DIRTY)); a(("LDI", 0)); a(("STW", BDIRTY)); a(("LDI", 0)); a(("STW", HAVES)); a(("JMP", "nodraw"))
+    a(("chkbody:",)); a(("LDW", BDIRTY)); a(("JZ", "nodraw")); a(("LDW", HAVES)); a(("JZ", "nrd2")); a(("CALL", "restun")); a(("nrd2:",))
+    a(("CALL", "drawbody")); a(("LDI", 0)); a(("STW", BDIRTY)); a(("LDI", 0)); a(("STW", HAVES)); a(("nodraw:",))
     # clock tick (uptime seconds, 0..999)
     a(("LDW", CLKF)); a(("ADDI", 1)); a(("STW", CLKF)); a(("CMPI", 60)); a(("JNC", "noclk"))
     a(("LDI", 0)); a(("STW", CLKF)); a(("LDW", CSEC)); a(("ADDI", 1)); a(("STW", T0)); a(("LDW", T0)); a(("CMPI", 1000)); a(("JNC", "csok")); a(("LDI", 0)); a(("STW", T0)); a(("csok:",)); a(("LDW", T0)); a(("STW", CSEC))
