@@ -1673,3 +1673,14 @@ wraps, and newlines fine):
 Note on tooling: headless Chromium --screenshot/--dump-dom is unreliable for rAF/timer-paced
 INTERACTIVE tests (virtual-time starves rAF vs setInterval) -- use the deterministic Python VM
 (byte-identical) for input-timing logic; reserve the browser for layout/CSS/render checks.
+
+## Width-clean OS: same caos source now runs on 32/64/128-bit (2026-06-17)
+The OS broke on CA-3 (128-bit) because variables/cells were packed 4 bytes apart (a 32-bit
+assumption), but a word store writes word_bits/8 bytes -> on 128-bit each STW (16 bytes) clobbered
+the next 3 variables -> runaway. Fix: lay variables and sheet cells out at VS=16 bytes per slot
+(supports word widths up to 128-bit; CA-2 uses 4 of each slot, CA-3 all 16, no collision). Buffers
+relocated (CURBUF 0x300, FONT 0x400, TBUF 0x700, CELLS 0xF00 @ stride 16). Cell address math and the
+labs' CSV save/load now use CSTRIDE. VERIFIED: the SAME program boots byte-identical on CA-2 (32-bit)
+AND CA-3 (128-bit), and stays identical through Sheet entry (cell=42 both) and Writer typing+Enter.
+CA-2 labs boot byte-identical (no regression); CSV round-trip intact. (A 128-bit *browser* lab would
+need a BigInt VM like lab23; the width-cleanliness itself is proven in the Python/CA VM.)

@@ -16,7 +16,7 @@ OS = dict(
     mem={str(a): m.M[a] for a in range(0x10000) if m.M[a]},   # initial memory (font); FB is drawn at runtime
     SP=0x7FFF, W=o.W, H=o.H, FB=o.FB, MX=o.MX, MY=o.MY, MB=o.MB, KEY=o.KEY, PAL=o.PAL, GIDX=o.c1.GIDX,
     TBUF=o.TBUF, TLEN=o.TLEN, CELLS=o.CELLS, DIRTY=o.DIRTY, APP=o.APP,
-    WINX=o.WINX, WINY=o.WINY, WW=o.WW, WH=o.WH)
+    WINX=o.WINX, WINY=o.WINY, WW=o.WW, WH=o.WH, CSTRIDE=o.CSTRIDE)
 OSJSON = json.dumps(OS, separators=(",", ":"))
 
 HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -116,11 +116,11 @@ document.getElementById("wload").onclick=()=>pick(".txt,text/plain",f=>{const r=
    vm.M[OS.TBUF+i++]=g;}
   wr32(OS.TLEN,i);wr32(OS.APP,3);wr32(OS.DIRTY,1);};r.readAsText(f);});
 // Sheet: 12 cells (4 rows x 3 cols) <-> CSV
-document.getElementById("csave").onclick=()=>{const rows=[];for(let r=0;r<4;r++){const c=[];for(let col=0;col<3;col++)c.push(rd32(OS.CELLS+(r*3+col)*4));rows.push(c.join(","));}
+document.getElementById("csave").onclick=()=>{const rows=[];for(let r=0;r<4;r++){const c=[];for(let col=0;col<3;col++)c.push(rd32(OS.CELLS+(r*3+col)*OS.CSTRIDE));rows.push(c.join(","));}
  dl("sheet.csv",new Blob([rows.join("\n")+"\n"],{type:"text/csv"}));};
 document.getElementById("cload").onclick=()=>pick(".csv,text/csv",f=>{const r=new FileReader();
  r.onload=()=>{const cells=[];r.result.split(/\r?\n/).forEach(L=>{if(!L.trim())return;L.split(",").forEach(v=>cells.push((parseInt(v.trim(),10)||0)>>>0));});
-  for(let i=0;i<12;i++)wr32(OS.CELLS+i*4,cells[i]||0);wr32(OS.APP,4);wr32(OS.DIRTY,1);};r.readAsText(f);});
+  for(let i=0;i<12;i++)wr32(OS.CELLS+i*OS.CSTRIDE,cells[i]||0);wr32(OS.APP,4);wr32(OS.DIRTY,1);};r.readAsText(f);});
 // Paint: canvas region of the framebuffer <-> PNG
 const CXo=OS.WINX+10,CYo=OS.WINY+42,CWp=OS.WW-20,CHp=OS.WH-54;
 document.getElementById("psave").onclick=()=>{const cv=document.createElement("canvas");cv.width=CWp;cv.height=CHp;

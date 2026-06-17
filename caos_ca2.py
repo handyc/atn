@@ -20,24 +20,21 @@ PAL = c1.PAL
 BLK, TEAL, SIL, GRY, WHT, NAV, LSV, BLU, RED, GRN = range(10)
 gi = c1.gi
 
-# ---- 32-bit OS variables (4 bytes each) ----
-AX, AY, AW, AH, ACOL = 0x00, 0x04, 0x08, 0x0C, 0x10
-GX, GY, GCH, GCOL    = 0x14, 0x18, 0x1C, 0x20
-T0, T1, T2, T3       = 0x24, 0x28, 0x2C, 0x30
-MX, MY, MB, MBP      = 0x34, 0x38, 0x3C, 0x40
-CX, CY, OCX, OCY     = 0x44, 0x48, 0x4C, 0x50
-HAVES, CLKF, CSEC    = 0x54, 0x58, 0x5C
-DNV, DH, DT          = 0x60, 0x64, 0x68     # decimal renderer temps (blitglyph-safe)
-APP, DIRTY, PCOL     = 0x6C, 0x70, 0x74     # active app (0 About,1 Paint,2 Calc); redraw flag; paint colour
-CACC, CCUR, COP, CFRESH = 0x78, 0x7C, 0x80, 0x84   # calculator state (all 32-bit)
-TLEN, KEY, SELC, CWV    = 0x88, 0x8C, 0x90, 0x94   # writer length / key register / sheet sel / cell-write value
-BDIRTY                  = 0x98                      # body-only redraw (content change) — skips the full desktop
-WI                      = 0x9C                      # writer render loop index (blitglyph clobbers T0..T3)
-PFRESH                  = 0xA0                      # paint: clear the canvas once on open (palette picks must NOT wipe it)
-CURBUF = 0x0100
-FONT   = 0x0400
-TBUF   = 0x0500            # writer text buffer (glyph-index bytes)
-CELLS  = 0x0E00            # sheet cells (12 x 32-bit words)
+# ---- OS variables, each given a slot of VS bytes so the SAME program runs on ANY word width up to
+#      VS*8 bits: CA-2 (32-bit) uses 4 bytes of each slot, CA-3 (128-bit) uses all 16 — STW never
+#      overruns into the next variable. (A word store writes word_bits/8 bytes, so 4-byte spacing
+#      only worked on 32-bit; that was the bug that made the OS break on CA-3.) ----
+VS = 16                                              # bytes per variable/cell slot -> word widths up to 128-bit
+CELL_SHL = (VS).bit_length() - 1                     # log2(VS): SELC*VS via shifts
+_VARS = ("AX AY AW AH ACOL GX GY GCH GCOL T0 T1 T2 T3 MX MY MB MBP "
+         "CX CY OCX OCY HAVES CLKF CSEC DNV DH DT APP DIRTY PCOL "
+         "CACC CCUR COP CFRESH TLEN KEY SELC CWV BDIRTY WI PFRESH").split()
+for _i, _n in enumerate(_VARS): globals()[_n] = _i * VS   # AX=0, AY=VS, ... laid out contiguously
+CURBUF  = 0x0300          # cursor 8x8 save-under (byte-addressed -> width-independent)
+FONT    = 0x0400          # 5x7 glyphs (byte-addressed)
+TBUF    = 0x0700          # writer text buffer (glyph-index bytes; byte-addressed)
+CELLS   = 0x0F00          # sheet cells (12 x VS-byte words)
+CSTRIDE = VS              # spacing between sheet cells (>= bytes-per-word on any supported machine)
 CURSOR = [0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xE0, 0x40]
 
 # window + taskbar geometry
@@ -313,9 +310,9 @@ def program():
         a(("LDW", SELC)); a(("CMPI", idx)); a(("JNZ", f"shw{idx}"))
         rect(WINX+cx+1, WINY+cy+1, 100, 34, LSV); a(("JMP", f"shv{idx}"))
         a((f"shw{idx}:",)); rect(WINX+cx+1, WINY+cy+1, 100, 34, WHT); a((f"shv{idx}:",))
-        a(("LDW", CELLS+idx*4)); a(("STW", DNV)); a(("LDI", WINX+cx+6)); a(("STW", GX)); a(("LDI", WINY+cy+12)); a(("STW", GY)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "dnum"))
+        a(("LDW", CELLS+idx*CSTRIDE)); a(("STW", DNV)); a(("LDI", WINX+cx+6)); a(("STW", GX)); a(("LDI", WINY+cy+12)); a(("STW", GY)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "dnum"))
     a(("LDW", CELLS))
-    for i in range(1, 12): a(("ADDW", CELLS+i*4))
+    for i in range(1, 12): a(("ADDW", CELLS+i*CSTRIDE))
     a(("STW", DNV))
     rect(WINX+12, WINY+202, 160, 11, SIL)                   # clear the total line (it redraws on every keystroke)
     puts(WINX+12, WINY+204, "Total =", BLK)
@@ -335,13 +332,13 @@ def program():
     a(("LDW", T3)); shl(3); a(("STW", T2)); a(("LDW", T3)); a(("SHL",)); a(("ADDW", T2)); a(("ADDW", KEY)); a(("STW", CWV)); a(("CALL", "cell_write"))
     a(("ks_d:",)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("ki_sd:",)); a(("RET",))
     # cell_read -> A = CELLS[SELC] (assemble 4 bytes) ; cell_write: CWV -> CELLS[SELC]
-    a(("cell_read:",)); a(("LDW", SELC)); a(("SHL",)); a(("SHL",)); a(("STW", T0)); a(("LDI", 0)); a(("STW", T1))
+    a(("cell_read:",)); a(("LDW", SELC)); shl(CELL_SHL); a(("STW", T0)); a(("LDI", 0)); a(("STW", T1))   # T0 = SELC*VS
     for b in range(4):
         a(("LDW", T0)); a(("ADDI", b)); a(("TAX",)); a(("LDAX", CELLS))
         for _ in range(8*b): a(("SHL",))
         a(("ADDW", T1)); a(("STW", T1))
     a(("LDW", T1)); a(("RET",))
-    a(("cell_write:",)); a(("LDW", SELC)); a(("SHL",)); a(("SHL",)); a(("STW", T0))
+    a(("cell_write:",)); a(("LDW", SELC)); shl(CELL_SHL); a(("STW", T0))   # T0 = SELC*VS
     for b in range(4):
         a(("LDW", CWV))
         for _ in range(8*b): a(("SHR",))
@@ -351,7 +348,7 @@ def program():
     # ============ boot + main ============
     a(("boot:",))
     for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP, TLEN, KEY, SELC, CWV, BDIRTY, PFRESH): a(("LDI", 0)); a(("STW", v))
-    for i in range(12): a(("LDI", 0)); a(("STW", CELLS+i*4))      # clear sheet cells
+    for i in range(12): a(("LDI", 0)); a(("STW", CELLS+i*CSTRIDE))   # clear sheet cells (zeros the full VS-byte slot on wide machines)
     a(("LDI", 1)); a(("STW", CFRESH)); a(("STW", DIRTY)); a(("LDI", RED)); a(("STW", PCOL))
     a(("LDI", W//2)); a(("STW", CX)); a(("STW", OCX)); a(("LDI", H//2)); a(("STW", CY)); a(("STW", OCY))
     a(("main:",))
