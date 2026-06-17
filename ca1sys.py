@@ -15,19 +15,21 @@ import numpy as np
 
 MASK = 0xFF
 class CA1Sys:
-    def __init__(self, fb_addr=0x8000, fb_w=0, fb_h=0, inp_addr=0xFF00, memsize=0x100000):
-        # memsize default 1 MB. Near addressing (LDA/STA/LDAX/STAX) stays 16-bit = the low 64 KB
-        # "bank"; the far pointer P is 24-bit (PLO/PHI/PBK) so the machine reaches all of memsize,
-        # exactly how 8-bit micros banked past 64 KB. amask keeps every access in range.
+    def __init__(self, fb_addr=0x8000, fb_w=0, fb_h=0, inp_addr=0xFF00, memsize=0x100000, word_bits=8):
+        # PARAMETERIZED machine: word_bits is the register/ALU width (CA-1 = 8). The same code
+        # generates any width — CA-2 is just word_bits=32. memsize default 1 MB. Near addressing
+        # (LDA/STA/LDAX/STAX) is 16-bit = the low 64 KB bank; the far pointer P is 24-bit
+        # (PLO/PHI/PBK), so an 8-bit machine banks past 64 KB exactly as 6502/Z80-era micros did.
         self.M = bytearray(memsize); self.memsize = memsize; self.amask = memsize - 1
+        self.word_bits = word_bits; self.mask = (1 << word_bits) - 1; self.signbit = word_bits - 1
         self.A = 0; self.X = 0; self.P = 0; self.PC = 0    # P = 24-bit far pointer (bank<<16 | hi<<8 | lo)
         self.SP = 0x7FFF                                    # call/data stack (grows down), control-side
         self.Z = 1; self.C = 0; self.N = 0
         self.fb_addr = fb_addr; self.fb_w = fb_w; self.fb_h = fb_h; self.inp_addr = inp_addr
         self.icount = 0; self.frames = []
-    # ---- flag helper: mask to 8 bits exactly like the CA datapath, set Z/N (and C if given)
+    # ---- flag helper: mask to the machine word exactly like the CA datapath, set Z/N (and C if given)
     def _set(self, v, carry=None):
-        v8 = v & MASK; self.Z = int(v8 == 0); self.N = (v8 >> 7) & 1
+        v8 = v & self.mask; self.Z = int(v8 == 0); self.N = (v8 >> self.signbit) & 1
         if carry is not None: self.C = carry & 1
         return v8
     def snap_frame(self):
@@ -50,8 +52,8 @@ class CA1Sys:
             elif op == "TXA": self.A = self._set(self.X)
             elif op == "INX": self.X = self._set(self.X + 1)
             elif op == "DEX": self.X = self._set(self.X - 1)
-            elif op == "ADD": self.A = self._set(a + self.M[arg], carry=(a + self.M[arg]) > MASK)
-            elif op == "ADDI":self.A = self._set(a + arg, carry=(a + arg) > MASK)
+            elif op == "ADD": self.A = self._set(a + self.M[arg], carry=(a + self.M[arg]) > self.mask)
+            elif op == "ADDI":self.A = self._set(a + arg, carry=(a + arg) > self.mask)
             elif op == "SUB": self.A = self._set(a - self.M[arg], carry=int(a >= self.M[arg]))
             elif op == "SUBI":self.A = self._set(a - arg, carry=int(a >= arg))
             elif op == "AND": self.A = self._set(a & self.M[arg])
@@ -60,7 +62,7 @@ class CA1Sys:
             elif op == "XOR": self.A = self._set(a ^ self.M[arg])
             elif op == "INC": self.A = self._set(a + 1)
             elif op == "DEC": self.A = self._set(a - 1)
-            elif op == "SHL": self.A = self._set(a << 1, carry=(a >> 7) & 1)
+            elif op == "SHL": self.A = self._set(a << 1, carry=(a >> self.signbit) & 1)
             elif op == "SHR": self.A = self._set(a >> 1, carry=a & 1)
             elif op == "CMP": d = (a - self.M[arg]); self._set(d, carry=int(a >= self.M[arg]))   # flags only
             elif op == "CMPI":d = (a - arg); self._set(d, carry=int(a >= arg))
@@ -92,6 +94,17 @@ class CA1Sys:
             elif op == "HLT": break
             else: raise ValueError(f"bad op {op} @ {self.PC-1}")
         return self
+
+# ----------------------------- machine registry: generate any CA computer ----------------
+# One core, many machines. Add a row to grow the family (CA-3, …); networks instantiate N of these.
+SPECS = {
+    "CA-1": dict(word_bits=8,  memsize=0x100000),   # 8-bit, 1 MB (16-bit near + 24-bit far/banked)
+    "CA-2": dict(word_bits=32, memsize=0x100000),   # 32-bit, 1 MB (flat) — the next step (OS port pending)
+}
+def make_machine(name="CA-1", **over):
+    """Instantiate a named CA computer from the registry (override any field via kwargs)."""
+    spec = dict(SPECS[name]); spec.update(over)
+    return CA1Sys(**spec)
 
 # ----------------------------- tiny two-pass assembler -----------------------------------
 def asm(lines):

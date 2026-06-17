@@ -1482,3 +1482,18 @@ User: "expand the memory beyond 64K to say 512K" (then 1MB). Done the honest 8-b
  - NOT YET USED by the OS (it lives in bank 0); banks 1..15 (960 KB) are a free far arena for a RAM
    disk / bigger buffers / relocating the framebuffer. 32-bit width is a separate, bigger question
    (see notes / discussion) because of the CA-adder re-verification + the OS's 8-bit-wrap assumptions.
+
+## CA computers as a parameterized FAMILY — generate every which way (2026-06-17)
+User: "be sure we can generate these computers every which way" — networks of CA-1s, CA-2 (32-bit),
+room to expand. Refactored the VM into one parameterized core instead of a destructive 32-bit rewrite:
+ - ca1sys.CA1Sys gains word_bits (register/ALU width); mask/signbit/carry/shift all derive from it.
+   memsize already a param. So a machine = (word_bits, memsize, addressing). CA-1 = the 8-bit instance,
+   BYTE-IDENTICAL (sum 1..10=55, ALU still == genuine CA gates 8/8, caos3 boots, lab18 byte-identical).
+ - SPECS registry + make_machine(name, **over) factory: CA-1 {8-bit,1MB}, CA-2 {32-bit,1MB}. Add a row
+   to grow the family. CA-2 falls out of the SAME code: verified 32-bit add (0x12345678+0x11111111),
+   overflow->0+carry+zero, SHL carry. Networks = instantiate N machines + the pact/line wiring (the
+   2-node Alice/Bob lab generalized to N).
+ - HONEST: CA-2's ALU is not yet verified against a 32-bit CA gate (cacpu verifies 8-bit). The "genuine
+   CA" claim for CA-2 needs the wider CA ripple-adder verified (it tiles, so expected to pass) + the OS
+   ported off 8-bit-wrap assumptions. That is Phase 2. This commit is the scaffolding that makes CA-2
+   (and CA-3, …, and networks) a configuration rather than a rewrite.
