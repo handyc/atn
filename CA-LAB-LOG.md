@@ -1251,3 +1251,16 @@ Honest core: "no data crosses" = shared RANDOMNESS; a CHOSEN computer's info con
 (sealed), but the key (CA state) is never sent and the computer is addressable by relative CA
 position. Uses cryptography (ChaCha20-Poly1305) like spoeqi; pact CA = atn hex engine (byte-level
 interop with a specific velour pact would need spoeqi's exact neighbour-order constants).
+
+## Alice & Bob web lab: a computer through a pact, in the browser (2026-06-17)
+build_lab15.py -> dissemination/glider-lab15.html (local): the "Alice <-> Bob" spoeqi pact lab,
+fully self-contained (pure-JS SHA-256 verified == hashlib incl. padding-boundary vectors; the
+atn hex CA; the CA-1 VM). Two machines share ONLY a seed -> both run the same pact CA (shown
+evolving identically in 4 live component grids = the shared clock). Alice seals the CA-1
+CALCULATOR computer (its program bytes) against the shared CA keystream at a coordinate
+(component, generation) and "sends" only the ciphertext; Bob, from the seed alone, recovers and
+BOOTS a byte-identical computer -> an INTERACTIVE calculator (click digits, it computes via the
+CA-1 VM, e.g. 13x11=143). "Tamper a byte" and "Bob uses the wrong seed" both make recovery fail
+(MAC mismatch) -> the computer is genuinely bound to the shared cellular automaton. Honest note
+in-lab: only the ciphertext + coordinate cross; the key (CA state) is never sent. Mirrors
+atn_spoeqi.py (Python side uses ChaCha20-Poly1305; browser uses OTP-vs-tap + SHA-256 tag).
