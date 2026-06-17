@@ -25,7 +25,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  h1{font-size:21px;margin:0 0 2px}h1 small{color:var(--mut);font-weight:400;font-size:13px}
  p{color:var(--mut);max-width:820px}
  #screen{image-rendering:pixelated;width:768px;max-width:100%;border:3px solid #2a3340;border-radius:4px;background:#000;display:block;margin-top:8px}
- #ime{width:768px;max-width:100%;margin-top:8px;background:#0b0e13;color:var(--ink);border:1px solid #2a3340;border-radius:6px;padding:8px 10px;font:15px system-ui}
+ #ime{width:768px;max-width:100%;margin-top:8px;background:#0b0e13;color:var(--ink);border:1px solid #2a3340;border-radius:6px;padding:8px 10px;font:15px system-ui;resize:vertical}
  .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
  .row button{background:#222b36;color:var(--ink);border:1px solid #2a3340;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:13px}
  .row button:hover{border-color:var(--a)}
@@ -38,7 +38,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  ideographs) — in its <i>own</i> memory, and blits every glyph itself. Type below (your IME and paste work),
  or pick a sample. <span id="stat">loading font…</span></p>
  <canvas id="screen" width="512" height="384"></canvas>
- <input id="ime" placeholder="type here — any language (IME &amp; paste supported)" autocomplete="off" autocapitalize="off" spellcheck="false">
+ <textarea id="ime" rows="3" placeholder="type here — any language (Enter for new line; IME &amp; paste supported)" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
  <div class="row" id="samples"></div>
  <p class="note"><b>Honest scope:</b> the glyphs are <b>GNU Unifont</b> (16×16 bitmaps), inflated in the browser
  and written into the CA's RAM at <code>0x100000</code> as a direct codepoint→glyph table (32 bytes each); the
@@ -93,8 +93,7 @@ const ime=document.getElementById("ime");let prev="";
 function syncIME(){const cur=ime.value;let p=0;while(p<prev.length&&p<cur.length&&prev[p]===cur[p])p++;
  const remTail=[...prev.slice(p)].length;for(let i=0;i<remTail;i++)keyq.push(8);
  for(const ch of cur.slice(p))keyq.push(ch.codePointAt(0));prev=cur;}
-ime.addEventListener("input",syncIME);
-ime.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();keyq.push(10);prev+="\n";ime.value=prev;}});
+ime.addEventListener("input",syncIME);   // textarea: Enter inserts \n -> codePointAt(0)=10 -> CA newline
 const SAMPLES=[["English","Hello, world!"],["Francais","Voila, francais: e a u c"],["Ελληνικα","Ελληνικα: αβγδ"],
  ["Русский","Привет, мир!"],["日本語","こんにちは 日本語"],["中文","你好世界 中文"],["한국어","안녕하세요 한국어"]];
 const sdiv=document.getElementById("samples");
