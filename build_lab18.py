@@ -67,6 +67,7 @@ window.addEventListener("mouseup",()=>mb=0);
 // keyboard -> CA-1 KEY register (glyph index, or 0xFE backspace)
 sc.addEventListener("keydown",e=>{let code=0;
  if(e.key==="Backspace")code=0xFE;
+ else if(e.key==="Enter")code=0xFD;
  else if(e.key===" ")code=(OS.GIDX[" "]||0);
  else if(e.key.length===1){const ch=e.key.toUpperCase();if(OS.GIDX[ch]!==undefined)code=OS.GIDX[ch];}
  if(code){e.preventDefault();vm.M[OS.KEY]=code;}});

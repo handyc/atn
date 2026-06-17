@@ -219,9 +219,10 @@ def program():
     a(("LDI",0)); a(("STA",T0))               # index
     a(("LDI",WINX+9)); a(("STA",GX)); a(("LDI",WINY+22)); a(("STA",GY))
     a(("dw_l:",)); a(("LDA",T0)); a(("CMP",TLEN)); a(("JC","dw_caret"))   # exit when T0>=TLEN
-    a(("LDX",T0)); a(("LDAX",TBUF)); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
-    a(("LDA",GX)); a(("ADDI",6)); a(("STA",GX)); a(("CMPI",WINX+WW-12)); a(("JNC","dw_nx"))   # if GX< right margin keep line
-    a(("LDI",WINX+9)); a(("STA",GX)); a(("LDA",GY)); a(("ADDI",8)); a(("STA",GY))             # wrap
+    a(("LDX",T0)); a(("LDAX",TBUF)); a(("CMPI",0xFD)); a(("JZ","dw_nl"))  # 0xFD = newline marker
+    a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+    a(("LDA",GX)); a(("ADDI",6)); a(("STA",GX)); a(("CMPI",WINX+WW-12)); a(("JNC","dw_nx"))   # if GX< margin keep line
+    a(("dw_nl:",)); a(("LDI",WINX+9)); a(("STA",GX)); a(("LDA",GY)); a(("ADDI",8)); a(("STA",GY))   # newline / wrap
     a(("dw_nx:",)); a(("LDA",T0)); a(("ADDI",1)); a(("STA",T0)); a(("JMP","dw_l"))
     a(("dw_caret:",))                          # caret if BLINK&8
     a(("LDA",BLINK)); a(("ANDI",8)); a(("JZ","dw_done2"))
@@ -292,10 +293,20 @@ def program():
 
     # ---- keyboard: writer text input ----
     a(("keyin:",)); a(("LDA",KEY)); a(("JZ","ki_d"))
-    a(("LDA",APP)); a(("CMPI",1)); a(("JNZ","ki_eat"))    # not writer -> just consume the key
-    a(("LDA",KEY)); a(("CMPI",0xFE)); a(("JZ","ki_bs"))   # backspace
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","ki_writer"))
+    a(("LDA",APP)); a(("CMPI",2)); a(("JZ","ki_sheet"))
+    a(("JMP","ki_eat"))                                   # other apps -> consume key, ignore
+    # WRITER: append any char (incl. 0xFD newline) ; 0xFE = backspace
+    a(("ki_writer:",)); a(("LDA",KEY)); a(("CMPI",0xFE)); a(("JZ","ki_bs"))
     a(("LDX",TLEN)); a(("LDA",KEY)); a(("STAX",TBUF)); a(("LDA",TLEN)); a(("CMPI",90)); a(("JC","ki_dty")); a(("ADDI",1)); a(("STA",TLEN)); a(("JMP","ki_dty"))
-    a(("ki_bs:",)); a(("LDA",TLEN)); a(("JZ","ki_dty")); a(("SUBI",1)); a(("STA",TLEN))
+    a(("ki_bs:",)); a(("LDA",TLEN)); a(("JZ","ki_dty")); a(("SUBI",1)); a(("STA",TLEN)); a(("JMP","ki_dty"))
+    # SHEET: digit keys (glyph idx 0..9) type into the selected cell ; 0xFE = clear cell
+    a(("ki_sheet:",)); a(("LDA",KEY)); a(("CMPI",0xFE)); a(("JZ","ks_clr"))
+    a(("LDA",KEY)); a(("CMPI",10)); a(("JNC","ks_dig"))   # KEY<10 -> a digit
+    a(("JMP","ki_eat"))                                   # non-digit -> ignore
+    a(("ks_dig:",)); a(("LDX",SELC)); a(("LDAX",CELLS)); a(("CMPI",10)); a(("JC","ki_dty"))   # 2-digit cap
+    a(("SHL",)); a(("STA",T1)); a(("LDA",T1)); a(("SHL",)); a(("SHL",)); a(("ADD",T1)); a(("ADD",KEY)); a(("LDX",SELC)); a(("STAX",CELLS)); a(("JMP","ki_dty"))
+    a(("ks_clr:",)); a(("LDI",0)); a(("LDX",SELC)); a(("STAX",CELLS))
     a(("ki_dty:",)); a(("LDI",1)); a(("STA",DIRTY))
     a(("ki_eat:",)); a(("LDI",0)); a(("STA",KEY)); a(("ki_d:",)); a(("RET",))
 

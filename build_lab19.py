@@ -126,7 +126,7 @@ function reset(){if(raf)cancelAnimationFrame(raf);pact=buildPact($("seed").value
 const sa=$("sa");
 function rel(e){const r=sa.getBoundingClientRect();return[Math.max(0,Math.min(OS.W-1,((e.clientX-r.left)/r.width*OS.W)|0)),Math.max(0,Math.min(OS.H-1,((e.clientY-r.top)/r.height*OS.H)|0))];}
 sa.onmousemove=e=>{[mx,my]=rel(e);};sa.onmousedown=e=>{[mx,my]=rel(e);mb=1;sa.focus();};window.addEventListener("mouseup",()=>mb=0);
-sa.addEventListener("keydown",e=>{let code=0;if(e.key==="Backspace")code=0xFE;else if(e.key===" ")code=(OS.GIDX[" "]||0);
+sa.addEventListener("keydown",e=>{let code=0;if(e.key==="Backspace")code=0xFE;else if(e.key==="Enter")code=0xFD;else if(e.key===" ")code=(OS.GIDX[" "]||0);
  else if(e.key.length===1){const ch=e.key.toUpperCase();if(OS.GIDX[ch]!==undefined)code=OS.GIDX[ch];}
  if(code){e.preventDefault();pendKey=code;}});
 function syncCheck(){let same=true;for(let i=0;i<OS.W*OS.H;i++){if(aliceVM.M[OS.FB+i]!==bobVM.M[OS.FB+i]){same=false;break;}}
