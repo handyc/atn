@@ -271,7 +271,7 @@ function tap(p,comp,gen,n){const grid=gridsAt(p,gen)[comp];let out=new Uint8Arra
   const buf=new Uint8Array(DOMAIN.length+12+grid.length);buf.set(DOMAIN,0);buf.set(hdr,DOMAIN.length);buf.set(grid,DOMAIN.length+12);
   const h=sha256(buf);for(let i=0;i<32&&pos<n;i++)out[pos++]=h[i];ctr++;}return out;}
 /* CA-1 VM */
-function makeVM(sp){const M=new Uint8Array(0x10000);let A=0,X=0,P=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
+function makeVM(sp){const M=new Uint8Array(0x100000);let A=0,X=0,P=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
  const set=(v,c)=>{const v8=v&255;Z=v8===0?1:0;N=(v8>>7)&1;if(c!==undefined)C=c&1;return v8;};
  function run(prog){let n=0;while(n<8000000){const I=prog[PC],op=I[0],arg=I[1];PC++;n++;const a=A;
    switch(op){case"LDI":A=set(arg);break;case"LDA":A=set(M[arg]);break;case"STA":M[arg&0xFFFF]=a;break;
@@ -285,8 +285,8 @@ function makeVM(sp){const M=new Uint8Array(0x10000);let A=0,X=0,P=0,SP=sp||0x7FF
     case"JMP":PC=arg;break;case"JZ":if(Z)PC=arg;break;case"JNZ":if(!Z)PC=arg;break;case"JC":if(C)PC=arg;break;case"JNC":if(!C)PC=arg;break;case"JN":if(N)PC=arg;break;
     case"CALL":M[SP]=PC&255;M[SP-1]=(PC>>8)&255;SP-=2;PC=arg;break;case"RET":SP+=2;PC=(M[SP-1]<<8)|M[SP];break;
     case"PUSH":M[SP]=a;SP-=1;break;case"POP":SP+=1;A=set(M[SP]);break;
-    case"LDP":P=arg&0xFFFF;break;case"ADDP":P=(P+arg)&0xFFFF;break;case"PLO":P=(P&0xFF00)|a;break;case"PHI":P=(P&0x00FF)|(a<<8);break;
-    case"STPX":M[(P+X)&0xFFFF]=a;break;case"LDPX":A=set(M[(P+X)&0xFFFF]);break;
+    case"LDP":P=arg&0xFFFFFF;break;case"ADDP":P=(P+arg)&0xFFFFFF;break;case"PLO":P=(P&0xFFFF00)|a;break;case"PHI":P=(P&0xFF00FF)|(a<<8);break;case"PBK":P=(P&0x00FFFF)|((a&0xFF)<<16);break;
+    case"STPX":M[(P+X)&0xFFFFF]=a;break;case"LDPX":A=set(M[(P+X)&0xFFFFF]);break;
     case"FRAME":return n;case"NOP":break;case"HLT":return n;default:throw"op "+op;}}return n;}
  return {M,run};}
 /* state — declared BEFORE any load-time call */
