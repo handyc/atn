@@ -1538,3 +1538,17 @@ ops, 32-bit SHL). Static checks pass (braces, 24/24 opcodes, no display:none, fo
 embedded program boots BYTE-IDENTICAL to the Python CA-2 reference. So the family now spans two real,
 verifiable machines with their own OSes: CA-1 (8-bit, CA-OFFICE, labs 18-21) and CA-2 (32-bit, CA-OS/2,
 lab22). HONEST: CA-2's ALU is the genuine 8-bit CA gate tiled to 32 bits (verified); the VM runs it fast.
+
+## CA-OS/2 gets APPS: launcher + Paint + Calc (32-bit) + About (2026-06-17)
+v1 was a bare shell (user: "did you make any apps?" — no). v2 adds a real taskbar LAUNCHER and three
+interactive apps in a window, all 32-bit-native on CA-2:
+ - About: honest machine self-description.
+ - Paint: 8-colour palette + drag-to-draw on a canvas (uses the 512x384 screen); strokes persist via
+   the save-under cursor. Verified: pick green, drag -> GRN stroke; canvas elsewhere stays white.
+ - Calc: a 32-BIT calculator (+ - x). Multiply is shift-add on the CA datapath (mul32). Verified:
+   12345 x 1000 = 12,345,000 -- an 8-digit result the 8-bit CA-1 literally cannot hold. dnum draws
+   decimals efficiently (subtract powers of 10, <=90 iters; no slow /10 loops).
+ - Framework: APP var + DIRTY full-redraw on app switch/button; edge-click routing (onclick) to
+   launcher / palette / keypad; per-frame cursor + once-a-second uptime clock.
+ - Verified on the CA-2 VM (launcher switches apps, Calc 32-bit multiply, Paint strokes); lab22
+   rebuilt, 26/26 opcodes covered, embedded boots BYTE-IDENTICAL to the Python reference.
