@@ -30,6 +30,7 @@ TLEN,SELC = 0x44,0x45
 SUMSRC = 0x46
 BFL,BFH = 0x47,0x48      # blitglyph 16-bit font-base pointer (font table > 256 bytes)
 WX,WY,DRAG,DOFX,DOFY = 0x49,0x4A,0x4B,0x4C,0x4D   # runtime window position + drag state
+BOLD = 0x4E      # 1 = blitglyph draws 2px-wide strokes (bold heading font)
 FONT  = 0x0500
 STRP  = 0x0700      # strings (page 7) for puts2
 TBUF  = 0x0800      # writer text buffer (glyph indices), up to 96
@@ -139,13 +140,14 @@ def program():
     a(("LDI",0)); a(("PLO",)); a(("LDA",GY)); a(("ADD",T2)); a(("ADDI",FBPAGE)); a(("PHI",))               # pixel row base
     for col in range(5):
         bit=1<<(4-col); lbl=f"bgc{col}"
-        a(("LDA",T3)); a(("ANDI",bit)); a(("JZ",lbl)); a(("LDA",GX)); a(("ADDI",col)); a(("TAX",)); a(("LDA",GCOL)); a(("STPX",)); a((f"{lbl}:",))
+        a(("LDA",T3)); a(("ANDI",bit)); a(("JZ",lbl)); a(("LDA",GX)); a(("ADDI",col)); a(("TAX",)); a(("LDA",GCOL)); a(("STPX",))
+        a(("LDA",BOLD)); a(("JZ",lbl)); a(("INX",)); a(("LDA",GCOL)); a(("STPX",)); a((f"{lbl}:",))   # bold: also draw col+1
     a(("LDA",T2)); a(("ADDI",1)); a(("STA",T2)); a(("JMP","bg_row")); a(("bg_done:",)); a(("RET",))
     # ---- puts2(SX,SY,SPTR,SCOL): string from page 7 ----
     a(("puts2:",)); a(("LDA",SX)); a(("STA",GX)); a(("LDI",0)); a(("STA",T0))
     a(("pl2:",)); a(("LDA",SPTR)); a(("ADD",T0)); a(("TAX",)); a(("LDAX",STRP)); a(("STA",T1)); a(("CMPI",0xFF)); a(("JZ","pl2d"))
     a(("LDA",T1)); a(("STA",GCH)); a(("LDA",SY)); a(("STA",GY)); a(("LDA",SCOL)); a(("STA",GCOL)); a(("CALL","blitglyph"))
-    a(("LDA",GX)); a(("ADDI",6)); a(("STA",GX)); a(("LDA",T0)); a(("ADDI",1)); a(("STA",T0)); a(("JMP","pl2")); a(("pl2d:",)); a(("RET",))
+    a(("LDA",GX)); a(("ADDI",6)); a(("ADD",BOLD)); a(("STA",GX)); a(("LDA",T0)); a(("ADDI",1)); a(("STA",T0)); a(("JMP","pl2")); a(("pl2d:",)); a(("RET",))
     # ---- cursor save/restore/draw (8x12) ----
     a(("saveun:",)); a(("LDI",0)); a(("STA",T2))
     a(("su_r:",)); a(("LDA",T2)); a(("CMPI",12)); a(("JC","su_d"))
@@ -205,10 +207,10 @@ def program():
     wx(AX,0); wy(AY,0); a(("LDI",WW)); a(("STA",AW)); a(("LDI",WH)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
     wx(AX,2); wy(AY,2); a(("LDI",WW-4)); a(("STA",AW)); a(("LDI",12)); a(("STA",AH)); a(("LDI",NAV)); a(("STA",ACOL)); a(("CALL","fillrect"))
     # title text by app
-    wx(SX,5); wy(SY,4); a(("LDI",WHT)); a(("STA",SCOL))
+    wx(SX,5); wy(SY,4); a(("LDI",WHT)); a(("STA",SCOL)); a(("LDI",1)); a(("STA",BOLD))   # bold title
     a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("LDI",STRINGS["CALC"])); a(("STA",SPTR)); a(("JMP","tp"))
     a(("tw:",)); a(("LDI",STRINGS["WRITER"])); a(("STA",SPTR)); a(("JMP","tp")); a(("ts:",)); a(("LDI",STRINGS["SHEET"])); a(("STA",SPTR))
-    a(("tp:",)); a(("CALL","puts2"))
+    a(("tp:",)); a(("CALL","puts2")); a(("LDI",0)); a(("STA",BOLD))
     # close box
     wx(AX,WW-13); wy(AY,3); a(("LDI",10)); a(("STA",AW)); a(("LDI",10)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
     wx(GX,WW-11); wy(GY,4); a(("LDI",gi('x'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
@@ -282,7 +284,7 @@ def program():
 
     # ============ boot + main ============
     a(("boot:",)); a(("LDI",0))
-    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG): a(("STA",v))
+    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD): a(("STA",v))
     a(("LDI",1)); a(("STA",C_FRESH)); a(("STA",DIRTY))
     a(("LDI",80)); a(("STA",CX)); a(("STA",OCX)); a(("LDI",70)); a(("STA",CY)); a(("STA",OCY))
     a(("LDI",WINX)); a(("STA",WX)); a(("LDI",WINY)); a(("STA",WY))

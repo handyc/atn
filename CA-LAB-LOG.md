@@ -1346,3 +1346,17 @@ correctly. Sheet digits: drew 5 glyphs (30px) starting bx+4 in a 32px cell -> ov
 3 digits (cells hold 0-255) at bx+8 spacing 7 -> fits. Editing always worked (verified cells [9,15]); the
 "can't edit" was the garbled/misplaced render. Regenerated glider-lab18/19 (local). Still TODO (larger):
 window dragging, full keyboard incl Enter / arbitrary keypress, multi-line word processor, multi-font.
+
+## CA-OFFICE bundle complete: dragging + full keyboard + multi-line + bold heading font (2026-06-17)
+Delivered the requested bundle (all verified in python):
+ - Window DRAGGING: WINX/WINY -> runtime vars (WX,WY); all draw routines + click hit-tests converted
+   to runtime via wx/wy/hx/hy helpers (generated from the python loops, not 150 hand-sites). Grab the
+   title bar -> window follows the mouse; clicks track the moved window (verified drag to 80,44, calc
+   1x6=6 + close box at the new position).
+ - FULL KEYBOARD: browser forwards Enter (0xFD), Backspace (0xFE), and any in-font key.
+ - MULTI-LINE Writer: Enter inserts a 0xFD newline marker; draw_writer renders line breaks + wrap.
+ - SHEET numeric input: digit keys type into the selected cell (0xFE clears); + total via CA.
+ - BOLD heading font ("multi-font"): blitglyph BOLD flag draws 2px strokes; window titles render bold
+   while body/taskbar stay regular (verified: SHEET title bold, START regular).
+Embedded lab18/19 boot byte-identical to the python reference. (Earlier this session also fixed the
+blitglyph 8-bit font-addr overflow that garbled all titles, and the spreadsheet digit overflow.)
