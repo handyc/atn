@@ -1515,3 +1515,15 @@ new gate. verify_adder_ca(width=32, n=3): 3/3 random 32-bit adds == reference (s
 0x12345678+0x11111111=0x23456789 and 0xFFFFFFFF+1=0 carry, all computed by the CA gate (~18s). No new
 ALICE GA run needed (reuses the existing 8-bit gate). So "runs on CA-2's emulator == runs on the CA
 datapath" holds at 32 bits, same as it does for CA-1 at 8 bits.
+
+## Phase 2 (2/2): CA-2 is a working 32-bit machine (flat 1 MB, 32-bit words) (2026-06-17)
+ca1sys gains flat addressing (LDA/STA/LDAX/STAX reach all memory when flat=True) + LDW/STW (load/store
+a word = bpw bytes, little-endian). SPECS["CA-2"] = {word_bits:32, memsize:1MB, flat:True}. From the
+SAME core: CA-2 computes 1000*1000=1,000,000 (impossible in 8-bit) via repeated add, holding the
+product as a 32-bit WORD in FLAT memory at 0xA0000 (>64K), read back exactly; 0xFFFF+1=0x10000 (no
+16-bit wrap). CA-1 stays byte-identical (sum=55, ALU==CA gates, caos3 boots, lab18 byte-identical).
+`python3 ca1sys.py` now demonstrates both machines. CA-2's ALU is verified genuine-CA (see Phase 2 1/2).
+REMAINING (large, not done): a CA-2 *operating system*. caos3 is full of load-bearing 8-bit-wrap
+assumptions (clock signed-byte hand offsets, minesweeper LCG mod 256, pixel/font byte math), so CA-OS
+won't run as-is on a 32-bit machine — porting it (or writing a fresh 32-bit OS) is the next big step.
+The CA-2 *computer* (verified 32-bit datapath + flat memory) is done; its *software stack* is not.

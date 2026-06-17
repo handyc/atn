@@ -15,13 +15,16 @@ import numpy as np
 
 MASK = 0xFF
 class CA1Sys:
-    def __init__(self, fb_addr=0x8000, fb_w=0, fb_h=0, inp_addr=0xFF00, memsize=0x100000, word_bits=8):
+    def __init__(self, fb_addr=0x8000, fb_w=0, fb_h=0, inp_addr=0xFF00, memsize=0x100000, word_bits=8, flat=False):
         # PARAMETERIZED machine: word_bits is the register/ALU width (CA-1 = 8). The same code
         # generates any width — CA-2 is just word_bits=32. memsize default 1 MB. Near addressing
         # (LDA/STA/LDAX/STAX) is 16-bit = the low 64 KB bank; the far pointer P is 24-bit
         # (PLO/PHI/PBK), so an 8-bit machine banks past 64 KB exactly as 6502/Z80-era micros did.
         self.M = bytearray(memsize); self.memsize = memsize; self.amask = memsize - 1
         self.word_bits = word_bits; self.mask = (1 << word_bits) - 1; self.signbit = word_bits - 1
+        self.bpw = max(1, word_bits // 8)               # bytes per word (CA-1: 1, CA-2: 4)
+        # addressing: CA-1 banks (16-bit near + far P); CA-2 is FLAT (near addr reaches all memory).
+        self.flat = flat; self.near_mask = self.amask if flat else 0xFFFF
         self.A = 0; self.X = 0; self.P = 0; self.PC = 0    # P = 24-bit far pointer (bank<<16 | hi<<8 | lo)
         self.SP = 0x7FFF                                    # call/data stack (grows down), control-side
         self.Z = 1; self.C = 0; self.N = 0
@@ -42,10 +45,12 @@ class CA1Sys:
             op, arg = prog[self.PC]; self.PC += 1; self.icount += 1
             a = self.A
             if op == "LDI":   self.A = self._set(arg)
-            elif op == "LDA": self.A = self._set(self.M[arg])
-            elif op == "STA": self.M[arg & 0xFFFF] = a
-            elif op == "LDAX":self.A = self._set(self.M[(arg + self.X) & 0xFFFF])     # M[arg+X]
-            elif op == "STAX":self.M[(arg + self.X) & 0xFFFF] = a                     # M[arg+X]=A
+            elif op == "LDA": self.A = self._set(self.M[arg & self.near_mask])
+            elif op == "STA": self.M[arg & self.near_mask] = a & 0xFF
+            elif op == "LDAX":self.A = self._set(self.M[(arg + self.X) & self.near_mask])   # M[arg+X]
+            elif op == "STAX":self.M[(arg + self.X) & self.near_mask] = a & 0xFF            # M[arg+X]=A
+            elif op == "LDW": self.A = self._set(sum(self.M[(arg + i) & self.amask] << (8*i) for i in range(self.bpw)))   # load word (bpw bytes, little-endian)
+            elif op == "STW": [self.M.__setitem__((arg + i) & self.amask, (a >> (8*i)) & 0xFF) for i in range(self.bpw)]   # store word
             elif op == "LDX": self.X = self._set(self.M[arg])
             elif op == "LXI": self.X = self._set(arg)
             elif op == "TAX": self.X = self._set(a)
@@ -99,7 +104,7 @@ class CA1Sys:
 # One core, many machines. Add a row to grow the family (CA-3, …); networks instantiate N of these.
 SPECS = {
     "CA-1": dict(word_bits=8,  memsize=0x100000),   # 8-bit, 1 MB (16-bit near + 24-bit far/banked)
-    "CA-2": dict(word_bits=32, memsize=0x100000),   # 32-bit, 1 MB (flat) — the next step (OS port pending)
+    "CA-2": dict(word_bits=32, memsize=0x100000, flat=True),   # 32-bit, 1 MB FLAT (LDA/STA reach all of it; LDW/STW = 32-bit words)
 }
 def make_machine(name="CA-1", **over):
     """Instantiate a named CA computer from the registry (override any field via kwargs)."""
@@ -146,5 +151,12 @@ if __name__ == "__main__":
         ("JNZ", "loop"),
         ("LDA", 0x10), ("HLT",),
     ])
-    m = CA1Sys().run(prog)
-    print("ca1sys smoke: sum 1..10 =", m.A, "(expect 55), instructions:", m.icount)
+    m = make_machine("CA-1").run(prog)
+    print("CA-1 (8-bit) smoke: sum 1..10 =", m.A, "(expect 55), instructions:", m.icount)
+    # CA-2 (32-bit, flat 1 MB): multiply 1000*1000 — a 32-bit result in flat memory above 64 KB
+    c2 = make_machine("CA-2").run(asm([
+        ("LDI", 0), ("STW", 0xA0000), ("LXI", 1000), ("loop:",),
+        ("LDW", 0xA0000), ("ADDI", 1000), ("STW", 0xA0000), ("DEX",), ("TXA",), ("JNZ", "loop"),
+        ("LDW", 0xA0000), ("HLT",)]), max_i=200000)
+    print("CA-2 (32-bit) smoke: 1000*1000 =", c2.A, "(expect 1000000), from flat addr 0xA0000 > 64 KB")
+    print("machine registry:", {k: v for k, v in SPECS.items()})
