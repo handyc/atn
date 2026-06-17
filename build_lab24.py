@@ -23,14 +23,15 @@
 import json
 import caos_ca2 as o2
 from ca1sys import make_machine
-_m = make_machine("CA-2", fb_addr=o2.FB, fb_w=o2.W, fb_h=o2.H); o2.load_memory(_m)
+_m = o2.make(); o2.load_memory(_m)
 _prog, _ = o2.program()
 OS = dict(prog=[[op, (arg if arg is not None else 0)] for op, arg in _prog],
           mem={str(a): _m.M[a] for a in range(0x10000) if _m.M[a]},   # initial mem (font/data); FB drawn at runtime
-          SP=0x7FFF, W=o2.W, H=o2.H, FB=o2.FB, MX=o2.MX, MY=o2.MY, MB=o2.MB, KEY=o2.KEY, PAL=o2.PAL, GIDX=o2.c1.GIDX,
+          SP=0x7FFF, MEM=o2.MEMSIZE, W=o2.W, H=o2.H, FB=o2.FB, MX=o2.MX, MY=o2.MY, MB=o2.MB, KEY=o2.KEY, PAL=o2.PAL,
           TBUF=o2.TBUF, TLEN=o2.TLEN, CELLS=o2.CELLS, DIRTY=o2.DIRTY, APP=o2.APP,
-          WINX=o2.WINX, WINY=o2.WINY, WW=o2.WW, WH=o2.WH, CSTRIDE=o2.CSTRIDE)
-OSJSON = json.dumps(OS, separators=(",", ":"))
+          WINX=o2.WINX, WINY=o2.WINY, WW=o2.WW, WH=o2.WH, CSTRIDE=o2.CSTRIDE, WTAB=o2.WTAB, FONT16=o2.FONT16)
+FONT = json.load(open("unifont16.json"))
+OSJSON = json.dumps(OS, separators=(",", ":")); FONTJSON = json.dumps(FONT, separators=(",", ":"))
 PLUTS = json.load(open("caos_pipeluts.json"))   # verified gate/latch rule tables (base64) for the live CA panels
 
 HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -124,6 +125,9 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
   <span class="grp" style="color:var(--mut);font-size:11px">Paint</span><button id="psave">Save PNG</button><button id="pload">Open image</button>
   <input id="file" type="file" style="display:none">
  </div>
+ <div class="seedbar" style="margin-top:6px"><span class="grp" style="color:var(--mut);font-size:11px">type into Alice (any language; CJK via IME, paste OK):</span>
+  <textarea id="ime" rows="1" style="flex:1;min-width:220px;background:#0b0e13;color:var(--ink);border:1px solid #2a3340;border-radius:5px;padding:5px 7px;font:14px system-ui;resize:vertical" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+  <span id="stat" class="grp" style="color:var(--mut);font-size:11px">loading font…</span></div>
  <div class="line"><h3>🔐 the classical line — only encrypted input deltas cross it</h3>
    <div class="wire" id="wire">idle</div>
    <div class="stat"><b id="sent">0</b> bytes sent · <b id="ndelta">0</b> deltas · vs <b>196,608 B/frame</b> for a full screen · desktops <b id="sync">—</b></div>
@@ -254,7 +258,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 </div>
 <script>
 "use strict";
-const OS=__OS__;
+const OS=__OS__, FONT=__FONT__;
 /* SHA-256 */
 const K=new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
 const rotr=(x,n)=>((x>>>n)|(x<<(32-n)))>>>0;
@@ -288,7 +292,7 @@ function tap(p,comp,gen,n){const grid=gridsAt(p,gen)[comp];let out=new Uint8Arra
   const buf=new Uint8Array(DOMAIN.length+12+grid.length);buf.set(DOMAIN,0);buf.set(hdr,DOMAIN.length);buf.set(grid,DOMAIN.length+12);
   const h=sha256(buf);for(let i=0;i<32&&pos<n;i++)out[pos++]=h[i];ctr++;}return out;}
 /* faithful 32-bit CA-2 VM (flat 1 MB; mirrors ca1sys make_machine("CA-2")) */
-function makeVM(sp){const M=new Uint8Array(0x100000),NM=0xFFFFF;let A=0,X=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
+function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
  const wrd=d=>{d&=NM;return (M[d]|(M[d+1]<<8)|(M[d+2]<<16)|(M[d+3]<<24))>>>0;};
  const set=(v,c)=>{const w=v>>>0;Z=w===0?1:0;N=(w>>>31)&1;if(c!==undefined)C=c&1;return w;};
  function run(prog){let n=0;while(n<8000000){const I=prog[PC],op=I[0],arg=I[1];PC++;n++;const a=A;
@@ -308,7 +312,7 @@ function makeVM(sp){const M=new Uint8Array(0x100000),NM=0xFFFFF;let A=0,X=0,SP=s
  return {M,run};}
 /* state — declared BEFORE any load-time call */
 const $=id=>document.getElementById(id);
-let pact=null,aliceVM=null,bobVM=null,mx=80,my=70,mb=0,pendKey=0,keyq=[],bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
+let pact=null,aliceVM=null,bobVM=null,fontBlob=null,fontCps=null,ready=false,mx=80,my=70,mb=0,pendKey=0,keyq=[],bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
 let bobInbox=[],aliceQueue=[],server=[],srvBytes=0,bobSeq=-1;
 let bytesMouse=0,bytesKey=0,nMouse=0,nKey=0,t0=0,lastSent=0,spark=[];   // metrics
 let ipfTotal=0,aboutVisible=false;   // live CA-2 instruction counter + tab state
@@ -316,19 +320,19 @@ const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),par
 const ctxA=$("sa").getContext("2d"),ctxB=$("sb").getContext("2d");
 const imA=ctxA.createImageData(OS.W,OS.H),imB=ctxB.createImageData(OS.W,OS.H);
 function blit(ctx,im,vm){for(let i=0;i<OS.W*OS.H;i++){const v=vm.M[OS.FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}ctx.putImageData(im,0,0);}
-function bootVM(){const vm=makeVM(OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];return vm;}
+function bootVM(){const vm=makeVM(OS.MEM,OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];expandFont(vm);return vm;}
 const gc=[];for(let c=0;c<NCOMP;c++){const cv=document.createElement("canvas");cv.className="ca";cv.width=SIDE;cv.height=SIDE;$("grids").appendChild(cv);gc.push(cv.getContext("2d"));}
 const CPAL=[[10,12,20],[60,110,165],[255,210,127],[200,90,70]];
 function drawGrids(){const gs=gridsAt(pact,seq);for(let c=0;c<NCOMP;c++){const im=gc[c].createImageData(SIDE,SIDE),g=gs[c];for(let i=0;i<SIDE*SIDE;i++){const p=CPAL[g[i]];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}gc[c].putImageData(im,0,0);}$("gen").textContent=seq;}
 /* seal a delta from the current input, keyed by seq; unseal+apply to Bob, keyed by the delta's own seq */
 function wr32(vm,addr,v){vm.M[addr]=v&0xFF;vm.M[addr+1]=(v>>>8)&0xFF;vm.M[addr+2]=(v>>>16)&0xFF;vm.M[addr+3]=(v>>>24)&0xFF;}
-function sealDelta(){const plain=new Uint8Array([mx&0xFF,(mx>>8)&0xFF,my&0xFF,(my>>8)&0xFF,mb,pendKey]),ks=tap(pact,CH,seq,6),ct=new Uint8Array(6);for(let i=0;i<6;i++)ct[i]=plain[i]^ks[i];
- const tagsrc=new Uint8Array(10);tagsrc.set(plain,0);new DataView(tagsrc.buffer).setUint32(6,seq,true);const tag=sha256(tagsrc).slice(0,4);
+function sealDelta(){const plain=new Uint8Array([mx&0xFF,(mx>>8)&0xFF,my&0xFF,(my>>8)&0xFF,mb,pendKey&0xFF,(pendKey>>8)&0xFF]),ks=tap(pact,CH,seq,7),ct=new Uint8Array(7);for(let i=0;i<7;i++)ct[i]=plain[i]^ks[i];
+ const tagsrc=new Uint8Array(11);tagsrc.set(plain,0);new DataView(tagsrc.buffer).setUint32(7,seq,true);const tag=sha256(tagsrc).slice(0,4);
  return {seq:seq,ct:ct,tag:tag};}
-function applyToBob(d){const ks=tap(pact,CH,d.seq,6),pl=new Uint8Array(6);for(let i=0;i<6;i++)pl[i]=d.ct[i]^ks[i];
- const chk=new Uint8Array(10);chk.set(pl,0);new DataView(chk.buffer).setUint32(6,d.seq,true);
+function applyToBob(d){const ks=tap(pact,CH,d.seq,7),pl=new Uint8Array(7);for(let i=0;i<7;i++)pl[i]=d.ct[i]^ks[i];
+ const chk=new Uint8Array(11);chk.set(pl,0);new DataView(chk.buffer).setUint32(7,d.seq,true);
  if(hex(sha256(chk).slice(0,4))!==hex(d.tag))return 0;   // tampered/foreign -> reject
- bobIn=[pl[0]|(pl[1]<<8),pl[2]|(pl[3]<<8),pl[4]];bobSeq=d.seq;return pl[5];}
+ bobIn=[pl[0]|(pl[1]<<8),pl[2]|(pl[3]<<8),pl[4]];bobSeq=d.seq;return pl[5]|(pl[6]<<8);}
 function renderServer(){$("srvcount").textContent=server.length;$("srvbytes").textContent=srvBytes;
  $("store").innerHTML=server.length?server.slice(-12).map(d=>`seq ${d.seq}: <span style="color:var(--sv)">${hex(d.ct)} ${hex(d.tag)}</span>`).join("<br>"):"empty";}
 function stats(){$("queue").textContent=aliceQueue.length;$("bobseq").textContent=bobSeq<0?"—":bobSeq;$("topseq").textContent=seq>0?seq-1:"—";
@@ -349,9 +353,21 @@ function rel(e){const r=sa.getBoundingClientRect(),cs=getComputedStyle(sa),
   const x=(e.clientX-r.left-bl)/sa.clientWidth*OS.W,y=(e.clientY-r.top-bt)/sa.clientHeight*OS.H;
   return[Math.max(0,Math.min(OS.W-1,x|0)),Math.max(0,Math.min(OS.H-1,y|0))];}
 sa.onmousemove=e=>{[mx,my]=rel(e);};sa.onmousedown=e=>{[mx,my]=rel(e);mb=1;sa.focus();};window.addEventListener("mouseup",()=>mb=0);
-sa.addEventListener("keydown",e=>{let g=-1;if(e.key==="Backspace")g=0xFE;else if(e.key==="Enter")g=0xFD;else if(e.key===" ")g=(OS.GIDX[" "]||0);
- else if(e.key.length===1&&OS.GIDX[e.key]!==undefined)g=OS.GIDX[e.key];   // preserve case
- if(g>=0){e.preventDefault();keyq.push(g+1);}});   // queue keys; fed one/frame so none are lost when typing fast
+function kdcp(e){let cp=-1;if(e.key==="Backspace")cp=8;else if(e.key==="Enter")cp=10;else if([...e.key].length===1)cp=e.key.codePointAt(0);
+ if(cp>=0){e.preventDefault();keyq.push(cp);}}                          // KEY = Unicode codepoint (8=BS,10=NL)
+sa.addEventListener("keydown",kdcp);
+const ime=document.getElementById("ime");let composing=false;          // IME/paste box -> forward codepoints to Alice
+function flush(){for(const ch of ime.value)keyq.push(ch.codePointAt(0));ime.value="";}
+ime.addEventListener("compositionstart",()=>composing=true);
+ime.addEventListener("compositionend",()=>{composing=false;flush();});
+ime.addEventListener("input",()=>{if(!composing)flush();});
+ime.addEventListener("keydown",e=>{if(e.key==="Backspace"){e.preventDefault();keyq.push(8);}else if(e.key==="Enter"){e.preventDefault();keyq.push(10);}});
+const b2u=x=>{const b=atob(x),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
+function expandFont(vm){if(!fontBlob)return;const M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=fontCps[i*2]|(fontCps[i*2+1]<<8),off=F+cp*32;let wide=0;
+  for(let b=0;b<32;b++){const v=fontBlob[i*32+b];M[off+b]=v;if((b&1)&&v)wide=1;}M[WT+cp]=wide?16:8;}}
+async function loadFont(){fontBlob=new Uint8Array(await new Response(new Blob([b2u(FONT.b64)]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
+ fontCps=b2u(FONT.cps_b64);if(aliceVM)expandFont(aliceVM);if(bobVM)expandFont(bobVM);ready=true;
+ const st=document.getElementById("stat");if(st)st.textContent="font loaded ("+FONT.n.toLocaleString()+" Unicode glyphs) — Writer is multilingual on both panes.";}
 function syncCheck(){let same=true;for(let i=0;i<OS.W*OS.H;i++){if(aliceVM.M[OS.FB+i]!==bobVM.M[OS.FB+i]){same=false;break;}}
  $("sync").innerHTML=same?"<span class='ok'>in sync ✓</span>":"<span class='no'>diverged ✗ (Bob behind / line cut)</span>";}
 function reset(){if(raf)cancelAnimationFrame(raf);pact=buildPact($("seed").value);aliceVM=bootVM();bobVM=bootVM();
@@ -464,22 +480,21 @@ $("rekey").onclick=reset;$("seed").onchange=reset;
 /* ---- files: Writer .txt / Sheet CSV / Paint PNG. Loads write BOTH VMs so the panes stay in sync. ---- */
 (function(){
  const PALrgb=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
- const REV={};for(const k in OS.GIDX)REV[OS.GIDX[k]]=k;
  const rd32=(vm,a)=>(vm.M[a]|(vm.M[a+1]<<8)|(vm.M[a+2]<<16)|(vm.M[a+3]<<24))>>>0;
  const both=(addr,v)=>{wr32(aliceVM,addr,v);wr32(bobVM,addr,v);};
  const dl=(name,blob)=>{const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),800);};
  const pick=(acc,cb)=>{const f=$("file");f.value="";f.accept=acc;f.onchange=()=>{if(f.files[0])cb(f.files[0]);};f.click();};
  const near=(r,g,b)=>{let bi=0,bd=1e9;for(let i=0;i<PALrgb.length;i++){const p=PALrgb[i],dr=p[0]-r,dg=p[1]-g,db=p[2]-b,dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=i;}}return bi;};
- $("wsave").onclick=()=>{const n=rd32(aliceVM,OS.TLEN);let s="";for(let i=0;i<n;i++){const g=aliceVM.M[OS.TBUF+i];s+=(g===0xFD?"\n":(REV[g]!==undefined?REV[g]:""));}dl("document.txt",new Blob([s],{type:"text/plain"}));};
- $("wload").onclick=()=>pick(".txt,text/plain",f=>{const r=new FileReader();r.onload=()=>{let i=0;for(const ch of r.result){if(i>=1800)break;let g;if(ch==="\r")continue;else if(ch==="\n")g=0xFD;else if(OS.GIDX[ch]!==undefined)g=OS.GIDX[ch];else continue;aliceVM.M[OS.TBUF+i]=g;bobVM.M[OS.TBUF+i]=g;i++;}both(OS.TLEN,i);both(OS.APP,3);both(OS.DIRTY,1);};r.readAsText(f);});
+ $("wsave").onclick=()=>{const n=rd32(aliceVM,OS.TLEN);let s="";for(let i=0;i<n;i++){const cp=aliceVM.M[OS.TBUF+i*2]|(aliceVM.M[OS.TBUF+i*2+1]<<8);s+=String.fromCodePoint(cp);}dl("document.txt",new Blob([s],{type:"text/plain"}));};
+ $("wload").onclick=()=>pick(".txt,text/plain",f=>{const r=new FileReader();r.onload=()=>{let i=0;for(const ch of r.result){if(i>=1800)break;if(ch==="\r")continue;const cp=ch.codePointAt(0);aliceVM.M[OS.TBUF+i*2]=cp&0xFF;aliceVM.M[OS.TBUF+i*2+1]=(cp>>8)&0xFF;bobVM.M[OS.TBUF+i*2]=cp&0xFF;bobVM.M[OS.TBUF+i*2+1]=(cp>>8)&0xFF;i++;}both(OS.TLEN,i);both(OS.APP,3);both(OS.DIRTY,1);};r.readAsText(f);});
  $("csave").onclick=()=>{const rows=[];for(let r=0;r<4;r++){const c=[];for(let col=0;col<3;col++)c.push(rd32(aliceVM,OS.CELLS+(r*3+col)*OS.CSTRIDE));rows.push(c.join(","));}dl("sheet.csv",new Blob([rows.join("\n")+"\n"],{type:"text/csv"}));};
  $("cload").onclick=()=>pick(".csv,text/csv",f=>{const r=new FileReader();r.onload=()=>{const cells=[];r.result.split(/\r?\n/).forEach(L=>{if(!L.trim())return;L.split(",").forEach(v=>cells.push((parseInt(v.trim(),10)||0)>>>0));});for(let i=0;i<12;i++)both(OS.CELLS+i*OS.CSTRIDE,cells[i]||0);both(OS.APP,4);both(OS.DIRTY,1);};r.readAsText(f);});
  const CXo=OS.WINX+10,CYo=OS.WINY+42,CWp=OS.WW-20,CHp=OS.WH-54;
  $("psave").onclick=()=>{const cv=document.createElement("canvas");cv.width=CWp;cv.height=CHp;const g2=cv.getContext("2d"),id=g2.createImageData(CWp,CHp);for(let y=0;y<CHp;y++)for(let x=0;x<CWp;x++){const v=aliceVM.M[OS.FB+(CYo+y)*OS.W+(CXo+x)],p=PALrgb[v]||PALrgb[0],o=(y*CWp+x)*4;id.data[o]=p[0];id.data[o+1]=p[1];id.data[o+2]=p[2];id.data[o+3]=255;}g2.putImageData(id,0,0);cv.toBlob(b=>dl("paint.png",b));};
  $("pload").onclick=()=>pick("image/*",f=>{const img=new Image();img.onload=()=>{const cv=document.createElement("canvas");cv.width=CWp;cv.height=CHp;const g2=cv.getContext("2d");g2.fillStyle="#fff";g2.fillRect(0,0,CWp,CHp);g2.drawImage(img,0,0,CWp,CHp);const d=g2.getImageData(0,0,CWp,CHp).data;both(OS.APP,1);both(OS.DIRTY,1);requestAnimationFrame(()=>requestAnimationFrame(()=>{for(let y=0;y<CHp;y++)for(let x=0;x<CWp;x++){const o=(y*CWp+x)*4,idx=near(d[o],d[o+1],d[o+2]);aliceVM.M[OS.FB+(CYo+y)*OS.W+(CXo+x)]=idx;bobVM.M[OS.FB+(CYo+y)*OS.W+(CXo+x)]=idx;}}));URL.revokeObjectURL(img.src);};img.src=URL.createObjectURL(f);});
 })();
-reset();
+reset();loadFont();
 </script></body></html>'''
-HTML = HTML.replace("__OS__", OSJSON).replace("__LO__", PLUTS["LO"]).replace("__LZ__", PLUTS["LZ"]).replace("__LW__", PLUTS["LW"])
+HTML = HTML.replace("__OS__", OSJSON).replace("__FONT__", FONTJSON).replace("__LO__", PLUTS["LO"]).replace("__LZ__", PLUTS["LZ"]).replace("__LW__", PLUTS["LW"])
 open("dissemination/glider-lab24.html", "w").write(HTML)
 print("wrote dissemination/glider-lab24.html", len(HTML), "bytes")

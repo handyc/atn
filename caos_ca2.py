@@ -29,13 +29,18 @@ CELL_SHL = (VS).bit_length() - 1                     # log2(VS): SELC*VS via shi
 _VARS = ("AX AY AW AH ACOL GX GY GCH GCOL T0 T1 T2 T3 MX MY MB MBP "
          "CX CY OCX OCY HAVES CLKF CSEC DNV DH DT APP DIRTY PCOL "
          "CACC CCUR COP CFRESH TLEN KEY SELC CWV BDIRTY WI PFRESH "
-         "WVX WVY DRAG DGX DGY MRX MRY").split()   # window origin + drag state + mouse-relative-to-window
+         "WVX WVY DRAG DGX DGY MRX MRY "
+         "UCP UGA UROW UCW").split()              # + window/drag state + 16x16-glyph blitter registers
 for _i, _n in enumerate(_VARS): globals()[_n] = _i * VS   # AX=0, AY=VS, ... laid out contiguously
 CURBUF  = 0x0380          # cursor 8x8 save-under (byte-addressed -> width-independent)
-FONT    = 0x0400          # 5x7 glyphs (byte-addressed)
-TBUF    = 0x0700          # writer text buffer (glyph-index bytes; byte-addressed)
+FONT    = 0x0400          # 5x7 glyphs for UI chrome (byte-addressed)
 CELLS   = 0x0F00          # sheet cells (12 x VS-byte words)
 CSTRIDE = VS              # spacing between sheet cells (>= bytes-per-word on any supported machine)
+# Writer goes Unicode: the document is 16x16 GNU-Unifont, so the machine needs more (virtual) RAM.
+MEMSIZE = 0x400000        # 4 MB
+TBUF    = 0x040000        # writer document as 16-bit codepoints (LE), just above the framebuffer
+WTAB    = 0x080000        # advance width per codepoint (8 or 16), 1 byte x 0x10000
+FONT16  = 0x100000        # direct codepoint->glyph table, 32 bytes/glyph (16 rows x 2 bytes)
 CURSOR = [0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xE0, 0x40]
 
 # window + taskbar geometry
@@ -48,6 +53,18 @@ CALC_KEYS = [['7','8','9','x'], ['4','5','6','-'], ['1','2','3','+'], ['C','0','
 def load_memory(m):
     for ch, idx in c1.GIDX.items():
         for r, b in enumerate(c1.enc_rows(c1.GART[ch])): m.M[FONT + idx*7 + r] = b
+
+def make():
+    return make_machine("CA-2", fb_addr=FB, fb_w=W, fb_h=H, memsize=MEMSIZE)
+
+def load_unifont(m, path="unifont16.json"):
+    # expand the 16x16 GNU-Unifont table into FONT16 (direct cp->glyph) + WTAB (per-cp advance width)
+    import json, zlib, base64, struct
+    d = json.load(open(path)); blob = zlib.decompress(base64.b64decode(d["b64"]))
+    cps = struct.unpack("<%dH" % (len(base64.b64decode(d["cps_b64"])) // 2), base64.b64decode(d["cps_b64"]))
+    for i, cp in enumerate(cps):
+        g = blob[i*32:(i+1)*32]; m.M[FONT16 + cp*32: FONT16 + cp*32 + 32] = g
+        m.M[WTAB + cp] = 16 if any(g[r*2+1] for r in range(16)) else 8
 
 def program():
     L = []; a = L.append
@@ -94,6 +111,23 @@ def program():
         a((f"bg_s{col}:",))
     a(("LDW", T2)); a(("ADDI", 1)); a(("STW", T2)); a(("JMP", "bg_row"))
     a(("bg_done:",)); a(("RET",))
+
+    # ---- blit16: draw the 16x16 GNU-Unifont glyph for codepoint UCP at (GX,GY) in black (Writer doc) ----
+    a(("blit16:",))
+    a(("LDW", UCP)); shl(5); a(("STW", UGA))                # UGA = UCP*32 (offset into FONT16)
+    a(("LDI", 0)); a(("STW", UROW))
+    a(("b16_row:",)); a(("LDW", UROW)); a(("CMPI", 16)); a(("JC", "b16_done"))
+    a(("LDW", GY)); a(("ADDW", UROW)); shl(9); a(("ADDW", GX)); a(("STW", T1))   # T1 = FB index of (GX, GY+UROW)
+    a(("LDW", UGA)); a(("ADDW", UROW)); a(("ADDW", UROW)); a(("TAX",))           # X = UGA + 2*UROW
+    a(("LDAX", FONT16)); a(("STW", T2)); a(("INX",)); a(("LDAX", FONT16)); a(("STW", T3))   # T2=byte0(cols0-7), T3=byte1(cols8-15)
+    for col in range(8):
+        a(("LDW", T2)); a(("ANDI", 0x80 >> col)); a(("JZ", f"b16a{col}"))
+        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDI", BLK)); a(("STAX", FB)); a((f"b16a{col}:",))
+    for col in range(8):
+        a(("LDW", T3)); a(("ANDI", 0x80 >> col)); a(("JZ", f"b16b{col}"))
+        a(("LDW", T1)); a(("ADDI", 8 + col)); a(("TAX",)); a(("LDI", BLK)); a(("STAX", FB)); a((f"b16b{col}:",))
+    a(("LDW", UROW)); a(("ADDI", 1)); a(("STW", UROW)); a(("JMP", "b16_row"))
+    a(("b16_done:",)); a(("RET",))
 
     # ---- dnum: draw DNV as decimal at (GX,GY) in GCOL, leading zeros suppressed (efficient: powers of 10) ----
     a(("dnum:",)); a(("LDI", 0)); a(("STW", DT))
@@ -305,17 +339,19 @@ def program():
     a(("ca_load:",)); a(("LDW", CCUR)); a(("STW", CACC)); a(("RET",))
 
     # ---- Writer: a text editor (renders TBUF with wrap + caret) ----
-    a(("draw_writer:",))
+    a(("draw_writer:",))               # 16x16 Unicode document: TBUF holds 16-bit codepoints
     wrect(10, 22, WW-20, WH-32, WHT)
-    a(("LDI", 0)); a(("STW", WI)); a(("LDW", WVX)); a(("ADDI", 14)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 28)); a(("STW", GY))
+    a(("LDI", 0)); a(("STW", WI)); a(("LDW", WVX)); a(("ADDI", 12)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 24)); a(("STW", GY))
     a(("dw_l:",)); a(("LDW", WI)); a(("CMPW", TLEN)); a(("JC", "dw_car"))
-    a(("LDW", WI)); a(("TAX",)); a(("LDAX", TBUF)); a(("STW", T1))
-    a(("LDW", T1)); a(("CMPI", 0xFD)); a(("JZ", "dw_nl"))
-    a(("LDW", T1)); a(("STW", GCH)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "blitglyph"))
-    a(("LDW", GX)); a(("ADDI", 6)); a(("STW", GX)); a(("SUBW", WVX)); a(("CMPI", WW-14)); a(("JNC", "dw_nx"))
-    a(("dw_nl:",)); a(("LDW", WVX)); a(("ADDI", 14)); a(("STW", GX)); a(("LDW", GY)); a(("ADDI", 9)); a(("STW", GY))
+    a(("LDW", WI)); a(("SHL",)); a(("TAX",)); a(("LDAX", TBUF)); a(("STW", UCP))                                  # CP low byte
+    a(("LDW", WI)); a(("SHL",)); a(("ADDI", 1)); a(("TAX",)); a(("LDAX", TBUF)); shl(8); a(("ADDW", UCP)); a(("STW", UCP))   # | high<<8
+    a(("LDW", UCP)); a(("CMPI", 0x0A)); a(("JZ", "dw_nl"))                                                       # newline
+    a(("CALL", "blit16"))
+    a(("LDW", UCP)); a(("TAX",)); a(("LDAX", WTAB)); a(("STW", UCW))                                             # advance width (8/16)
+    a(("LDW", GX)); a(("ADDW", UCW)); a(("STW", GX)); a(("SUBW", WVX)); a(("CMPI", WW-18)); a(("JNC", "dw_nx"))   # wrap
+    a(("dw_nl:",)); a(("LDW", WVX)); a(("ADDI", 12)); a(("STW", GX)); a(("LDW", GY)); a(("ADDI", 18)); a(("STW", GY))
     a(("dw_nx:",)); a(("LDW", WI)); a(("ADDI", 1)); a(("STW", WI)); a(("JMP", "dw_l"))
-    a(("dw_car:",)); a(("LDW", GX)); a(("STW", AX)); a(("LDW", GY)); a(("STW", AY)); a(("LDI", 1)); a(("STW", AW)); a(("LDI", 8)); a(("STW", AH)); a(("LDI", BLK)); a(("STW", ACOL)); a(("CALL", "fillrect")); a(("RET",))
+    a(("dw_car:",)); a(("LDW", GX)); a(("STW", AX)); a(("LDW", GY)); a(("STW", AY)); a(("LDI", 2)); a(("STW", AW)); a(("LDI", 16)); a(("STW", AH)); a(("LDI", BLK)); a(("STW", ACOL)); a(("CALL", "fillrect")); a(("RET",))
 
     # ---- Sheet: 3x4 grid of 32-bit cells + a CA-summed Total ----
     a(("draw_sheet:",))
@@ -335,17 +371,20 @@ def program():
 
     # ---- keyboard input (Writer append/backspace ; Sheet digit -> selected cell) ----
     a(("keyin:",)); a(("LDW", APP)); a(("CMPI", 3)); a(("JZ", "ki_w")); a(("LDW", APP)); a(("CMPI", 4)); a(("JZ", "ki_s")); a(("RET",))
-    a(("ki_w:",)); a(("LDW", KEY)); a(("CMPI", 0xFE)); a(("JZ", "ki_bs"))
+    a(("ki_w:",)); a(("LDW", KEY)); a(("CMPI", 8)); a(("JZ", "ki_bs"))            # backspace = codepoint 8
     a(("LDW", TLEN)); a(("CMPI", 1800)); a(("JC", "ki_wd"))
-    a(("LDW", TLEN)); a(("TAX",)); a(("LDW", KEY)); a(("STAX", TBUF)); a(("LDW", TLEN)); a(("ADDI", 1)); a(("STW", TLEN)); a(("JMP", "ki_wdt"))
+    a(("LDW", TLEN)); a(("SHL",)); a(("TAX",)); a(("LDW", KEY)); a(("STAX", TBUF))   # TBUF[TLEN] low byte
+    a(("LDW", TLEN)); a(("SHL",)); a(("ADDI", 1)); a(("TAX",)); a(("LDW", KEY))
+    for _ in range(8): a(("SHR",))                                                  # high byte = KEY>>8
+    a(("STAX", TBUF)); a(("LDW", TLEN)); a(("ADDI", 1)); a(("STW", TLEN)); a(("JMP", "ki_wdt"))
     a(("ki_bs:",)); a(("LDW", TLEN)); a(("JZ", "ki_wd")); a(("SUBI", 1)); a(("STW", TLEN))
     a(("ki_wdt:",)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("ki_wd:",)); a(("RET",))
-    a(("ki_s:",)); a(("LDW", KEY)); a(("CMPI", 0xFE)); a(("JZ", "ks_clr"))
-    a(("LDW", KEY)); a(("CMPI", 10)); a(("JNC", "ks_dig")); a(("RET",))
-    a(("ks_clr:",)); a(("LDI", 0)); a(("STW", CWV)); a(("CALL", "cell_write")); a(("JMP", "ks_d"))
+    a(("ki_s:",)); a(("LDW", KEY)); a(("CMPI", 8)); a(("JZ", "ks_clr"))            # backspace clears the cell
+    a(("LDW", KEY)); a(("CMPI", 0x30)); a(("JNC", "ki_sd")); a(("LDW", KEY)); a(("CMPI", 0x3A)); a(("JC", "ki_sd"))   # only '0'..'9'
     a(("ks_dig:",)); a(("CALL", "cell_read")); a(("STW", T3)); a(("CMPI", 100000000)); a(("JC", "ki_sd"))
-    a(("LDW", T3)); shl(3); a(("STW", T2)); a(("LDW", T3)); a(("SHL",)); a(("ADDW", T2)); a(("ADDW", KEY)); a(("STW", CWV)); a(("CALL", "cell_write"))
+    a(("LDW", T3)); shl(3); a(("STW", T2)); a(("LDW", T3)); a(("SHL",)); a(("ADDW", T2)); a(("ADDW", KEY)); a(("SUBI", 0x30)); a(("STW", CWV)); a(("CALL", "cell_write"))
     a(("ks_d:",)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("ki_sd:",)); a(("RET",))
+    a(("ks_clr:",)); a(("LDI", 0)); a(("STW", CWV)); a(("CALL", "cell_write")); a(("JMP", "ks_d"))
     # cell_read -> A = CELLS[SELC] (assemble 4 bytes) ; cell_write: CWV -> CELLS[SELC]
     a(("cell_read:",)); a(("LDW", SELC)); shl(CELL_SHL); a(("STW", T0)); a(("LDI", 0)); a(("STW", T1))   # T0 = SELC*VS
     for b in range(4):
@@ -389,7 +428,7 @@ def program():
     a(("LDW", DRAG)); a(("JNZ", "nopaint")); a(("LDW", MB)); a(("JZ", "nopaint")); a(("CALL", "paintdab")); a(("nopaint:",))
     a(("LDW", MB)); a(("STW", MBP))
     # keyboard: KEY holds (glyph index + 1), 0 = none (so digit '0' = glyph 0 isn't lost); decode -1
-    a(("LDW", KEY)); a(("JZ", "nokey")); a(("SUBI", 1)); a(("STW", KEY)); a(("CALL", "keyin")); a(("LDI", 0)); a(("STW", KEY)); a(("nokey:",))
+    a(("LDW", KEY)); a(("JZ", "nokey")); a(("CALL", "keyin")); a(("LDI", 0)); a(("STW", KEY)); a(("nokey:",))   # KEY = Unicode codepoint (0=none, 8=BS, 10=NL)
     # full redraw on DIRTY (app switch / button / palette / paint stroke region)
     a(("LDW", DIRTY)); a(("JZ", "chkbody"))
     a(("LDW", HAVES)); a(("JZ", "nrd1")); a(("CALL", "restun")); a(("nrd1:",))
@@ -409,7 +448,7 @@ def program():
 
 
 if __name__ == "__main__":
-    m = make_machine("CA-2", fb_addr=FB, fb_w=W, fb_h=H); load_memory(m)
+    m = make(); load_memory(m); load_unifont(m)
     m.M[MX:MX+4] = (W//2).to_bytes(4, "little"); m.M[MY:MY+4] = (H//2).to_bytes(4, "little")
     m.run(program(), max_i=30_000_000, frame_on=lambda mm: True)
-    print("CA-OS/2 booted:", sum(1 for v in m.M[FB:FB+W*H] if v != TEAL), "non-bg px; apps: About/Paint/Calc")
+    print("CA-OS/2 booted:", sum(1 for v in m.M[FB:FB+W*H] if v != TEAL), "non-bg px; Writer is 16x16 Unicode")

@@ -1708,3 +1708,19 @@ User: "trap the whole keyboard + display all major Unicode glyphs (European + CJ
 VERIFIED in real Chromium (synchronous-render dataURL, since headless rAF stalls under virtual-time):
 renders "Hello! Привет αβγ Ελληνικα こんにちは カタカナ 中文世界 한국어 日本語 0123" -- Latin, Cyrillic,
 Greek, kana, CJK, Hangul, with wrap. Honest scope: LTR only (no bidi/shaping). lab25 = 1.07 MB.
+
+## Unicode folded into CA-OS/2's own Writer (2026-06-17)
+The desktop Writer is now multilingual: its document is 16x16 GNU-Unifont (full BMP incl. CJK),
+while the UI chrome (taskbar, titles, Calc/Sheet) stays the crisp 5x7 font.
+- caos_ca2.py: Writer app rewritten for 16x16 + codepoints. New blit16 routine; FONT16 direct
+  codepoint->glyph table + WTAB widths; TBUF now holds 16-bit codepoints (relocated to 0x40000);
+  the keyboard protocol is now KEY = a Unicode codepoint (8=BS, 10=NL) -- removed the old glyph+1
+  hack; Sheet digit entry reads '0'..'9' (0x30-0x39). Machine bumped to 4 MB (make()+MEMSIZE);
+  load_unifont() helper. Boot (About, 5x7) byte-identical -> no UI regression.
+- Labs (lab22, lab24, caos-32-min): 4 MB JS VM (parametrized makeVM(sz)); inflate the font with
+  DecompressionStream into the CA's RAM; canvas keydown sends codepoints + an IME/paste <textarea>
+  forwards composed/pasted text (incl. CJK) to the active app via the lossless key queue; Writer
+  save/load is codepoints. lab24: the encrypted input delta was widened 6->7 bytes so pendKey carries
+  a 16-bit codepoint; Bob reconstructs it -> both panes render the same Unicode (verified FBdiff=0).
+Verified in real Chromium: all three render "中文 / αβ / Привет / 日本 / 한" in the desktop Writer;
+all boot byte-identical. Each lab grew ~1 MB (the embedded font). LTR only (no bidi).
