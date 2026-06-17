@@ -1684,3 +1684,13 @@ labs' CSV save/load now use CSTRIDE. VERIFIED: the SAME program boots byte-ident
 AND CA-3 (128-bit), and stays identical through Sheet entry (cell=42 both) and Writer typing+Enter.
 CA-2 labs boot byte-identical (no regression); CSV round-trip intact. (A 128-bit *browser* lab would
 need a BigInt VM like lab23; the width-cleanliness itself is proven in the Python/CA VM.)
+
+## Draggable windows (2026-06-17)
+Made the window origin runtime: WINX/WINY (compile-time constants in 34 places) -> WVX/WVY variables.
+Added window-relative draw helpers (wrect/wputs add WVX/WVY at runtime) and converted every window-
+content draw + hit-test to be relative (MRX/MRY = mouse minus window origin). Grab the title bar
+(MRY<14) to start dragging; while held, WVX/WVY follow the cursor minus the grab offset, clamped
+on-screen, full-redraw each frame to clear the old position. Verified in the Python VM: grab title at
+(200,44) -> drag to (150,70) -> window at (36,60), apps work relocated (Writer typed "Move!"), and
+CA-2/CA-3 still boot identical (width-clean preserved). All in OS machine code, so the labs get it
+free (lab24's Bob replays Alice's mouse deltas -> both panes drag in sync). Boot byte-identical.
