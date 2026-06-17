@@ -1752,3 +1752,27 @@ Server export/fetch/push serialization updated to {seq,nonce,ct}. Prose updated 
 Verified in real Chromium: drive Alice -> open Writer + type "中Hi!" -> Bob reconverges FBdiff=0, both
 APP=3, both TLEN=4, 7 deltas over AES-256-GCM. Boot byte-identical. So the old-spoeqi look&feel (shared
 CA-OS desktop over the line) now runs on the SECURE pact.
+
+## The 64KB pact ELF — "send the whole OS through the pact" (2026-06-18, autonomous)
+Goal (user): one ~64 KB standard Linux ELF on a USB stick that looks like an ordinary small utility to
+an outsider, but to the recipient (who knows the key) regenerates the ENTIRE CA-OS from its embedded
+program and serves it to the browser, then networks with the other node exchanging only encrypted deltas
+— "as much as possible generated from nothing."
+FEASIBILITY: the whole CA-OS program gzips to ~6.7 KB; the full self-contained CA-OS page (ASCII-only
+16x16 font, not the 1.2 MB BMP) is 116 KB -> 12 KB gzip. So 64 KB is plenty (32 cover / 32 data trivially).
+MILESTONE A (DONE, verified by construction):
+- build_pactbundle.py -> pactbundle.html: the tiny self-contained CA-OS (caos_ca2 program + ASCII font
+  regenerated into the CA's RAM + the 32-bit VM). Verified via file:// in Chromium: regenerates + renders
+  the full CA-OS/2 desktop.
+- build_pactelf.py -> notesync.c -> ./notesync : a 26.2 KB standard x86-64 ELF. Cover: `./notesync` prints
+  a random saved "note" (innocuous). Unlock: `./notesync "<key>"` (key = pact seed) serves the gzipped
+  bundle on http://127.0.0.1:8787 (Content-Encoding: gzip; fork-per-connection HTTP server) and tries
+  xdg-open. Embeds gzip(bundle) in .rodata. Cover behavior verified; ELF valid + 26 KB (<= 64 KB).
+SANDBOX CONSTRAINT (important): this environment BLOCKS loopback TCP between processes — a server binds
+& listens fine (ss shows LISTEN) but curl/chromium to 127.0.0.1 always ERR_CONNECTION_TIMED_OUT, even
+with dangerouslyDisableSandbox and even for `python3 -m http.server`. So the live HTTP serve + any node-
+to-node networking CANNOT be tested in-environment; verify on a real machine: `./notesync "alice<->bob
+pact 2026"` then open the printed URL. (Content is verified via file://; crypto via lab26/lab24.)
+MILESTONE B (networking: ELF relays AES-GCM-sealed deltas between two nodes) = next; correct-by-
+construction only (loopback untestable here). The pieces exist: AES-256-GCM seal/unseal (lab26/lab24),
+the OS regen (bundle), the cover ELF.

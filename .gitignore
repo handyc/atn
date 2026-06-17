@@ -86,3 +86,10 @@ alice/ga-sweep-*/caga.py
 caga-code/
 caga-langs/
 
+
+# pact ELF build artifacts (regenerate with build_pactbundle.py + build_pactelf.py)
+notesync
+notesync.c
+pactbundle.html
+pactbundle.html.z
+pactbundle.html.gz
