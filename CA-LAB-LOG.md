@@ -1595,3 +1595,18 @@ locally) -- would stay local per user.
    factorial 20..170! exact; RSA round-trip with a build-time 128-bit key (m^e mod n then c^d mod n = m,
    == Python pow). Static checks pass (braces, 22 opcodes incl CALL/RET, placeholder). JS not runnable
    in build env -> verified by mirror + static checks as with the other labs.
+
+## CA-OS/2 Stage 1: full office suite (Writer + Sheet + keyboard) (2026-06-17)
+Answering "full MS Office suite on the 32-bit CA-OS" + "is there an N-bit OS that runs on any bus
+width without rewriting?" First demonstrated width-independence: the SAME factorial program runs
+UNCHANGED on CA-1(8b)/CA-2(32b)/CA-3(128b) -- capability scales (CA-1 holds 5!, CA-2 12!, CA-3 34!).
+The catch: width-neutral code (word ops, far pointer, no 8-bit-wrap tricks) is required, and capacity
+is bounded by the running machine -- which is why caos3(8b) and caos_ca2(32b) are still separate.
+Stage 1 added to caos_ca2.py: keyboard input + Writer (text editor, wrap+caret, TBUF) + Sheet (3x4
+grid of 32-BIT cells + CA-summed Total). Suite = About/Paint/Calc/Writer/Sheet via the taskbar
+launcher. KEY gotcha fixed: gi('0')==0 collided with the no-key sentinel, dropping every '0'; now keys
+are forwarded as (glyph+1), 0=none, OS decodes -1. VERIFIED on the CA-2 VM: Writer types "Hello World";
+Sheet cell=1000000 with Total 1000057 (7-digit, impossible in 8-bit). lab22 forwards keystrokes
+(tabindex+focus, KEY=glyph+1); regenerated, 26/26 opcodes, boots byte-identical.
+REMAINING (user's full vision): Stage 2 = Alice/Bob dual-pane CA-OS/2 mega-lab (metrics + How-it-works
++ live CA panels, deltas widened for 512x384 coords); Stage 3 = hub linking glider-labs 1-10.

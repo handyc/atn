@@ -14,7 +14,7 @@ prog, _ = o.program()
 OS = dict(
     prog=[[op, (arg if arg is not None else 0)] for op, arg in prog],
     mem={str(a): m.M[a] for a in range(0x10000) if m.M[a]},   # initial memory (font); FB is drawn at runtime
-    SP=0x7FFF, W=o.W, H=o.H, FB=o.FB, MX=o.MX, MY=o.MY, MB=o.MB, PAL=o.PAL)
+    SP=0x7FFF, W=o.W, H=o.H, FB=o.FB, MX=o.MX, MY=o.MY, MB=o.MB, KEY=o.KEY, PAL=o.PAL, GIDX=o.c1.GIDX)
 OSJSON = json.dumps(OS, separators=(",", ":"))
 
 HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -36,7 +36,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  builds <b class="b">CA-2</b>: 32-bit registers and ALU, <b>1 MB of flat memory</b>, a 512×384 screen. Everything
  you see — the window, the text, the cursor, the clock — is CA-2 machine code writing colour bytes into a
  framebuffer; the browser only blits it and forwards your mouse. <span id="selftest"></span></p>
- <canvas id="screen" width="512" height="384"></canvas>
+ <canvas id="screen" width="512" height="384" tabindex="0"></canvas>
  <div class="hud">move the mouse over the screen · CA-2 instr/frame <b id="ipf">·</b> · fps <b id="fps">·</b></div>
  <p class="note"><b>Honest scope:</b> CA-2's 32-bit ALU is the <i>genuine</i> 8-bit CA NAND-gate ripple-adder
  <b>tiled to 32 bits</b> — verified bit-for-bit against the reference (<code>cacpu.verify_adder_ca</code>), no new
@@ -80,7 +80,12 @@ let mx=W>>1,my=H>>1,mb=0;
 function rel(e){return[Math.max(0,Math.min(W-1,(e.offsetX/sc.clientWidth*W)|0)),Math.max(0,Math.min(H-1,(e.offsetY/sc.clientHeight*H)|0))];}
 function wr32(addr,v){vm.M[addr]=v&0xFF;vm.M[addr+1]=(v>>>8)&0xFF;vm.M[addr+2]=(v>>>16)&0xFF;vm.M[addr+3]=(v>>>24)&0xFF;}
 sc.addEventListener("mousemove",e=>{[mx,my]=rel(e);});
-sc.addEventListener("mousedown",e=>{[mx,my]=rel(e);mb=1;});window.addEventListener("mouseup",()=>mb=0);
+sc.addEventListener("mousedown",e=>{[mx,my]=rel(e);mb=1;sc.focus();});window.addEventListener("mouseup",()=>mb=0);
+/* keyboard -> KEY register as (glyph index + 1); 0 = none, so digit '0' (glyph 0) isn't lost */
+sc.addEventListener("keydown",e=>{let g=-1;
+ if(e.key==="Backspace")g=0xFE; else if(e.key===" ")g=(OS.GIDX[" "]||0);
+ else if(e.key.length===1&&OS.GIDX[e.key]!==undefined)g=OS.GIDX[e.key];   // preserve case (font has a-z and A-Z)
+ if(g>=0){e.preventDefault();wr32(OS.KEY,g+1);}});
 let last=performance.now(),fc=0,ipf=0;
 function frame(t){wr32(OS.MX,mx);wr32(OS.MY,my);wr32(OS.MB,mb);ipf=vm.run(OS.prog);
  for(let i=0;i<W*H;i++){const v=vm.M[FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}

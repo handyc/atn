@@ -30,8 +30,11 @@ HAVES, CLKF, CSEC    = 0x54, 0x58, 0x5C
 DNV, DH, DT          = 0x60, 0x64, 0x68     # decimal renderer temps (blitglyph-safe)
 APP, DIRTY, PCOL     = 0x6C, 0x70, 0x74     # active app (0 About,1 Paint,2 Calc); redraw flag; paint colour
 CACC, CCUR, COP, CFRESH = 0x78, 0x7C, 0x80, 0x84   # calculator state (all 32-bit)
+TLEN, KEY, SELC, CWV    = 0x88, 0x8C, 0x90, 0x94   # writer length / key register / sheet sel / cell-write value
 CURBUF = 0x0100
 FONT   = 0x0400
+TBUF   = 0x0500            # writer text buffer (glyph-index bytes)
+CELLS  = 0x0E00            # sheet cells (12 x 32-bit words)
 CURSOR = [0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xE0, 0x40]
 
 # window + taskbar geometry
@@ -108,26 +111,30 @@ def program():
     a(("draw:",))
     rect(0, 0, W, H, TEAL)                                   # background
     rect(0, TBY, W, 18, SIL); rect(0, TBY-1, W, 1, WHT)      # taskbar
-    # launcher buttons
-    for i, name in enumerate(["About", "Paint", "Calc"]):
+    # launcher buttons (index == APP id)
+    for i, name in enumerate(["About", "Paint", "Calc", "Writer", "Sheet"]):
         bx = 4 + i*54
-        rect(bx, TBY+3, 50, 12, SIL);
+        rect(bx, TBY+3, 50, 12, SIL)
         a(("LDI", bx)); a(("STW", AX)); a(("LDI", TBY+3)); a(("STW", AY)); a(("LDI", 50)); a(("STW", AW)); a(("LDI", 12)); a(("STW", AH))
         a(("LDW", APP)); a(("CMPI", i)); a(("JNZ", f"lb{i}")); a(("LDI", NAV)); a(("STW", ACOL)); a(("CALL", "fillrect")); a((f"lb{i}:",))
         puts(bx+6, TBY+5, name, BLK)
     # window frame + title
     rect(WINX, WINY, WW, WH, SIL)
     rect(WINX, WINY, WW, 14, NAV)
-    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "ti_p")); a(("CMPI", 2)); a(("JZ", "ti_c"))
+    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "ti_p")); a(("CMPI", 2)); a(("JZ", "ti_c")); a(("CMPI", 3)); a(("JZ", "ti_w")); a(("CMPI", 4)); a(("JZ", "ti_s"))
     puts(WINX+6, WINY+4, "About CA-OS/2", WHT); a(("JMP", "ti_d"))
     a(("ti_p:",)); puts(WINX+6, WINY+4, "Paint", WHT); a(("JMP", "ti_d"))
-    a(("ti_c:",)); puts(WINX+6, WINY+4, "Calc  (32-bit)", WHT)
+    a(("ti_c:",)); puts(WINX+6, WINY+4, "Calc  (32-bit)", WHT); a(("JMP", "ti_d"))
+    a(("ti_w:",)); puts(WINX+6, WINY+4, "Writer", WHT); a(("JMP", "ti_d"))
+    a(("ti_s:",)); puts(WINX+6, WINY+4, "Sheet  (32-bit cells)", WHT)
     a(("ti_d:",))
     # body by app
-    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "body_p")); a(("CMPI", 2)); a(("JZ", "body_c"))
+    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "body_p")); a(("CMPI", 2)); a(("JZ", "body_c")); a(("CMPI", 3)); a(("JZ", "body_w")); a(("CMPI", 4)); a(("JZ", "body_s"))
     a(("CALL", "draw_about")); a(("JMP", "draw_d"))
     a(("body_p:",)); a(("CALL", "draw_paint")); a(("JMP", "draw_d"))
-    a(("body_c:",)); a(("CALL", "draw_calc"))
+    a(("body_c:",)); a(("CALL", "draw_calc")); a(("JMP", "draw_d"))
+    a(("body_w:",)); a(("CALL", "draw_writer")); a(("JMP", "draw_d"))
+    a(("body_s:",)); a(("CALL", "draw_sheet"))
     a(("draw_d:",)); a(("CALL", "drawclock")); a(("RET",))
 
     # ---- About app ----
@@ -215,14 +222,22 @@ def program():
 
     # ============ click handling ============
     a(("onclick:",))
-    # launcher buttons (taskbar): About/Paint/Calc
-    for i in range(3):
+    # launcher buttons (taskbar): About/Paint/Calc/Writer/Sheet
+    for i in range(5):
         bx = 4 + i*54
         a(("LDW", MX)); a(("CMPI", bx)); a(("JNC", f"nl{i}")); a(("CMPI", bx+50)); a(("JC", f"nl{i}"))
         a(("LDW", MY)); a(("CMPI", TBY+3)); a(("JNC", f"nl{i}")); a(("CMPI", TBY+15)); a(("JC", f"nl{i}"))
         a(("LDI", i)); a(("STW", APP)); a(("LDI", 1)); a(("STW", DIRTY)); a(("RET",)); a((f"nl{i}:",))
     # in-app clicks
-    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "oc_paint")); a(("CMPI", 2)); a(("JZ", "oc_calc")); a(("RET",))
+    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "oc_paint")); a(("CMPI", 2)); a(("JZ", "oc_calc")); a(("CMPI", 4)); a(("JZ", "oc_sheet")); a(("RET",))
+    # Sheet: click selects a cell
+    a(("oc_sheet:",))
+    for idx in range(12):
+        r, c = idx//3, idx%3; cx, cy = 12+c*108, 24+r*42
+        a(("LDW", MX)); a(("CMPI", WINX+cx)); a(("JNC", f"ns{idx}")); a(("CMPI", WINX+cx+102)); a(("JC", f"ns{idx}"))
+        a(("LDW", MY)); a(("CMPI", WINY+cy)); a(("JNC", f"ns{idx}")); a(("CMPI", WINY+cy+36)); a(("JC", f"ns{idx}"))
+        a(("LDI", idx)); a(("STW", SELC)); a(("LDI", 1)); a(("STW", DIRTY)); a(("RET",)); a((f"ns{idx}:",))
+    a(("RET",))
     # Paint: palette swatches
     a(("oc_paint:",))
     for i, col in enumerate(PSWATCH):
@@ -260,9 +275,65 @@ def program():
     a(("ca_nm:",)); a(("CMPI", 2)); a(("JNZ", "ca_load")); a(("CALL", "mul32")); a(("RET",))
     a(("ca_load:",)); a(("LDW", CCUR)); a(("STW", CACC)); a(("RET",))
 
+    # ---- Writer: a text editor (renders TBUF with wrap + caret) ----
+    a(("draw_writer:",))
+    rect(WINX+10, WINY+22, WW-20, WH-32, WHT)
+    a(("LDI", 0)); a(("STW", T0)); a(("LDI", WINX+14)); a(("STW", GX)); a(("LDI", WINY+28)); a(("STW", GY))
+    a(("dw_l:",)); a(("LDW", T0)); a(("CMPW", TLEN)); a(("JC", "dw_car"))
+    a(("LDW", T0)); a(("TAX",)); a(("LDAX", TBUF)); a(("STW", T1))
+    a(("LDW", T1)); a(("CMPI", 0xFD)); a(("JZ", "dw_nl"))
+    a(("LDW", T1)); a(("STW", GCH)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "blitglyph"))
+    a(("LDW", GX)); a(("ADDI", 6)); a(("STW", GX)); a(("CMPI", WINX+WW-14)); a(("JNC", "dw_nx"))
+    a(("dw_nl:",)); a(("LDI", WINX+14)); a(("STW", GX)); a(("LDW", GY)); a(("ADDI", 9)); a(("STW", GY))
+    a(("dw_nx:",)); a(("LDW", T0)); a(("ADDI", 1)); a(("STW", T0)); a(("JMP", "dw_l"))
+    a(("dw_car:",)); a(("LDW", GX)); a(("STW", AX)); a(("LDW", GY)); a(("STW", AY)); a(("LDI", 1)); a(("STW", AW)); a(("LDI", 8)); a(("STW", AH)); a(("LDI", BLK)); a(("STW", ACOL)); a(("CALL", "fillrect")); a(("RET",))
+
+    # ---- Sheet: 3x4 grid of 32-bit cells + a CA-summed Total ----
+    a(("draw_sheet:",))
+    for idx in range(12):
+        r, c = idx//3, idx%3; cx, cy = 12+c*108, 24+r*42
+        rect(WINX+cx, WINY+cy, 102, 36, GRY)
+        a(("LDW", SELC)); a(("CMPI", idx)); a(("JNZ", f"shw{idx}"))
+        rect(WINX+cx+1, WINY+cy+1, 100, 34, LSV); a(("JMP", f"shv{idx}"))
+        a((f"shw{idx}:",)); rect(WINX+cx+1, WINY+cy+1, 100, 34, WHT); a((f"shv{idx}:",))
+        a(("LDW", CELLS+idx*4)); a(("STW", DNV)); a(("LDI", WINX+cx+6)); a(("STW", GX)); a(("LDI", WINY+cy+12)); a(("STW", GY)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "dnum"))
+    a(("LDW", CELLS))
+    for i in range(1, 12): a(("ADDW", CELLS+i*4))
+    a(("STW", DNV))
+    puts(WINX+12, WINY+204, "Total =", BLK)
+    a(("LDI", WINX+72)); a(("STW", GX)); a(("LDI", WINY+204)); a(("STW", GY)); a(("LDI", NAV)); a(("STW", GCOL)); a(("CALL", "dnum")); a(("RET",))
+
+    # ---- keyboard input (Writer append/backspace ; Sheet digit -> selected cell) ----
+    a(("keyin:",)); a(("LDW", APP)); a(("CMPI", 3)); a(("JZ", "ki_w")); a(("LDW", APP)); a(("CMPI", 4)); a(("JZ", "ki_s")); a(("RET",))
+    a(("ki_w:",)); a(("LDW", KEY)); a(("CMPI", 0xFE)); a(("JZ", "ki_bs"))
+    a(("LDW", TLEN)); a(("CMPI", 1800)); a(("JC", "ki_wd"))
+    a(("LDW", TLEN)); a(("TAX",)); a(("LDW", KEY)); a(("STAX", TBUF)); a(("LDW", TLEN)); a(("ADDI", 1)); a(("STW", TLEN)); a(("JMP", "ki_wdt"))
+    a(("ki_bs:",)); a(("LDW", TLEN)); a(("JZ", "ki_wd")); a(("SUBI", 1)); a(("STW", TLEN))
+    a(("ki_wdt:",)); a(("LDI", 1)); a(("STW", DIRTY)); a(("ki_wd:",)); a(("RET",))
+    a(("ki_s:",)); a(("LDW", KEY)); a(("CMPI", 0xFE)); a(("JZ", "ks_clr"))
+    a(("LDW", KEY)); a(("CMPI", 10)); a(("JNC", "ks_dig")); a(("RET",))
+    a(("ks_clr:",)); a(("LDI", 0)); a(("STW", CWV)); a(("CALL", "cell_write")); a(("JMP", "ks_d"))
+    a(("ks_dig:",)); a(("CALL", "cell_read")); a(("STW", T3)); a(("CMPI", 100000000)); a(("JC", "ki_sd"))
+    a(("LDW", T3)); shl(3); a(("STW", T2)); a(("LDW", T3)); a(("SHL",)); a(("ADDW", T2)); a(("ADDW", KEY)); a(("STW", CWV)); a(("CALL", "cell_write"))
+    a(("ks_d:",)); a(("LDI", 1)); a(("STW", DIRTY)); a(("ki_sd:",)); a(("RET",))
+    # cell_read -> A = CELLS[SELC] (assemble 4 bytes) ; cell_write: CWV -> CELLS[SELC]
+    a(("cell_read:",)); a(("LDW", SELC)); a(("SHL",)); a(("SHL",)); a(("STW", T0)); a(("LDI", 0)); a(("STW", T1))
+    for b in range(4):
+        a(("LDW", T0)); a(("ADDI", b)); a(("TAX",)); a(("LDAX", CELLS))
+        for _ in range(8*b): a(("SHL",))
+        a(("ADDW", T1)); a(("STW", T1))
+    a(("LDW", T1)); a(("RET",))
+    a(("cell_write:",)); a(("LDW", SELC)); a(("SHL",)); a(("SHL",)); a(("STW", T0))
+    for b in range(4):
+        a(("LDW", CWV))
+        for _ in range(8*b): a(("SHR",))
+        a(("ANDI", 0xFF)); a(("STW", T1)); a(("LDW", T0)); a(("ADDI", b)); a(("TAX",)); a(("LDW", T1)); a(("STAX", CELLS))
+    a(("RET",))
+
     # ============ boot + main ============
     a(("boot:",))
-    for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP): a(("LDI", 0)); a(("STW", v))
+    for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP, TLEN, KEY, SELC, CWV): a(("LDI", 0)); a(("STW", v))
+    for i in range(12): a(("LDI", 0)); a(("STW", CELLS+i*4))      # clear sheet cells
     a(("LDI", 1)); a(("STW", CFRESH)); a(("STW", DIRTY)); a(("LDI", RED)); a(("STW", PCOL))
     a(("LDI", W//2)); a(("STW", CX)); a(("STW", OCX)); a(("LDI", H//2)); a(("STW", CY)); a(("STW", OCY))
     a(("main:",))
@@ -274,6 +345,8 @@ def program():
     # paint: while button held over canvas, draw
     a(("LDW", MB)); a(("JZ", "nopaint")); a(("CALL", "paintdab")); a(("nopaint:",))
     a(("LDW", MB)); a(("STW", MBP))
+    # keyboard: KEY holds (glyph index + 1), 0 = none (so digit '0' = glyph 0 isn't lost); decode -1
+    a(("LDW", KEY)); a(("JZ", "nokey")); a(("SUBI", 1)); a(("STW", KEY)); a(("CALL", "keyin")); a(("LDI", 0)); a(("STW", KEY)); a(("nokey:",))
     # full redraw on DIRTY (app switch / button / palette / paint stroke region)
     a(("LDW", DIRTY)); a(("JZ", "nodraw")); a(("LDW", HAVES)); a(("JZ", "nrd")); a(("CALL", "restun")); a(("nrd:",))
     a(("CALL", "draw")); a(("LDI", 0)); a(("STW", DIRTY)); a(("LDI", 0)); a(("STW", HAVES)); a(("nodraw:",))
