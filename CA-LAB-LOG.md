@@ -1282,3 +1282,10 @@ so rederive() threw a ReferenceError (TDZ) during load, aborting the rest of the
 $(...).onclick handlers attached. Fix: hoist `let osVM,osRAF,mx,my,mb` + stopOS() above the
 rederive() call. Lesson: balance/opcode/render checks don't catch JS load-time execution-order
 bugs; need to actually run the page (or lint execution order). lab15 unaffected (no stopOS).
+
+## Fix: lab16 desktop invisible after receive — CSS display:none vs style.display="" (2026-06-17)
+After the TDZ fix, "receive" booted the OS (frame loop running, FB drawn) but the canvas stayed
+hidden: stylesheet had `#screen{display:none}` and bootOS set `sc.style.display=""` (clears INLINE
+only -> stylesheet `none` still wins). Fixed: `sc.style.display="block"`. Second browser-only bug
+in a row (TDZ, then this) -> static checks (balance/opcodes/render) can't catch load-order or
+CSS/JS display interactions; these labs need an actual browser run or a human's eyes.

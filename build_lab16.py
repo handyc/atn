@@ -158,7 +158,7 @@ $("recv").onclick=()=>{if(!sent)return;const ks=tap(bobP,sent.comp,sent.gen,sent
  $("bobstat").innerHTML="<span class='ok'>✓ recovered &amp; booting a byte-identical CA-OS desktop — use the mouse:</span>";
  bootOS(obj);};
 function bootOS(obj){stopOS();const vm=makeVM(obj.SP);for(const k in obj.mem)vm.M[+k]=obj.mem[k];osVM=vm;
- const sc=$("screen");sc.style.display="";sc.width=OS.W;sc.height=OS.H;const sx=sc.getContext("2d"),im=sx.createImageData(OS.W,OS.H);
+ const sc=$("screen");sc.style.display="block";sc.width=OS.W;sc.height=OS.H;const sx=sc.getContext("2d"),im=sx.createImageData(OS.W,OS.H);
  const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
  function rel(e){const r=sc.getBoundingClientRect();return[Math.max(0,Math.min(OS.W-1,((e.clientX-r.left)/r.width*OS.W)|0)),Math.max(0,Math.min(OS.H-1,((e.clientY-r.top)/r.height*OS.H)|0))];}
  sc.onmousemove=e=>{[mx,my]=rel(e);};sc.onmousedown=e=>{[mx,my]=rel(e);mb=1;};window.addEventListener("mouseup",()=>mb=0);
