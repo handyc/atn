@@ -14,7 +14,9 @@ prog, _ = o.program()
 OS = dict(
     prog=[[op, (arg if arg is not None else 0)] for op, arg in prog],
     mem={str(a): m.M[a] for a in range(0x10000) if m.M[a]},   # initial memory (font); FB is drawn at runtime
-    SP=0x7FFF, W=o.W, H=o.H, FB=o.FB, MX=o.MX, MY=o.MY, MB=o.MB, KEY=o.KEY, PAL=o.PAL, GIDX=o.c1.GIDX)
+    SP=0x7FFF, W=o.W, H=o.H, FB=o.FB, MX=o.MX, MY=o.MY, MB=o.MB, KEY=o.KEY, PAL=o.PAL, GIDX=o.c1.GIDX,
+    TBUF=o.TBUF, TLEN=o.TLEN, CELLS=o.CELLS, DIRTY=o.DIRTY, APP=o.APP,
+    WINX=o.WINX, WINY=o.WINY, WW=o.WW, WH=o.WH)
 OSJSON = json.dumps(OS, separators=(",", ":"))
 
 HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -30,6 +32,9 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  .hud{font-size:12px;color:var(--mut);margin-top:8px;font-variant-numeric:tabular-nums}.hud b{color:var(--a)}
  .note{font-size:12px;color:var(--mut);background:#11161d;border:1px solid #2a3340;border-radius:8px;padding:10px;margin-top:12px}
  code{background:#0b0e13;padding:1px 5px;border-radius:4px;color:var(--a)} b.b{color:var(--b)}
+ .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+ .tools button{background:#222b36;color:var(--ink);border:1px solid #2a3340;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:12px}
+ .tools button:hover{border-color:var(--a)} .tools .grp{color:var(--mut);font-size:11px;margin-left:6px}
 </style></head><body><div class="wrap">
  <h1>CA-OS/2 <small>— a 32-bit OS running on the CA-2 cellular-automaton computer</small></h1>
  <p>This is the <b>32-bit</b> member of the family. The same parameterized core that builds the 8-bit CA-1
@@ -38,6 +43,12 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  framebuffer; the browser only blits it and forwards your mouse. <span id="selftest"></span></p>
  <canvas id="screen" width="512" height="384" tabindex="0"></canvas>
  <div class="hud">move the mouse over the screen · CA-2 instr/frame <b id="ipf">·</b> · fps <b id="fps">·</b></div>
+ <div class="tools">
+  <span class="grp">Writer</span><button id="wsave">Save .txt</button><button id="wload">Open .txt</button>
+  <span class="grp">Sheet</span><button id="csave">Export CSV</button><button id="cload">Import CSV</button>
+  <span class="grp">Paint</span><button id="psave">Save PNG</button><button id="pload">Open image</button>
+  <input id="file" type="file" style="display:none">
+ </div>
  <p class="note"><b>Honest scope:</b> CA-2's 32-bit ALU is the <i>genuine</i> 8-bit CA NAND-gate ripple-adder
  <b>tiled to 32 bits</b> — verified bit-for-bit against the reference (<code>cacpu.verify_adder_ca</code>), no new
  gate. This JS VM runs the identical CA-2 instruction set ~10⁸× faster so it's interactive, exactly as the CA-1
@@ -89,6 +100,41 @@ sc.addEventListener("keydown",e=>{let g=-1;
  if(e.key==="Backspace")g=0xFE; else if(e.key===" ")g=(OS.GIDX[" "]||0);
  else if(e.key.length===1&&OS.GIDX[e.key]!==undefined)g=OS.GIDX[e.key];   // preserve case (font has a-z and A-Z)
  if(g>=0){e.preventDefault();wr32(OS.KEY,g+1);}});
+/* ---- save / load: poke the CA-2 memory directly; the OS just redraws (no new machine code) ---- */
+function rd32(a){return (vm.M[a]|(vm.M[a+1]<<8)|(vm.M[a+2]<<16)|(vm.M[a+3]<<24))>>>0;}
+const REV={};for(const k in OS.GIDX)REV[OS.GIDX[k]]=k;                 // glyph index -> character
+function dl(name,blob){const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),800);}
+function pick(accept,cb){const f=document.getElementById("file");f.value="";f.accept=accept;f.onchange=()=>{if(f.files[0])cb(f.files[0]);};f.click();}
+function nearest(r,g,b){let bi=0,bd=1e9;for(let i=0;i<PAL.length;i++){const p=PAL[i],dr=p[0]-r,dg=p[1]-g,db=p[2]-b,dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=i;}}return bi;}
+// Writer: TBUF (glyph indices) <-> text
+document.getElementById("wsave").onclick=()=>{const n=rd32(OS.TLEN);let s="";
+ for(let i=0;i<n;i++){const g=vm.M[OS.TBUF+i];s+=(g===0xFD?"\n":(REV[g]!==undefined?REV[g]:""));}
+ dl("document.txt",new Blob([s],{type:"text/plain"}));};
+document.getElementById("wload").onclick=()=>pick(".txt,text/plain",f=>{const r=new FileReader();
+ r.onload=()=>{let i=0;for(const ch of r.result){if(i>=1800)break;let g;
+   if(ch==="\r")continue;else if(ch==="\n")g=0xFD;else if(OS.GIDX[ch]!==undefined)g=OS.GIDX[ch];else continue;
+   vm.M[OS.TBUF+i++]=g;}
+  wr32(OS.TLEN,i);wr32(OS.APP,3);wr32(OS.DIRTY,1);};r.readAsText(f);});
+// Sheet: 12 cells (4 rows x 3 cols) <-> CSV
+document.getElementById("csave").onclick=()=>{const rows=[];for(let r=0;r<4;r++){const c=[];for(let col=0;col<3;col++)c.push(rd32(OS.CELLS+(r*3+col)*4));rows.push(c.join(","));}
+ dl("sheet.csv",new Blob([rows.join("\n")+"\n"],{type:"text/csv"}));};
+document.getElementById("cload").onclick=()=>pick(".csv,text/csv",f=>{const r=new FileReader();
+ r.onload=()=>{const cells=[];r.result.split(/\r?\n/).forEach(L=>{if(!L.trim())return;L.split(",").forEach(v=>cells.push((parseInt(v.trim(),10)||0)>>>0));});
+  for(let i=0;i<12;i++)wr32(OS.CELLS+i*4,cells[i]||0);wr32(OS.APP,4);wr32(OS.DIRTY,1);};r.readAsText(f);});
+// Paint: canvas region of the framebuffer <-> PNG
+const CXo=OS.WINX+10,CYo=OS.WINY+42,CWp=OS.WW-20,CHp=OS.WH-54;
+document.getElementById("psave").onclick=()=>{const cv=document.createElement("canvas");cv.width=CWp;cv.height=CHp;
+ const g2=cv.getContext("2d"),id=g2.createImageData(CWp,CHp);
+ for(let y=0;y<CHp;y++)for(let x=0;x<CWp;x++){const v=vm.M[FB+(CYo+y)*W+(CXo+x)],p=PAL[v]||PAL[0],o=(y*CWp+x)*4;id.data[o]=p[0];id.data[o+1]=p[1];id.data[o+2]=p[2];id.data[o+3]=255;}
+ g2.putImageData(id,0,0);cv.toBlob(b=>dl("paint.png",b));};
+document.getElementById("pload").onclick=()=>pick("image/*",f=>{const img=new Image();img.onload=()=>{
+  const cv=document.createElement("canvas");cv.width=CWp;cv.height=CHp;const g2=cv.getContext("2d");
+  g2.fillStyle="#fff";g2.fillRect(0,0,CWp,CHp);g2.drawImage(img,0,0,CWp,CHp);
+  const d=g2.getImageData(0,0,CWp,CHp).data;
+  wr32(OS.APP,1);wr32(OS.DIRTY,1);                                   // switch to Paint, draw the window...
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{             // ...then blit the image into the canvas region
+    for(let y=0;y<CHp;y++)for(let x=0;x<CWp;x++){const o=(y*CWp+x)*4;vm.M[FB+(CYo+y)*W+(CXo+x)]=nearest(d[o],d[o+1],d[o+2]);}}));
+  URL.revokeObjectURL(img.src);};img.src=URL.createObjectURL(f);});
 let last=performance.now(),fc=0,ipf=0;
 function frame(t){wr32(OS.MX,mx);wr32(OS.MY,my);wr32(OS.MB,mb);ipf=vm.run(OS.prog);
  for(let i=0;i<W*H;i++){const v=vm.M[FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}
