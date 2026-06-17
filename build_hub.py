@@ -38,6 +38,7 @@ GROUPS = [
         ("glider-lab22.html", "CA-OS/2", "A 32-bit OS (512×384) on the CA-2 machine — launcher + apps."),
         ("glider-lab23.html", "Wide-word CA computer", "Factorials & RSA via BigInt — integers no host register can hold."),
         ("glider-lab24.html", "CA-OS/2 dual-pane", "The full 32-bit suite over the encrypted line: metrics, How-it-works, live CA."),
+        ("caos-32-min.html",  "CA-OS/2 (minimal)", "Just the OS and its apps — no prose, no demo tab. Shows how small the bare OS is."),
     ]),
 ]
 
