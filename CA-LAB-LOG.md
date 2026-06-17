@@ -1610,3 +1610,16 @@ Sheet cell=1000000 with Total 1000057 (7-digit, impossible in 8-bit). lab22 forw
 (tabindex+focus, KEY=glyph+1); regenerated, 26/26 opcodes, boots byte-identical.
 REMAINING (user's full vision): Stage 2 = Alice/Bob dual-pane CA-OS/2 mega-lab (metrics + How-it-works
 + live CA panels, deltas widened for 512x384 coords); Stage 3 = hub linking glider-labs 1-10.
+
+## CA-OS/2 Stage 2: the dual-pane mega-lab (lab24) (2026-06-17)
+The whole lab21 stack rebuilt on the 32-bit CA-OS/2: Alice & Bob each run the full 32-bit suite
+(Writer/Sheet/Calc/Paint/About) on a 512x384 desktop, over the cut/restore-able encrypted pact line +
+zero-trust mother server, with the live METRICS panel, the "How it works" tab + 5 live CA component
+panels, all bundled with the demo/about tabs. Built by transforming build_lab21.py: swapped the 8-bit
+CA-1 JS VM for the faithful 32-bit CA-2 VM (flat 1 MB, LDW/STW/ADDW/SUBW/CMPW, 32-bit set), WIDENED the
+input delta from 4 to 6 bytes (mx/my as 16-bit for the 512x384 screen) sealed against the pact, and
+forwarded keys as glyph+1 (0=none). VERIFIED: lab24 boots byte-identical to the caos_ca2 reference;
+26/26 opcodes covered; braces balanced; placeholders substituted. Dual-pane determinism CONFIRMED via
+a frame-by-frame Python mirror: Alice opens Writer + types "Hi", 5 sealed deltas cross, Bob replays
+them one-per-frame and his framebuffer RECONVERGES byte-identical to Alice's. (JS not runnable here, so
+verified by mirror + static checks, same rigor as the other labs.) Remaining: Stage 3 glider-lab hub.
