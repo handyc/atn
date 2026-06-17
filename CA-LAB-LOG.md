@@ -1289,3 +1289,17 @@ hidden: stylesheet had `#screen{display:none}` and bootOS set `sc.style.display=
 only -> stylesheet `none` still wins). Fixed: `sc.style.display="block"`. Second browser-only bug
 in a row (TDZ, then this) -> static checks (balance/opcodes/render) can't catch load-order or
 CSS/JS display interactions; these labs need an actual browser run or a human's eyes.
+
+## Alice & Bob interact via encrypted relative changes (live-shared) (2026-06-17)
+build_lab17.py -> dissemination/glider-lab17.html (local): the live-shared mode. Both Alice and
+Bob run the IDENTICAL CA-OS locally (two CA-1 VMs); only Alice's tiny ENCRYPTED INPUT DELTAS
+(mouse x,y,button) cross a "classical line". Each input change -> delta XOR tap(pact, channel,
+seq) with a FRESH per-delta keystream (no OTP reuse; pact CA advances one generation per delta) +
+a SHA-256 tag; Bob unseals with the same pact and applies it. Because CA-1 is deterministic,
+identical machine + identical inputs => PIXEL-IDENTICAL desktops (live sync check compares the two
+49,152-byte framebuffers -> "in sync ✓"). The full screen never crosses; ~9 encrypted bytes per
+move do. "Drop the line" checkbox -> Bob freezes while Alice moves (proof the wire carries the
+steering). Pre-flight: checked the two prior browser-bug classes (TDZ: all lets before reset();
+display: canvases visible, no display:none) + balance/opcodes/sync-logic. Still can't run a browser
+here -> residual runtime risk; user verifies. Answers "can they interact over an encrypted classical
+line?" = yes, the spoeqi-native way (shared randomness + a thin classical channel for the steering).
