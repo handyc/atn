@@ -1738,3 +1738,17 @@ tampered byte both fail (tag); drift +5 opens, +200 fails. Honest note in-page: 
 rest on AES-GCM not the CA; CA is a KDF; security = seed secrecy; no forward secrecy (matches velour's
 documented threat model). Linked from the hub. (Earlier I'd wrongly lumped this with broken CA-stream-ciphers
 — corrected after reading the source; the envelope is real AEAD.)
+
+## lab24 live channel converted to the secure pact (AES-256-GCM) (2026-06-17)
+Replaced lab24's toy XOR-keystream+SHA256-tag per-frame channel with the real envelope construction
+(same as lab26 / velour): the CA is the KEY SCHEDULE — key(seq)=SHA-256(domain ‖ seq ‖ CA state at seq)
+— and each 7-byte input delta is sealed with AES-256-GCM via WebCrypto. Bob knows seq (clear) so he
+derives the exact key (no window search), one AES-GCM decrypt; the GCM tag rejects tampered/foreign
+deltas (Bob stalls safely, never corrupts). Made seal/unseal async (WebCrypto) without breaking the
+lockstep: Alice reserves seq++ and seals async -> pushes to inbox on resolve; Bob has a bobBusy flag +
+pendingBobKey, decrypts the next-seq delta async and applies on resolve (one-frame latency, panes still
+converge). Delta now ~37 B (12 nonce + 23 ct/tag + 2 seq) vs the toy's 13 B — the honest AEAD cost.
+Server export/fetch/push serialization updated to {seq,nonce,ct}. Prose updated (no more "XOR keystream").
+Verified in real Chromium: drive Alice -> open Writer + type "中Hi!" -> Bob reconverges FBdiff=0, both
+APP=3, both TLEN=4, 7 deltas over AES-256-GCM. Boot byte-identical. So the old-spoeqi look&feel (shared
+CA-OS desktop over the line) now runs on the SECURE pact.

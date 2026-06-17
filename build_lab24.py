@@ -105,7 +105,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  <div class="tabs"><button class="tab active" data-t="demo">🖥️ Live demo</button><button class="tab" data-t="about">📖 How it works (is it really in the CA?)</button></div>
  <div id="tab-demo">
  <p>Both machines run the <b>identical 32-bit CA-OS/2</b> (Writer/Sheet/Calc/Paint) locally. Drive <b>Alice</b>; only her <b>encrypted input deltas</b>
- (x, y, button, key = 4 bytes, sealed + seq-numbered) cross the wire. <b>Cut the line</b> and Alice keeps working — her
+ (x, y, button, key, sealed with AES-256-GCM, seq-numbered) cross the wire. <b>Cut the line</b> and Alice keeps working — her
  deltas <b>queue</b> instead of vanishing; <b>restore</b> and they replay in order so Bob reconverges, pixel-for-pixel
  (lossless). Or offload the queue to a <b>mother server</b> that only ever stores ciphertext, and let Bob sync from it
  when able. <span id="selftest"></span></p>
@@ -157,9 +157,10 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
    <div class="stat"><b id="srvcount">0</b> sealed deltas stored · <b id="srvbytes">0</b> B (all ciphertext — the host holds no key)</div>
    <div class="store" id="store">empty</div>
  </div>
- <p class="note"><b>How it stays correct across a cut:</b> each delta is <code>[x,y,button,key] XOR tap(pact,ch,seq)</code> + a
- SHA-256 tag, keyed by its <b>seq</b>. Because the keystream is seq-derived, a delta can be replayed at any later time and
- still unseals — so a queued/stored delta is as good as a live one. Bob only applies <b>seq = lastApplied+1</b>, so order is
+ <p class="note"><b>How it stays correct across a cut:</b> each delta is sealed with <b>AES-256-GCM</b> under a key
+ <code>SHA-256(domain ‖ seq ‖ CA-state-at-seq)</code> — the cellular automaton is the <i>key schedule</i>, not the cipher.
+ Because the key is seq-derived, a delta replays at any later time and still unseals; the AEAD tag rejects any tampered or
+ foreign delta, so a queued/stored delta is as good as a live one. Bob only applies <b>seq = lastApplied+1</b>, so order is
  preserved and a missing delta stalls him until it arrives (the lossy case → fetch it from the server). The mother server
  never sees plaintext or a key; on a static host it's just a sealed JSON bundle you upload and the other side fetches.
  Everything drawn is CA-1 machine code; mirrors <code>atn_spoeqi.py</code>.</p>
@@ -240,8 +241,8 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
   from the shared passphrase and run it in lockstep, generating an endless <em>identical</em> key tape on both sides.
   The key is regenerated, never transmitted — shared, not sent.</p>
   <p><b>The classical line (≈10 bytes per action).</b> Because both run the identical, deterministic CA-1, Bob only
-  needs Alice's <em>inputs</em>. Each delta — <code>[x, y, button, key]</code>, 4 bytes — is XORed with a fresh slice of
-  the pact key tape and tagged with SHA-256, then sent. Bob unseals and replays it; his screen stays pixel-identical.
+  needs Alice's <em>inputs</em>. Each delta — <code>[x, y, button, key]</code>, 4 bytes — is sealed with AES-256-GCM under a key from
+  the pact's CA state at that seq, then sent. Bob unseals and replays it; his screen stays pixel-identical.
   The 196,608-byte screen never travels (see the Metrics).</p>
   <p><b>Cut &amp; restore.</b> Each side is a whole computer, so cutting the line doesn't stop Alice — her deltas queue,
   seq-numbered, and replay in order on restore so Bob reconverges exactly. He applies only the next expected seq, so a
@@ -312,7 +313,7 @@ function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7
  return {M,run};}
 /* state — declared BEFORE any load-time call */
 const $=id=>document.getElementById(id);
-let pact=null,aliceVM=null,bobVM=null,fontBlob=null,fontCps=null,ready=false,mx=80,my=70,mb=0,pendKey=0,keyq=[],bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
+let pact=null,aliceVM=null,bobVM=null,fontBlob=null,fontCps=null,ready=false,bobBusy=false,pendingBobKey=0,mx=80,my=70,mb=0,pendKey=0,keyq=[],bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
 let bobInbox=[],aliceQueue=[],server=[],srvBytes=0,bobSeq=-1;
 let bytesMouse=0,bytesKey=0,nMouse=0,nKey=0,t0=0,lastSent=0,spark=[];   // metrics
 let ipfTotal=0,aboutVisible=false;   // live CA-2 instruction counter + tab state
@@ -326,15 +327,22 @@ const CPAL=[[10,12,20],[60,110,165],[255,210,127],[200,90,70]];
 function drawGrids(){const gs=gridsAt(pact,seq);for(let c=0;c<NCOMP;c++){const im=gc[c].createImageData(SIDE,SIDE),g=gs[c];for(let i=0;i<SIDE*SIDE;i++){const p=CPAL[g[i]];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}gc[c].putImageData(im,0,0);}$("gen").textContent=seq;}
 /* seal a delta from the current input, keyed by seq; unseal+apply to Bob, keyed by the delta's own seq */
 function wr32(vm,addr,v){vm.M[addr]=v&0xFF;vm.M[addr+1]=(v>>>8)&0xFF;vm.M[addr+2]=(v>>>16)&0xFF;vm.M[addr+3]=(v>>>24)&0xFF;}
-function sealDelta(){const plain=new Uint8Array([mx&0xFF,(mx>>8)&0xFF,my&0xFF,(my>>8)&0xFF,mb,pendKey&0xFF,(pendKey>>8)&0xFF]),ks=tap(pact,CH,seq,7),ct=new Uint8Array(7);for(let i=0;i<7;i++)ct[i]=plain[i]^ks[i];
- const tagsrc=new Uint8Array(11);tagsrc.set(plain,0);new DataView(tagsrc.buffer).setUint32(7,seq,true);const tag=sha256(tagsrc).slice(0,4);
- return {seq:seq,ct:ct,tag:tag};}
-function applyToBob(d){const ks=tap(pact,CH,d.seq,7),pl=new Uint8Array(7);for(let i=0;i<7;i++)pl[i]=d.ct[i]^ks[i];
- const chk=new Uint8Array(11);chk.set(pl,0);new DataView(chk.buffer).setUint32(7,d.seq,true);
- if(hex(sha256(chk).slice(0,4))!==hex(d.tag))return 0;   // tampered/foreign -> reject
- bobIn=[pl[0]|(pl[1]<<8),pl[2]|(pl[3]<<8),pl[4]];bobSeq=d.seq;return pl[5]|(pl[6]<<8);}
+/* the pact is the KEY SCHEDULE (not the cipher): key(seq)=SHA-256(domain ‖ seq ‖ full CA state at seq);
+   the 7-byte input delta is sealed with AES-256-GCM (WebCrypto). Bob knows the seq -> derives the same key. */
+const DOMENV=enc("spoeqi/envelope/v1"),keyCache=new Map();
+function deriveKeyBytes(g){const grids=gridsAt(pact,g),st=new Uint8Array(8+NCOMP*SIDE*SIDE);new DataView(st.buffer).setUint32(0,g>>>0,true);
+ let o=8;for(const gr of grids){st.set(gr,o);o+=gr.length;}const full=new Uint8Array(DOMENV.length+st.length);full.set(DOMENV,0);full.set(st,DOMENV.length);return sha256(full);}
+function getKey(g){if(!keyCache.has(g))keyCache.set(g,crypto.subtle.importKey("raw",deriveKeyBytes(g),{name:"AES-GCM"},false,["encrypt","decrypt"]));return keyCache.get(g);}
+async function sealAsync(s,plain,isKey){const key=await getKey(s),nonce=crypto.getRandomValues(new Uint8Array(12));
+ const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv:nonce},key,plain)),d={seq:s,nonce,ct},sz=d.nonce.length+d.ct.length+2;
+ if($("drop").checked){aliceQueue.push(d);$("wire").innerHTML=`✗ line cut — queued sealed delta seq ${s} locally (Alice keeps working)`;}
+ else{bobInbox.push(d);$("wire").innerHTML=`delta @ seq ${s}: <span style="color:var(--pa)">${hex(d.nonce)} ${hex(d.ct)}</span>${isKey?" (incl. keystroke)":""} (${sz} B, AES-256-GCM)`;}
+ sent+=sz;ndelta++;if(isKey){bytesKey+=sz;nKey++;}else{bytesMouse+=sz;nMouse++;}$("sent").textContent=sent;$("ndelta").textContent=ndelta;}
+async function applyBobAsync(d){try{const key=await getKey(d.seq),pl=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:d.nonce},key,d.ct));
+  bobIn=[pl[0]|(pl[1]<<8),pl[2]|(pl[3]<<8),pl[4]];pendingBobKey=pl[5]|(pl[6]<<8);bobSeq=d.seq;}
+  catch(e){/* tampered / foreign / wrong-seed -> AEAD tag fails -> reject, don't advance */}finally{bobBusy=false;}}
 function renderServer(){$("srvcount").textContent=server.length;$("srvbytes").textContent=srvBytes;
- $("store").innerHTML=server.length?server.slice(-12).map(d=>`seq ${d.seq}: <span style="color:var(--sv)">${hex(d.ct)} ${hex(d.tag)}</span>`).join("<br>"):"empty";}
+ $("store").innerHTML=server.length?server.slice(-12).map(d=>`seq ${d.seq}: <span style="color:var(--sv)">${hex(d.nonce)} ${hex(d.ct)}</span>`).join("<br>"):"empty";}
 function stats(){$("queue").textContent=aliceQueue.length;$("bobseq").textContent=bobSeq<0?"—":bobSeq;$("topseq").textContent=seq>0?seq-1:"—";
  const up=!$("drop").checked;$("linep").textContent=up?"line up":"line CUT";$("linep").className="pill "+(up?"up":"down");}
 function renderMetrics(){const el=Math.max(0.001,(performance.now()-t0)/1000);
@@ -371,7 +379,7 @@ async function loadFont(){fontBlob=new Uint8Array(await new Response(new Blob([b
 function syncCheck(){let same=true;for(let i=0;i<OS.W*OS.H;i++){if(aliceVM.M[OS.FB+i]!==bobVM.M[OS.FB+i]){same=false;break;}}
  $("sync").innerHTML=same?"<span class='ok'>in sync ✓</span>":"<span class='no'>diverged ✗ (Bob behind / line cut)</span>";}
 function reset(){if(raf)cancelAnimationFrame(raf);pact=buildPact($("seed").value);aliceVM=bootVM();bobVM=bootVM();
- mx=80;my=70;mb=0;pendKey=0;bobIn=[80,70,0];seq=0;sent=0;ndelta=0;lastMouse=null;bobInbox=[];aliceQueue=[];server=[];srvBytes=0;bobSeq=-1;
+ mx=80;my=70;mb=0;pendKey=0;bobIn=[80,70,0];seq=0;sent=0;ndelta=0;lastMouse=null;bobInbox=[];aliceQueue=[];server=[];srvBytes=0;bobSeq=-1;keyCache.clear();bobBusy=false;pendingBobKey=0;
  bytesMouse=0;bytesKey=0;nMouse=0;nKey=0;t0=performance.now();lastSent=0;spark=[];
  $("sent").textContent=0;$("ndelta").textContent=0;$("wire").textContent="idle";drawGrids();renderServer();stats();renderMetrics();raf=requestAnimationFrame(tick);}
 let fc=0;
@@ -381,19 +389,14 @@ function tick(){
  wr32(aliceVM,OS.MX,mx);wr32(aliceVM,OS.MY,my);wr32(aliceVM,OS.MB,mb);wr32(aliceVM,OS.KEY,pendKey);const ipf=aliceVM.run(OS.prog);ipfTotal+=ipf;blit(ctxA,imA,aliceVM);
  const mouseChanged=!lastMouse||mx!==lastMouse[0]||my!==lastMouse[1]||mb!==lastMouse[2];
  if(mouseChanged||pendKey!==0){
-   const d=sealDelta();
-   if($("drop").checked){aliceQueue.push(d);                                   // line cut -> hold locally
-     $("wire").innerHTML=`✗ line cut — queued delta seq ${seq} locally (Alice keeps working)`;}
-   else{bobInbox.push(d);                                                      // line up -> straight to Bob
-     $("wire").innerHTML=`delta @ seq ${seq}: <span style="color:var(--pa)">${hex(d.ct)} ${hex(d.tag)}</span>${pendKey?" (incl. keystroke)":""} (${d.ct.length+d.tag.length+2} B)`;}
-   const sz=d.ct.length+d.tag.length+2;sent+=sz;ndelta++;if(pendKey!==0){bytesKey+=sz;nKey++;}else{bytesMouse+=sz;nMouse++;}
-   lastMouse=[mx,my,mb];$("sent").textContent=sent;$("ndelta").textContent=ndelta;seq++;drawGrids();
+   const s=seq++,isKey=pendKey!==0;
+   const plain=new Uint8Array([mx&0xFF,(mx>>8)&0xFF,my&0xFF,(my>>8)&0xFF,mb,pendKey&0xFF,(pendKey>>8)&0xFF]);
+   lastMouse=[mx,my,mb];sealAsync(s,plain,isKey);drawGrids();
  }
  // BOB: apply ONLY the next expected seq (ordered, lossless replay); drop already-applied stragglers
- let bobKey=0;
  bobInbox=bobInbox.filter(d=>d.seq>bobSeq);
- let ni=-1;for(let i=0;i<bobInbox.length;i++)if(bobInbox[i].seq===bobSeq+1){ni=i;break;}
- if(ni>=0){bobKey=applyToBob(bobInbox.splice(ni,1)[0]);}
+ if(!bobBusy){const ni=bobInbox.findIndex(d=>d.seq===bobSeq+1);if(ni>=0){bobBusy=true;applyBobAsync(bobInbox.splice(ni,1)[0]);}}
+ let bobKey=pendingBobKey;pendingBobKey=0;
  wr32(bobVM,OS.MX,bobIn[0]);wr32(bobVM,OS.MY,bobIn[1]);wr32(bobVM,OS.MB,bobIn[2]);wr32(bobVM,OS.KEY,bobKey);bobVM.run(OS.prog);blit(ctxB,imB,bobVM);
  pendKey=0;
  if((++fc%12)===0){syncCheck();stats();if(aboutVisible){$("ipf").textContent=ipf.toLocaleString();$("ipfTot").textContent=ipfTotal.toLocaleString();}}
@@ -404,15 +407,15 @@ function tick(){
 $("drop").onchange=function(){if(!this.checked&&aliceQueue.length){for(const d of aliceQueue)bobInbox.push(d);
    $("wire").innerHTML=`✓ line restored — replaying ${aliceQueue.length} queued deltas to Bob in seq order`;aliceQueue=[];}stats();};
 /* mother server (zero-trust, ciphertext only) */
-$("push").onclick=function(){for(const d of aliceQueue){server.push(d);srvBytes+=d.ct.length+d.tag.length+2;}aliceQueue=[];renderServer();stats();
+$("push").onclick=function(){for(const d of aliceQueue){server.push(d);srvBytes+=d.nonce.length+d.ct.length+2;}aliceQueue=[];renderServer();stats();
  $("wire").innerHTML=`👩→🗄️ Alice pushed her queue to the mother server (sealed)`;};
 $("pull").onclick=function(){let added=0;for(const d of server)if(d.seq>bobSeq&&!bobInbox.some(x=>x.seq===d.seq)){bobInbox.push(d);added++;}stats();
  $("wire").innerHTML=`🗄️→🧑 Bob syncing ${added} sealed deltas from the server (replays in order)`;};
-$("export").onclick=function(){const bundle=JSON.stringify(server.map(d=>({seq:d.seq,ct:hex(d.ct),tag:hex(d.tag)})));
+$("export").onclick=function(){const bundle=JSON.stringify(server.map(d=>({seq:d.seq,nonce:hex(d.nonce),ct:hex(d.ct)})));
  const a=document.createElement("a");a.href="data:application/json,"+encodeURIComponent(bundle);a.download="sync.json";a.click();};
 $("fetch").onclick=function(){const url=$("srv").value.trim();if(!url){$("wire").textContent="enter your static domain URL first";return;}
- fetch(url).then(r=>r.json()).then(arr=>{let added=0;for(const o of arr){const d={seq:o.seq,ct:unhex(o.ct),tag:unhex(o.tag)};
-   if(!server.some(x=>x.seq===d.seq)){server.push(d);srvBytes+=d.ct.length+d.tag.length+2;}
+ fetch(url).then(r=>r.json()).then(arr=>{let added=0;for(const o of arr){const d={seq:o.seq,nonce:unhex(o.nonce),ct:unhex(o.ct)};
+   if(!server.some(x=>x.seq===d.seq)){server.push(d);srvBytes+=d.nonce.length+d.ct.length+2;}
    if(d.seq>bobSeq&&!bobInbox.some(x=>x.seq===d.seq)){bobInbox.push(d);added++;}}renderServer();stats();
    $("wire").innerHTML=`⤒ fetched a sealed bundle from your domain — Bob replaying ${added} deltas`;})
   .catch(err=>{$("wire").textContent="fetch failed: "+err+" (CORS or no file yet)";});};
