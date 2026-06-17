@@ -1724,3 +1724,17 @@ while the UI chrome (taskbar, titles, Calc/Sheet) stays the crisp 5x7 font.
   a 16-bit codepoint; Bob reconstructs it -> both panes render the same Unicode (verified FBdiff=0).
 Verified in real Chromium: all three render "中文 / αβ / Привет / 日本 / 한" in the desktop Writer;
 all boot byte-identical. Each lab grew ~1 MB (the embedded font). LTR only (no bidi).
+
+## lab26: the SECURE pact (spoeqi envelope) in the browser (2026-06-17)
+User asked to integrate velour spoeqi's real pact design (not the toy XOR) into the gliderlab. Read
+velour spoeqi/envelope.py: it's NOT a CA cipher — it derives key(g)=SHA-256(domain ‖ g ‖ full 64-comp
+CA state) and seals with ChaCha20-Poly1305 (a vetted AEAD); receiver brute-forces a ±window to find g.
+lab26 (build_lab26.py) ports this faithfully to the browser: same hex-K4 CA as the shared key schedule,
+key = SHA-256(domain ‖ g ‖ CA state), sealed with AES-256-GCM via WebCrypto (WebCrypto has no ChaCha20;
+AES-GCM is the same AEAD class + native/audited). Receiver discovers g over ±20 generations; the GCM tag
+authenticates. UI: shared seed + live CA-state viz + gen counter; Alice seals a typed message; Bob unseals
+with wrong-seed / tamper / clock-drift controls. Verified in real Chromium: normal opens; wrong seed and
+tampered byte both fail (tag); drift +5 opens, +200 fails. Honest note in-page: confidentiality/integrity
+rest on AES-GCM not the CA; CA is a KDF; security = seed secrecy; no forward secrecy (matches velour's
+documented threat model). Linked from the hub. (Earlier I'd wrongly lumped this with broken CA-stream-ciphers
+— corrected after reading the source; the envelope is real AEAD.)

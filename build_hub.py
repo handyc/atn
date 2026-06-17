@@ -33,6 +33,7 @@ GROUPS = [
         ("glider-lab19.html", "Dual CA-Office", "One shared office suite over the encrypted line."),
         ("glider-lab20.html", "Cut / restore + mother server", "An encrypted line you can cut, restore, and sync through a zero-trust server."),
         ("glider-lab21.html", "The showcase", "Full CA-Office over the line, with live metrics + a “How it works” tab."),
+        ("glider-lab26.html", "The spoeqi envelope", "The SECURE pact: a vetted AEAD (AES-256-GCM) keyed by the CA — seal/unseal, with the generation discovered by the receiver."),
     ]),
     ("CA-2 — the 32-bit machine", [
         ("glider-lab22.html", "CA-OS/2", "A 32-bit OS (512×384) on the CA-2 machine — launcher + apps."),
