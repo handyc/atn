@@ -77,7 +77,10 @@ const W=OS.W,H=OS.H,FB=OS.FB;
 const sc=document.getElementById("screen"),sx=sc.getContext("2d"),im=sx.createImageData(W,H);
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
 let mx=W>>1,my=H>>1,mb=0;
-function rel(e){return[Math.max(0,Math.min(W-1,(e.offsetX/sc.clientWidth*W)|0)),Math.max(0,Math.min(H-1,(e.offsetY/sc.clientHeight*H)|0))];}
+function rel(e){const r=sc.getBoundingClientRect(),cs=getComputedStyle(sc),
+  bl=parseFloat(cs.borderLeftWidth)||0,bt=parseFloat(cs.borderTopWidth)||0;   // border-exact: clientX/Y minus border, over the content box
+  const x=(e.clientX-r.left-bl)/sc.clientWidth*W,y=(e.clientY-r.top-bt)/sc.clientHeight*H;
+  return[Math.max(0,Math.min(W-1,x|0)),Math.max(0,Math.min(H-1,y|0))];}
 function wr32(addr,v){vm.M[addr]=v&0xFF;vm.M[addr+1]=(v>>>8)&0xFF;vm.M[addr+2]=(v>>>16)&0xFF;vm.M[addr+3]=(v>>>24)&0xFF;}
 sc.addEventListener("mousemove",e=>{[mx,my]=rel(e);});
 sc.addEventListener("mousedown",e=>{[mx,my]=rel(e);mb=1;sc.focus();});window.addEventListener("mouseup",()=>mb=0);

@@ -335,7 +335,10 @@ function renderMetrics(){const el=Math.max(0.001,(performance.now()-t0)/1000);
  const peak=Math.max(1,...spark);x.strokeStyle="#7de0c7";x.lineWidth=1.5;x.beginPath();
  spark.forEach((v,i)=>{const px=i/89*W,py=H-(v/peak)*(H-3)-1.5;i?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();}
 const sa=$("sa");
-function rel(e){return[Math.max(0,Math.min(OS.W-1,(e.offsetX/sa.clientWidth*OS.W)|0)),Math.max(0,Math.min(OS.H-1,(e.offsetY/sa.clientHeight*OS.H)|0))];}  // content-box -> exact
+function rel(e){const r=sa.getBoundingClientRect(),cs=getComputedStyle(sa),
+  bl=parseFloat(cs.borderLeftWidth)||0,bt=parseFloat(cs.borderTopWidth)||0;   // border-exact: clientX/Y minus border, over the content box
+  const x=(e.clientX-r.left-bl)/sa.clientWidth*OS.W,y=(e.clientY-r.top-bt)/sa.clientHeight*OS.H;
+  return[Math.max(0,Math.min(OS.W-1,x|0)),Math.max(0,Math.min(OS.H-1,y|0))];}
 sa.onmousemove=e=>{[mx,my]=rel(e);};sa.onmousedown=e=>{[mx,my]=rel(e);mb=1;sa.focus();};window.addEventListener("mouseup",()=>mb=0);
 sa.addEventListener("keydown",e=>{let g=-1;if(e.key==="Backspace")g=0xFE;else if(e.key==="Enter")g=0xFD;else if(e.key===" ")g=(OS.GIDX[" "]||0);
  else if(e.key.length===1&&OS.GIDX[e.key]!==undefined)g=OS.GIDX[e.key];   // preserve case
