@@ -1527,3 +1527,14 @@ REMAINING (large, not done): a CA-2 *operating system*. caos3 is full of load-be
 assumptions (clock signed-byte hand offsets, minesweeper LCG mod 256, pixel/font byte math), so CA-OS
 won't run as-is on a 32-bit machine — porting it (or writing a fresh 32-bit OS) is the next big step.
 The CA-2 *computer* (verified 32-bit datapath + flat memory) is done; its *software stack* is not.
+
+## CA-OS/2: a 32-bit OS on CA-2, in the browser (lab22) (2026-06-17)
+caos_ca2.py = native 32-bit OS for make_machine("CA-2"): 512x384 flat framebuffer at 0x10000, flat
+32-bit indexed pixel writes (STAX), 32-bit coordinate math (LDW/STW/ADDW/SUBW/CMPW). Desktop + taskbar
++ System window (honest self-description) + save-under mouse cursor + live clock. Verified on the CA-2
+VM (renders 62,928 px; cursor tracks mouse w/o trails; clock ticks). build_lab22.py = glider-lab22.html
+with a faithful 32-bit JS VM (mirrors ca1sys CA-2: 32-bit set()/regs/ALU, flat 1 MB near mask, the word
+ops, 32-bit SHL). Static checks pass (braces, 24/24 opcodes, no display:none, font embedded); the
+embedded program boots BYTE-IDENTICAL to the Python CA-2 reference. So the family now spans two real,
+verifiable machines with their own OSes: CA-1 (8-bit, CA-OFFICE, labs 18-21) and CA-2 (32-bit, CA-OS/2,
+lab22). HONEST: CA-2's ALU is the genuine 8-bit CA gate tiled to 32 bits (verified); the VM runs it fast.
