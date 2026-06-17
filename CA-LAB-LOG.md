@@ -1402,3 +1402,17 @@ Backend constraint: user's domain is STATIC HOSTING ONLY -> mother server rides 
  - VERIFIED (Python, real CA-1 VM + ported bookkeeping): cut+restore -> Bob FB byte-identical to Alice;
    cut+push+pull -> byte-identical; lost seq -> Bob stalls at the gap, not corrupt. Static checks pass
    (braces balanced, 31/31 opcodes covered, no display:none, no TDZ); embedded boots byte-identical.
+
+## CA-OFFICE: Paint app (4th app on CA-1) (2026-06-17)
+User: "I also liked your earlier idea of a Paint clone." First of the "1998 suite" build-out.
+ - draw_paint: a 96x96 canvas in its own backing buffer PBUF=0x0B00 (9216 B, below the framebuffer
+   which fills 0x4000-0xFFFF) -- the dirty-rectangle full redraw (clearbg) would otherwise wipe any
+   strokes, so the buffer is re-blitted each redraw (2D copy via dual P-pointer + LDPX/STPX, ~100k
+   instr/redraw). 8-colour palette strip (BLK/GRY/WHT/RED/GRN/BLU/NAV/SIL) with a white selection
+   ring; Clear button (C) -> clearpaint fills the buffer white (36-page loop). Drag-to-draw: main
+   loop calls pokepaint while MB held over the canvas -> 2x2 dab at the cursor (P=PBUF+py*96, write
+   at X=px,px+1,px+96,px+97). Start menu grew to 4 items (box moved up to y134); title/body/click
+   dispatch all handle APP==4.
+ - VERIFIED (Python, scripted): open via menu -> APP=4; pick swatch -> PCOL; drag -> 2x2 RED dabs in
+   buffer + rendered on screen; Clear -> 0 red / 9216 white. Regression: writer typing, sheet store,
+   calc all still open/work. All 3 labs (18/19/20) regenerated, embedded boots byte-identical.

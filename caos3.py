@@ -32,10 +32,15 @@ BFL,BFH = 0x47,0x48      # blitglyph 16-bit font-base pointer (font table > 256 
 WX,WY,DRAG,DOFX,DOFY = 0x49,0x4A,0x4B,0x4C,0x4D   # runtime window position + drag state
 BOLD = 0x4E      # 1 = blitglyph draws 2px-wide strokes (bold heading font)
 SFRESH = 0x4F    # 1 = selected sheet cell is fresh; next digit replaces (not appends)
+PCOL = 0x50      # Paint: selected colour (palette index)
+PSL,PSH,DDH,DDL,PTMP,PROW = 0x52,0x53,0x54,0x55,0x56,0x57   # Paint blit pointers/scratch
+PW,PH = 96,96    # paint canvas size (px); buffer = PW*PH bytes
+PSWATCH = [0,3,4,8,9,7,5,2]   # palette swatches: BLK,GRY,WHT,RED,GRN,BLU,NAV,SIL
 FONT  = 0x0500      # 5x7 font, 7 bytes/glyph (now ~80 glyphs incl lowercase -> ~560 bytes)
 STRP  = 0x0780      # strings table base (moved past the bigger font)
 TBUF  = 0x0900      # writer text buffer (glyph indices)
 CELLS = 0x0A00      # 12 spreadsheet cells (bytes)
+PBUF  = 0x0B00      # Paint canvas backing buffer (PW*PH = 9216 bytes -> 0x0B00..0x2F00, below stack 0x3F00)
 CURBUF= 0x0300
 
 # ── 5x7 font: full A-Z, 0-9, space, symbols ──
@@ -91,7 +96,7 @@ def enc_rows(rows):
         out.append(b)
     return out
 STRINGS={"caoffice":("CA-Office",0x00),"start":("Start",0x10),"writer":("Writer",0x18),
-         "sheet":("Sheet",0x20),"calc":("Calc",0x28),"total":("Total",0x30)}
+         "sheet":("Sheet",0x20),"calc":("Calc",0x28),"total":("Total",0x30),"paint":("Paint",0x38)}
 def soff(k): return STRINGS[k][1]
 
 # calculator buttons (window-relative), used by CALC app
@@ -226,14 +231,15 @@ def program():
     wx(AX,2); wy(AY,2); a(("LDI",WW-4)); a(("STA",AW)); a(("LDI",12)); a(("STA",AH)); a(("LDI",NAV)); a(("STA",ACOL)); a(("CALL","fillrect"))
     # title text by app
     wx(SX,5); wy(SY,4); a(("LDI",WHT)); a(("STA",SCOL)); a(("LDI",1)); a(("STA",BOLD))   # bold title
-    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("JMP","tp"))
-    a(("tw:",)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("JMP","tp")); a(("ts:",)); a(("LDI",soff("sheet"))); a(("STA",SPTR))
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("CMPI",3)); a(("JZ","tc")); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("JMP","tp"))
+    a(("tw:",)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("JMP","tp")); a(("ts:",)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("JMP","tp"))
+    a(("tc:",)); a(("LDI",soff("calc"))); a(("STA",SPTR))
     a(("tp:",)); a(("CALL","puts2")); a(("LDI",0)); a(("STA",BOLD))
     # close box
     wx(AX,WW-13); wy(AY,3); a(("LDI",10)); a(("STA",AW)); a(("LDI",10)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
     wx(GX,WW-11); wy(GY,4); a(("LDI",gi('x'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
     # body
-    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","body_w")); a(("CMPI",2)); a(("JZ","body_s")); a(("JMP","body_c"))
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","body_w")); a(("CMPI",2)); a(("JZ","body_s")); a(("CMPI",3)); a(("JZ","body_c")); a(("CALL","draw_paint")); a(("RET",))
     a(("body_w:",)); a(("CALL","draw_writer")); a(("RET",))
     a(("body_s:",)); a(("CALL","draw_sheet")); a(("RET",))
     a(("body_c:",)); a(("CALL","draw_calc")); a(("RET",))
@@ -292,18 +298,63 @@ def program():
         wx(GX,bx+8); wy(GY,by+4); a(("LDI",gi(lab))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
     a(("RET",))
 
+    # ---- PAINT: blit the canvas buffer, draw the palette + clear button ----
+    a(("draw_paint:",))
+    wx(AX,5); wy(AY,17); a(("LDI",PW+2)); a(("STA",AW)); a(("LDI",PH+2)); a(("STA",AH)); a(("LDI",BLK)); a(("STA",ACOL)); a(("CALL","fillrect"))  # 1px frame
+    a(("LDI",PBUF & 0xFF)); a(("STA",PSL)); a(("LDI",PBUF>>8)); a(("STA",PSH))                 # src = PBUF
+    a(("LDA",WY)); a(("ADDI",18)); a(("ADDI",FBPAGE)); a(("STA",DDH)); a(("LDA",WX)); a(("ADDI",6)); a(("STA",DDL))   # dst row base
+    a(("LDI",0)); a(("STA",PROW))
+    a(("dp_row:",)); a(("LXI",0))
+    a(("dp_col:",))
+    a(("LDA",PSL)); a(("PLO",)); a(("LDA",PSH)); a(("PHI",)); a(("LDPX",)); a(("STA",PTMP))     # A = src[col]
+    a(("LDA",DDL)); a(("PLO",)); a(("LDA",DDH)); a(("PHI",)); a(("LDA",PTMP)); a(("STPX",))     # dst[col] = A
+    a(("INX",)); a(("TXA",)); a(("CMPI",PW)); a(("JNC","dp_col"))
+    a(("LDA",PSL)); a(("ADDI",PW)); a(("STA",PSL)); a(("JNC","dp_nc")); a(("LDA",PSH)); a(("ADDI",1)); a(("STA",PSH)); a(("dp_nc:",))
+    a(("LDA",DDH)); a(("ADDI",1)); a(("STA",DDH))
+    a(("LDA",PROW)); a(("ADDI",1)); a(("STA",PROW)); a(("CMPI",PH)); a(("JNC","dp_row"))
+    # palette swatches (selected one gets a white ring)
+    for i,col in enumerate(PSWATCH):
+        y=18+i*14
+        a(("LDA",PCOL)); a(("CMPI",col)); a(("JNZ",f"pn{i}"))
+        wx(AX,104); wy(AY,y-2); a(("LDI",34)); a(("STA",AW)); a(("LDI",16)); a(("STA",AH)); a(("LDI",WHT)); a(("STA",ACOL)); a(("CALL","fillrect"))
+        a((f"pn{i}:",))
+        wx(AX,105); wy(AY,y-1); a(("LDI",32)); a(("STA",AW)); a(("LDI",14)); a(("STA",AH)); a(("LDI",BLK)); a(("STA",ACOL)); a(("CALL","fillrect"))
+        wx(AX,106); wy(AY,y); a(("LDI",30)); a(("STA",AW)); a(("LDI",12)); a(("STA",AH)); a(("LDI",col)); a(("STA",ACOL)); a(("CALL","fillrect"))
+    wx(AX,106); wy(AY,132); a(("LDI",30)); a(("STA",AW)); a(("LDI",13)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    wx(GX,118); wy(GY,135); a(("LDI",gi('C'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+    a(("RET",))
+    # clear the paint buffer to white (PW*PH = 36 pages)
+    a(("clearpaint:",)); a(("LDI",PBUF>>8)); a(("STA",T0))
+    a(("cp_p:",)); a(("LDA",T0)); a(("CMPI",(PBUF>>8)+36)); a(("JZ","cp_d")); a(("LDI",0)); a(("PLO",)); a(("LDA",T0)); a(("PHI",)); a(("LXI",0))
+    a(("cp_x:",)); a(("LDI",WHT)); a(("STPX",)); a(("INX",)); a(("JNZ","cp_x")); a(("LDA",T0)); a(("ADDI",1)); a(("STA",T0)); a(("JMP","cp_p")); a(("cp_d:",)); a(("RET",))
+    # paint a 2x2 dab at the cursor into PBUF (called while MB held over the canvas)
+    a(("pokepaint:",))
+    a(("LDA",MX)); a(("CMP",WX)); a(("JNC","pp_no"))
+    a(("LDA",MX)); a(("SUB",WX)); a(("STA",T1)); a(("CMPI",6)); a(("JNC","pp_no")); a(("LDA",T1)); a(("SUBI",6)); a(("STA",T1)); a(("CMPI",PW-1)); a(("JC","pp_no"))
+    a(("LDA",MY)); a(("CMP",WY)); a(("JNC","pp_no"))
+    a(("LDA",MY)); a(("SUB",WY)); a(("STA",T2)); a(("CMPI",18)); a(("JNC","pp_no")); a(("LDA",T2)); a(("SUBI",18)); a(("STA",T2)); a(("CMPI",PH-1)); a(("JC","pp_no"))
+    a(("LDI",0)); a(("STA",PSL)); a(("STA",PSH)); a(("LDA",T2)); a(("STA",PROW))                 # acc = py*PW
+    a(("pp_mul:",)); a(("LDA",PROW)); a(("JZ","pp_md")); a(("LDA",PSL)); a(("ADDI",PW)); a(("STA",PSL)); a(("JNC","pp_mnc")); a(("LDA",PSH)); a(("ADDI",1)); a(("STA",PSH)); a(("pp_mnc:",)); a(("LDA",PROW)); a(("SUBI",1)); a(("STA",PROW)); a(("JMP","pp_mul"))
+    a(("pp_md:",)); a(("LDA",PSL)); a(("PLO",)); a(("LDA",PSH)); a(("ADDI",PBUF>>8)); a(("PHI",))   # P = PBUF + py*PW
+    a(("LDA",T1)); a(("TAX",)); a(("LDA",PCOL)); a(("STPX",)); a(("INX",)); a(("LDA",PCOL)); a(("STPX",))           # (py, px)(py, px+1)
+    a(("LDA",T1)); a(("ADDI",PW)); a(("TAX",)); a(("LDA",PCOL)); a(("STPX",)); a(("INX",)); a(("LDA",PCOL)); a(("STPX",))  # (py+1, px)(py+1, px+1)
+    a(("LDI",1)); a(("STA",DIRTY))
+    a(("pp_no:",)); a(("RET",))
+
     # ---- start menu ----
     a(("drawmenu:",))
-    a(("LDI",2)); a(("STA",AX)); a(("LDI",146)); a(("STA",AY)); a(("LDI",70)); a(("STA",AW)); a(("LDI",36)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",149)); a(("STA",SY)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",160)); a(("STA",SY)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",171)); a(("STA",SY)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",2)); a(("STA",AX)); a(("LDI",134)); a(("STA",AY)); a(("LDI",70)); a(("STA",AW)); a(("LDI",48)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",137)); a(("STA",SY)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",148)); a(("STA",SY)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",159)); a(("STA",SY)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",170)); a(("STA",SY)); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
     a(("RET",))
 
     # ============ boot + main ============
     a(("boot:",)); a(("LDI",0))
-    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD): a(("STA",v))
+    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD,PCOL): a(("STA",v))
     a(("LDI",1)); a(("STA",C_FRESH)); a(("STA",DIRTY))
+    a(("CALL","clearpaint"))    # paint canvas starts white
     a(("LDI",80)); a(("STA",CX)); a(("STA",OCX)); a(("LDI",70)); a(("STA",CY)); a(("STA",OCY))
     a(("LDI",WINX)); a(("STA",WX)); a(("LDI",WINY)); a(("STA",WY))
     a(("main:",))
@@ -315,6 +366,8 @@ def program():
     a(("LDA",MX)); a(("SUB",DOFX)); a(("STA",WX)); a(("LDA",MY)); a(("SUB",DOFY)); a(("STA",WY)); a(("LDI",1)); a(("STA",DIRTY)); a(("JMP","nodrag"))
     a(("dragend:",)); a(("LDI",0)); a(("STA",DRAG))
     a(("nodrag:",))
+    # Paint: drag to draw (button held over the canvas)
+    a(("LDA",APP)); a(("CMPI",4)); a(("JNZ","npaint")); a(("LDA",MB)); a(("JZ","npaint")); a(("CALL","pokepaint")); a(("npaint:",))
     a(("CALL","keyin"))                       # keyboard (writer/sheet)
     # blink counter
     a(("LDA",BLINK)); a(("ADDI",1)); a(("STA",BLINK)); a(("ANDI",7)); a(("JNZ","nbd")); a(("LDA",APP)); a(("CMPI",1)); a(("JNZ","nbd")); a(("LDI",1)); a(("STA",DIRTY)); a(("nbd:",))
@@ -350,11 +403,12 @@ def program():
     a(("LDA",MX)); a(("CMPI",2)); a(("JNC","oc_notstart")); a(("CMPI",43)); a(("JC","oc_notstart")); a(("LDA",MY)); a(("CMPI",182)); a(("JNC","oc_notstart"))
     a(("LDA",START)); a(("JNZ","oc_sclose")); a(("LDI",1)); a(("STA",START)); a(("JMP","oc_dirty")); a(("oc_sclose:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_notstart:",))
-    # start menu items (if open): box x2..72 y146..182, items at y149/160/171
+    # start menu items (if open): box x2..72 y134..182, items at y137/148/159/170
     a(("LDA",START)); a(("JZ","oc_nomenu"))
     a(("LDA",MX)); a(("CMPI",2)); a(("JNC","oc_menudone")); a(("CMPI",72)); a(("JC","oc_menudone"))
-    a(("LDA",MY)); a(("CMPI",158)); a(("JNC","oc_pickw")); a(("CMPI",169)); a(("JNC","oc_picks")); a(("CMPI",182)); a(("JNC","oc_pickc")); a(("JMP","oc_menudone"))
-    a(("oc_pickw:",)); a(("LDI",1)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_picks:",)); a(("LDI",2)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickc:",)); a(("LDI",3)); a(("STA",APP))
+    a(("LDA",MY)); a(("CMPI",146)); a(("JNC","oc_pickw")); a(("CMPI",158)); a(("JNC","oc_picks")); a(("CMPI",170)); a(("JNC","oc_pickc")); a(("CMPI",182)); a(("JNC","oc_pickp")); a(("JMP","oc_menudone"))
+    a(("oc_pickw:",)); a(("LDI",1)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_picks:",)); a(("LDI",2)); a(("STA",APP)); a(("JMP","oc_mclose"))
+    a(("oc_pickc:",)); a(("LDI",3)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickp:",)); a(("LDI",4)); a(("STA",APP))
     a(("oc_mclose:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_menudone:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_nomenu:",))
@@ -367,7 +421,7 @@ def program():
     hx(2,"oc_notitle",False); hx(WW-14,"oc_notitle",True); hy(2,"oc_notitle",False); hy(14,"oc_notitle",True)
     a(("LDI",1)); a(("STA",DRAG)); a(("LDA",MX)); a(("SUB",WX)); a(("STA",DOFX)); a(("LDA",MY)); a(("SUB",WY)); a(("STA",DOFY)); a(("RET",))
     a(("oc_notitle:",))
-    a(("LDA",APP)); a(("CMPI",2)); a(("JZ","oc_sheet")); a(("CMPI",3)); a(("JZ","oc_calc")); a(("JMP","oc_dirty"))  # writer body: nothing on click
+    a(("LDA",APP)); a(("CMPI",2)); a(("JZ","oc_sheet")); a(("CMPI",3)); a(("JZ","oc_calc")); a(("CMPI",4)); a(("JZ","oc_paint")); a(("JMP","oc_dirty"))  # writer body: nothing on click
     # sheet clicks: cells + +/- buttons
     a(("oc_sheet:",))
     for idx,(bx,by) in enumerate(SCELLS):
@@ -390,6 +444,15 @@ def program():
         elif kind=='c': a(("CALL","cclr"))
         a(("JMP","oc_dirty")); a((f"{lbl}:",))
     a(("oc_dirty:",)); a(("LDI",1)); a(("STA",DIRTY)); a(("oc_ret:",)); a(("RET",))
+
+    # paint clicks: palette swatches (right strip) + clear button
+    a(("oc_paint:",))
+    for i,col in enumerate(PSWATCH):
+        y=18+i*14; lbl=f"pswn{i}"
+        hx(106,lbl,False); hx(136,lbl,True); hy(y,lbl,False); hy(y+12,lbl,True)
+        a(("LDI",col)); a(("STA",PCOL)); a(("JMP","oc_dirty")); a((f"{lbl}:",))
+    hx(106,"oc_dirty",False); hx(136,"oc_dirty",True); hy(132,"oc_dirty",False); hy(145,"oc_dirty",True)
+    a(("CALL","clearpaint")); a(("JMP","oc_dirty"))
 
     # calc ops (8-bit display via C_CUR; result shown in C_CUR)
     a(("cdig:",)); a(("LDA",C_FRESH)); a(("JZ","cd_a")); a(("LDI",0)); a(("STA",C_CUR)); a(("LDI",0)); a(("STA",C_FRESH))
