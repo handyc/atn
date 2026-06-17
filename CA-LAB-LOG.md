@@ -1386,3 +1386,19 @@ numbers in individual cells like a real spreadsheet."
    then writes (replace, not append) -- real-spreadsheet feel. Verified: cell0=42, re-select+type 9 -> 9.
  - (WSL note: the first post-edit test runs read a stale .pyc due to sub-second mtime granularity and
    showed 0s; fresh runs confirmed the fix. Worth remembering for future quick edit/test loops here.)
+
+## lab20: an encrypted line you can CUT and RESTORE + a zero-trust mother server (2026-06-17)
+Answers the user's two research questions directly (cut/restore resilience; optional shared DB).
+Backend constraint: user's domain is STATIC HOSTING ONLY -> mother server rides a sealed JSON bundle
+(export/upload/fetch); no server-side code, host holds only ciphertext.
+ - PART A (client-only resilience): each input delta is sealed (ct + SHA-256 tag) and seq-numbered.
+   Cut the line -> Alice keeps working, deltas QUEUE locally (not dropped). Restore -> replay to Bob
+   in seq order -> reconverge. Bob applies ONLY seq=lastApplied+1, so order holds and a missing delta
+   STALLS him (no out-of-order corruption). Keystream is seq-keyed, so a queued/stored delta replays
+   identically whenever it arrives -> a delayed delta is as good as a live one.
+ - PART B (zero-trust mother server, static-friendly): server stores sealed deltas only (ciphertext).
+   Alice push-queue->server; Bob pull->replays seq>bob. EXPORT downloads sync.json (to upload to the
+   static domain); FETCH pulls a bundle from a domain URL. Host never sees a key/plaintext.
+ - VERIFIED (Python, real CA-1 VM + ported bookkeeping): cut+restore -> Bob FB byte-identical to Alice;
+   cut+push+pull -> byte-identical; lost seq -> Bob stalls at the gap, not corrupt. Static checks pass
+   (braces balanced, 31/31 opcodes covered, no display:none, no TDZ); embedded boots byte-identical.
