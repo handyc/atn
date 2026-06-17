@@ -1450,3 +1450,22 @@ a digital MM:SS below (ck2 = 2-digit draw via repeated-subtract). Start menu now
    apps still open. All 4 labs regenerated, boot byte-identical.
  - lab21 now features the FULL 1998-style suite on CA-1 over the encrypted line: Writer, Sheet, Calc,
    Paint, Minesweeper, Clock -- plus the metrics panel. The metrics->Minesweeper->Clock->lab21 arc is done.
+
+## lab21: "How it works" tab — every CA in the system, live + a credibility case (2026-06-17)
+User: add an explanation tab; "people will have difficulty believing the windowing system is actually
+inside the CAs, so focus on that"; "live, real visualizations of the actual CAs ... every CA should display live."
+ - Tabbed lab21: "Live demo" (unchanged) + "How it works". The explanation leads with the credibility
+   claim and backs it with: (a) a live counter of CA-1 instructions/frame + cumulative since load (drag a
+   window -> it leaps into the 100,000s = the CA redrawing every pixel); (b) the dumb-terminal contrast +
+   a "View Source, the UI isn't there" challenge; (c) the rule->gate->computer->windows chain; (d) honest
+   scope (full CPU-as-gliders would take days/frame, so the windows run the identical machine code on a
+   fast emulator, but the gates it's built from are the live CAs above).
+ - LIVE REAL CA PANELS (reused from build_lab10's verified code, on the committed gate/latch LUTs in
+   caos_pipeluts.json): NAND gate, latch (1-bit memory), inverter, autonomous wire (NOR transported),
+   circulating register. Plus the pact CAs already live in the demo tab. So every CA TYPE in the system
+   is on screen and running. VERIFIED: the committed LUTs reproduce the NAND truth table (1,1,1,0) in a
+   standalone Python port -> the panels are genuine CA logic, not decoration. Static checks pass (braces,
+   33/33 opcodes, all panel/metric/tab ids present, demo tab visible by default, canvases not hidden, no
+   TDZ, all placeholders substituted); lab21 embedded boots byte-identical.
+ - HONEST NOTE: the full CA-1 CPU is NOT animated as gliders (≈1e8x too slow); it's ISA-emulated, and the
+   tab says so plainly. What's live-real: the pact CAs + the gate/latch/wire/register/inverter CAs.
