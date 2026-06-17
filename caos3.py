@@ -41,6 +41,10 @@ MFLAG,MOVER,MSEED,MSP,MNREV,MR,MC,MTMP,MI,MK,MIDX = 0x58,0x59,0x5A,0x5B,0x5C,0x5
 MGRID = 0x0080   # 64 cells (0x80-0xBF)
 MSTK  = 0x0100   # flood-fill stack (deduped via queued bit -> <=64 deep)
 GW,MINES = 8,10  # grid 8x8, 10 mines
+# Clock (APP=6): counts CA-1 frames (no RTC) -> deterministic, so Alice/Bob clocks match
+CLKFR,CSEC,CMIN,CKCX,CKCY,CKI,CKT = 0x63,0x64,0x65,0x66,0x67,0x68,0x69
+CLKSX,CLKSY,CLKMX,CLKMY = 0x0140,0x0180,0x01C0,0x0200   # 60-entry sin/cos dot tables (signed bytes)
+CKR1,CKR2 = 42,28   # second-hand / minute-hand radii (px)
 FONT  = 0x0500      # 5x7 font, 7 bytes/glyph (now ~80 glyphs incl lowercase -> ~560 bytes)
 STRP  = 0x0780      # strings table base (moved past the bigger font)
 TBUF  = 0x0900      # writer text buffer (glyph indices)
@@ -102,7 +106,7 @@ def enc_rows(rows):
     return out
 STRINGS={"caoffice":("CA-Office",0x00),"start":("Start",0x10),"writer":("Writer",0x18),
          "sheet":("Sheet",0x20),"calc":("Calc",0x28),"total":("Total",0x30),"paint":("Paint",0x38),
-         "mine":("Mines",0x40)}
+         "mine":("Mines",0x40),"clock":("Clock",0x48)}
 def soff(k): return STRINGS[k][1]
 
 # calculator buttons (window-relative), used by CALC app
@@ -132,6 +136,11 @@ def load_memory(m):
     for k,(text,off) in STRINGS.items():
         for j,ch in enumerate(text): m.M[STRP+off+j]=gi(ch)
         m.M[STRP+off+len(text)]=0xFF
+    import math   # clock dot tables: position on a circle for each of 60 ticks (12 o'clock = up)
+    for i in range(60):
+        th=i/60*2*math.pi
+        m.M[CLKSX+i]=round(CKR1*math.sin(th))&0xFF; m.M[CLKSY+i]=round(-CKR1*math.cos(th))&0xFF
+        m.M[CLKMX+i]=round(CKR2*math.sin(th))&0xFF; m.M[CLKMY+i]=round(-CKR2*math.cos(th))&0xFF
 
 def program():
     L=[]; a=L.append
@@ -256,15 +265,16 @@ def program():
     wx(AX,2); wy(AY,2); a(("LDI",WW-4)); a(("STA",AW)); a(("LDI",12)); a(("STA",AH)); a(("LDI",NAV)); a(("STA",ACOL)); a(("CALL","fillrect"))
     # title text by app
     wx(SX,5); wy(SY,4); a(("LDI",WHT)); a(("STA",SCOL)); a(("LDI",1)); a(("STA",BOLD))   # bold title
-    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("CMPI",3)); a(("JZ","tc")); a(("CMPI",4)); a(("JZ","tpa")); a(("LDI",soff("mine"))); a(("STA",SPTR)); a(("JMP","tp"))
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("CMPI",3)); a(("JZ","tc")); a(("CMPI",4)); a(("JZ","tpa")); a(("CMPI",5)); a(("JZ","tmi")); a(("LDI",soff("clock"))); a(("STA",SPTR)); a(("JMP","tp"))
     a(("tw:",)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("JMP","tp")); a(("ts:",)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("JMP","tp"))
-    a(("tc:",)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("JMP","tp")); a(("tpa:",)); a(("LDI",soff("paint"))); a(("STA",SPTR))
+    a(("tc:",)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("JMP","tp")); a(("tpa:",)); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("JMP","tp")); a(("tmi:",)); a(("LDI",soff("mine"))); a(("STA",SPTR))
     a(("tp:",)); a(("CALL","puts2")); a(("LDI",0)); a(("STA",BOLD))
     # close box
     wx(AX,WW-13); wy(AY,3); a(("LDI",10)); a(("STA",AW)); a(("LDI",10)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
     wx(GX,WW-11); wy(GY,4); a(("LDI",gi('x'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
     # body
-    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","body_w")); a(("CMPI",2)); a(("JZ","body_s")); a(("CMPI",3)); a(("JZ","body_c")); a(("CMPI",4)); a(("JZ","body_p")); a(("CALL","draw_mine")); a(("RET",))
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","body_w")); a(("CMPI",2)); a(("JZ","body_s")); a(("CMPI",3)); a(("JZ","body_c")); a(("CMPI",4)); a(("JZ","body_p")); a(("CMPI",5)); a(("JZ","body_m")); a(("CALL","draw_clock")); a(("RET",))
+    a(("body_m:",)); a(("CALL","draw_mine")); a(("RET",))
     a(("body_p:",)); a(("CALL","draw_paint")); a(("RET",))
     a(("body_w:",)); a(("CALL","draw_writer")); a(("RET",))
     a(("body_s:",)); a(("CALL","draw_sheet")); a(("RET",))
@@ -430,19 +440,42 @@ def program():
             a((f"{t}_d:",))
     a(("RET",))
 
+    # ============ CLOCK (APP=6): analog face + digital MM:SS, both off a CA-1 frame counter ============
+    a(("draw_clock:",))
+    wx(CKCX,75); wy(CKCY,72)
+    a(("LDI",0)); a(("STA",CKI))                                   # 12 hour ticks (every 5th tick), black dots
+    a(("ck_hl:",)); a(("LDX",CKI)); a(("LDAX",CLKSX)); a(("ADD",CKCX)); a(("STA",AX)); a(("LDX",CKI)); a(("LDAX",CLKSY)); a(("ADD",CKCY)); a(("STA",AY))
+    a(("LDI",2)); a(("STA",AW)); a(("STA",AH)); a(("LDI",BLK)); a(("STA",ACOL)); a(("CALL","fillrect"))
+    a(("LDA",CKI)); a(("ADDI",5)); a(("STA",CKI)); a(("CMPI",60)); a(("JNC","ck_hl"))
+    a(("LDX",CMIN)); a(("LDAX",CLKMX)); a(("ADD",CKCX)); a(("STA",AX)); a(("LDX",CMIN)); a(("LDAX",CLKMY)); a(("ADD",CKCY)); a(("STA",AY))   # minute dot
+    a(("LDI",3)); a(("STA",AW)); a(("STA",AH)); a(("LDI",NAV)); a(("STA",ACOL)); a(("CALL","fillrect"))
+    a(("LDX",CSEC)); a(("LDAX",CLKSX)); a(("ADD",CKCX)); a(("STA",AX)); a(("LDX",CSEC)); a(("LDAX",CLKSY)); a(("ADD",CKCY)); a(("STA",AY))   # second dot
+    a(("LDI",3)); a(("STA",AW)); a(("STA",AH)); a(("LDI",RED)); a(("STA",ACOL)); a(("CALL","fillrect"))
+    a(("LDA",CKCX)); a(("SUBI",1)); a(("STA",AX)); a(("LDA",CKCY)); a(("SUBI",1)); a(("STA",AY)); a(("LDI",4)); a(("STA",AW)); a(("STA",AH)); a(("LDI",BLK)); a(("STA",ACOL)); a(("CALL","fillrect"))  # hub
+    wy(GY,128); wx(GX,58); a(("LDA",CMIN)); a(("CALL","ck2"))      # digital MM
+    wx(AX,73); wy(AY,130); a(("LDI",2)); a(("STA",AW)); a(("STA",AH)); a(("LDI",BLK)); a(("STA",ACOL)); a(("CALL","fillrect"))   # colon
+    wx(AX,73); wy(AY,135); a(("LDI",2)); a(("STA",AW)); a(("STA",AH)); a(("LDI",BLK)); a(("STA",ACOL)); a(("CALL","fillrect"))
+    wy(GY,128); wx(GX,78); a(("LDA",CSEC)); a(("CALL","ck2"))      # :SS
+    a(("RET",))
+    a(("ck2:",)); a(("STA",CKI)); a(("LDI",0)); a(("STA",CKT))     # draw A as 2 digits at (GX,GY)
+    a(("ck2l:",)); a(("LDA",CKI)); a(("CMPI",10)); a(("JNC","ck2d")); a(("SUBI",10)); a(("STA",CKI)); a(("LDA",CKT)); a(("ADDI",1)); a(("STA",CKT)); a(("JMP","ck2l"))
+    a(("ck2d:",)); a(("LDA",CKT)); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+    a(("LDA",GX)); a(("ADDI",6)); a(("STA",GX)); a(("LDA",CKI)); a(("STA",GCH)); a(("CALL","blitglyph")); a(("RET",))
+
     # ---- start menu ----
     a(("drawmenu:",))
-    a(("LDI",2)); a(("STA",AX)); a(("LDI",123)); a(("STA",AY)); a(("LDI",70)); a(("STA",AW)); a(("LDI",59)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",126)); a(("STA",SY)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",137)); a(("STA",SY)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",148)); a(("STA",SY)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",159)); a(("STA",SY)); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",170)); a(("STA",SY)); a(("LDI",soff("mine"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",2)); a(("STA",AX)); a(("LDI",112)); a(("STA",AY)); a(("LDI",70)); a(("STA",AW)); a(("LDI",70)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",115)); a(("STA",SY)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",126)); a(("STA",SY)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",137)); a(("STA",SY)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",148)); a(("STA",SY)); a(("LDI",soff("paint"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",159)); a(("STA",SY)); a(("LDI",soff("mine"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",170)); a(("STA",SY)); a(("LDI",soff("clock"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
     a(("RET",))
 
     # ============ boot + main ============
     a(("boot:",)); a(("LDI",0))
-    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD,PCOL,MFLAG): a(("STA",v))
+    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD,PCOL,MFLAG,CLKFR,CSEC,CMIN): a(("STA",v))
     a(("LDI",1)); a(("STA",C_FRESH)); a(("STA",DIRTY))
     a(("CALL","clearpaint"))    # paint canvas starts white
     a(("LDI",0x4D)); a(("STA",MSEED)); a(("CALL","mnew"))   # minesweeper: seed LCG + first board
@@ -459,6 +492,12 @@ def program():
     a(("nodrag:",))
     # Paint: drag to draw (button held over the canvas)
     a(("LDA",APP)); a(("CMPI",4)); a(("JNZ","npaint")); a(("LDA",MB)); a(("JZ","npaint")); a(("CALL","pokepaint")); a(("npaint:",))
+    # Clock: count CA-1 frames -> seconds/minutes (deterministic; no real-time clock)
+    a(("LDA",CLKFR)); a(("ADDI",1)); a(("STA",CLKFR)); a(("CMPI",60)); a(("JNC","ck_done"))
+    a(("LDI",0)); a(("STA",CLKFR)); a(("LDA",CSEC)); a(("ADDI",1)); a(("STA",CSEC)); a(("CMPI",60)); a(("JNC","ck_tick"))
+    a(("LDI",0)); a(("STA",CSEC)); a(("LDA",CMIN)); a(("ADDI",1)); a(("STA",CMIN)); a(("CMPI",60)); a(("JNC","ck_tick")); a(("LDI",0)); a(("STA",CMIN))
+    a(("ck_tick:",)); a(("LDA",APP)); a(("CMPI",6)); a(("JNZ","ck_done")); a(("LDI",1)); a(("STA",DIRTY))
+    a(("ck_done:",))
     a(("CALL","keyin"))                       # keyboard (writer/sheet)
     # blink counter
     a(("LDA",BLINK)); a(("ADDI",1)); a(("STA",BLINK)); a(("ANDI",7)); a(("JNZ","nbd")); a(("LDA",APP)); a(("CMPI",1)); a(("JNZ","nbd")); a(("LDI",1)); a(("STA",DIRTY)); a(("nbd:",))
@@ -497,9 +536,10 @@ def program():
     # start menu items (if open): box x2..72 y123..182, items at y126/137/148/159/170
     a(("LDA",START)); a(("JZ","oc_nomenu"))
     a(("LDA",MX)); a(("CMPI",2)); a(("JNC","oc_menudone")); a(("CMPI",72)); a(("JC","oc_menudone"))
-    a(("LDA",MY)); a(("CMPI",134)); a(("JNC","oc_pickw")); a(("CMPI",145)); a(("JNC","oc_picks")); a(("CMPI",156)); a(("JNC","oc_pickc")); a(("CMPI",167)); a(("JNC","oc_pickp")); a(("CMPI",178)); a(("JNC","oc_pickm")); a(("JMP","oc_menudone"))
+    a(("LDA",MY)); a(("CMPI",123)); a(("JNC","oc_pickw")); a(("CMPI",134)); a(("JNC","oc_picks")); a(("CMPI",145)); a(("JNC","oc_pickc")); a(("CMPI",156)); a(("JNC","oc_pickp")); a(("CMPI",167)); a(("JNC","oc_pickm")); a(("CMPI",178)); a(("JNC","oc_pickk")); a(("JMP","oc_menudone"))
     a(("oc_pickw:",)); a(("LDI",1)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_picks:",)); a(("LDI",2)); a(("STA",APP)); a(("JMP","oc_mclose"))
-    a(("oc_pickc:",)); a(("LDI",3)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickp:",)); a(("LDI",4)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickm:",)); a(("LDI",5)); a(("STA",APP))
+    a(("oc_pickc:",)); a(("LDI",3)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickp:",)); a(("LDI",4)); a(("STA",APP)); a(("JMP","oc_mclose"))
+    a(("oc_pickm:",)); a(("LDI",5)); a(("STA",APP)); a(("JMP","oc_mclose")); a(("oc_pickk:",)); a(("LDI",6)); a(("STA",APP))
     a(("oc_mclose:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_menudone:",)); a(("LDI",0)); a(("STA",START)); a(("JMP","oc_dirty"))
     a(("oc_nomenu:",))

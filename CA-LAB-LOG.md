@@ -1438,3 +1438,15 @@ revealed / bit2 flagged / bit3 queued / bits4-7 neighbour count. MGRID=0x80, flo
    grew to 5 items. VERIFIED (Python, replicating the LCG): board matches, all neighbour counts correct,
    flood reveals, flag/unflag, lose, WIN (MNREV==54 -> MOVER=2), New resets. Regression: writer/sheet/
    calc/paint still open. All 4 labs regenerated, boot byte-identical, 32/32 opcodes covered.
+
+## CA-OFFICE: Clock (6th app) + lab21 now features the full suite (2026-06-17)
+Clock runs on CA-1 with NO real-time clock: it counts main-loop frames (60 frames = 1 "second"),
+so it's deterministic -> Alice's and Bob's clocks stay identical over the line. Analog face: a 60-entry
+sin/cos dot table (signed bytes, loaded at boot) drives 12 hour ticks, a red second dot and a navy
+minute dot (fillrect 2-3px dabs, signed offset + 8-bit add = correct screen coord), a center hub, and
+a digital MM:SS below (ck2 = 2-digit draw via repeated-subtract). Start menu now 6 items.
+ - VERIFIED (Python): dot tables correct, frame counter advances (CSEC=2 after 126 frames), face
+   renders as a recognisable clock (ASCII dump shows the ring + hands + hub + "00:02"); all 5 other
+   apps still open. All 4 labs regenerated, boot byte-identical.
+ - lab21 now features the FULL 1998-style suite on CA-1 over the encrypted line: Writer, Sheet, Calc,
+   Paint, Minesweeper, Clock -- plus the metrics panel. The metrics->Minesweeper->Clock->lab21 arc is done.
