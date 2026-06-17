@@ -1175,3 +1175,14 @@ random 400 on the GENUINE CA gates (cacpu) -> 400/400 bit-identical (521s). So t
 math is provably computed by the cellular automaton; the browser VM (glider-lab11) just runs the
 identical ISA ~1e8x faster. walkthrough.py renders a scripted maze walk to RAYCAST_WALKTHROUGH.txt
 (viewable ASCII frames; shows real motion/perspective). Deliverable complete and honest.
+
+## CA-1 98: a Windows-98-style desktop with CA-powered apps (2026-06-17)
+calc.py — a CALCULATOR as a real CA-1 program: +,-,x,/ where multiply = repeated CA addition,
+divide = repeated CA subtraction; 240/240 correct vs reference (13x11=143 in 129 CA-1 instr).
+build_lab12.py -> dissemination/glider-lab12.html (local): "CA-1 98", a Win98-style desktop
+(teal wallpaper, draggable beveled windows, Start menu, taskbar+clock). Apps: Calculator (every
+result computed on the CA-1 VM, shows instruction count), DOOM.EXE (the CA-1 raycaster), Notepad
+(skin), My Computer/About (states plainly what is CA-powered vs presentation). The CA-1 VM is the
+exact ISA (ALU verified == CA gates); embedded calc program re-verified 200/200 via the browser
+VM logic. Purpose: a legible "it's a real computer" demo for non-experts — the arithmetic and the
+game are genuinely the cellular automaton; the window chrome is an honest skin (stated in About).
