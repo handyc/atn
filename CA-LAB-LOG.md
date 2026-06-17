@@ -1507,3 +1507,11 @@ cycles 0-3 via the "S<n>" button. VERIFIED (Python on the 1 MB VM): type->save->
 slot 0 and slot 1 hold independent docs that both persist (far 0x10000 and 0x10100); toolbar renders
 Save/Load/S0; all 6 apps still open; labs 18-21 regenerated, boot byte-identical. The 8-bit CA-1 now
 genuinely uses memory past 64 KB for a real capability (persistent storage).
+
+## Phase 2 (1/2): 32-bit CA adder verified — CA-2's ALU is honestly "genuine CA" (2026-06-17)
+The crux of doing 32-bit honestly. cacpu.add_n(x,y) ripples the SAME full_adder (built from the
+verified ca_nand gate) over any width — CA-2's 32-bit ALU is the 8-bit CA gate tiled 32 deep, not a
+new gate. verify_adder_ca(width=32, n=3): 3/3 random 32-bit adds == reference (sum + carry-out), plus
+0x12345678+0x11111111=0x23456789 and 0xFFFFFFFF+1=0 carry, all computed by the CA gate (~18s). No new
+ALICE GA run needed (reuses the existing 8-bit gate). So "runs on CA-2's emulator == runs on the CA
+datapath" holds at 32 bits, same as it does for CA-1 at 8 bits.

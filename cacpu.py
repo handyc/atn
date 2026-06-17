@@ -92,6 +92,23 @@ def is_zero(x):                                    # CA zero flag: NOT(OR of all
 def bits(v): return [(v >> i) & 1 for i in range(W)]      # LSB-first
 def val(bs): return sum((b & 1) << i for i, b in enumerate(bs)) & 0xFF
 
+# ---- width-parametric CA adder: the SAME ca_nand gate / full_adder, just rippled wider ----
+# This is what makes CA-2 (32-bit) honest: its ALU is the verified 8-bit CA gate tiled, not a new gate.
+def add_n(x, y, cin=0):
+    out = []; c = cin
+    for i in range(len(x)): s, c = full_adder(x[i], y[i], c); out.append(s)
+    return out, c
+def bits_n(v, n): return [(v >> i) & 1 for i in range(n)]
+def val_n(bs): return sum((b & 1) << i for i, b in enumerate(bs))
+def verify_adder_ca(width=32, n=3, seed=7):
+    """Confirm an N-bit add computed by the genuine CA gate == reference (sum + carry-out)."""
+    rng = np.random.default_rng(seed); ok = 0; mask = (1 << width) - 1
+    for _ in range(n):
+        x = int(rng.integers(0, 1 << width)); y = int(rng.integers(0, 1 << width))
+        res, cout = add_n(bits_n(x, width), bits_n(y, width))
+        ok += int(val_n(res) == ((x + y) & mask) and cout == (((x + y) >> width) & 1))
+    return ok, n
+
 # ============================ CA-1 machine ===============================================
 # ISA (addr/imm are operands): LOADI imm | LOAD a | STORE a | ADD a | SUB a | AND a |
 #                              JMP a | JZ a | OUT | HALT
