@@ -15,9 +15,12 @@ import numpy as np
 
 MASK = 0xFF
 class CA1Sys:
-    def __init__(self, fb_addr=0x8000, fb_w=0, fb_h=0, inp_addr=0xFF00):
-        self.M = bytearray(0x10000)
-        self.A = 0; self.X = 0; self.P = 0; self.PC = 0    # P = 16-bit address pointer (control-side)
+    def __init__(self, fb_addr=0x8000, fb_w=0, fb_h=0, inp_addr=0xFF00, memsize=0x100000):
+        # memsize default 1 MB. Near addressing (LDA/STA/LDAX/STAX) stays 16-bit = the low 64 KB
+        # "bank"; the far pointer P is 24-bit (PLO/PHI/PBK) so the machine reaches all of memsize,
+        # exactly how 8-bit micros banked past 64 KB. amask keeps every access in range.
+        self.M = bytearray(memsize); self.memsize = memsize; self.amask = memsize - 1
+        self.A = 0; self.X = 0; self.P = 0; self.PC = 0    # P = 24-bit far pointer (bank<<16 | hi<<8 | lo)
         self.SP = 0x7FFF                                    # call/data stack (grows down), control-side
         self.Z = 1; self.C = 0; self.N = 0
         self.fb_addr = fb_addr; self.fb_w = fb_w; self.fb_h = fb_h; self.inp_addr = inp_addr
@@ -73,12 +76,13 @@ class CA1Sys:
             elif op == "POP":  self.SP += 1; self.A = self._set(self.M[self.SP])
             elif op == "PUSHX":self.M[self.SP] = self.X; self.SP -= 1
             elif op == "POPX": self.SP += 1; self.X = self._set(self.M[self.SP])
-            elif op == "LDP":  self.P = arg & 0xFFFF                       # 16-bit fb/array pointer
-            elif op == "ADDP": self.P = (self.P + arg) & 0xFFFF
-            elif op == "PLO":  self.P = (self.P & 0xFF00) | a              # set P low byte from A
-            elif op == "PHI":  self.P = (self.P & 0x00FF) | (a << 8)       # set P high byte from A
-            elif op == "STPX": self.M[(self.P + self.X) & 0xFFFF] = a      # M[P+X] = A
-            elif op == "LDPX": self.A = self._set(self.M[(self.P + self.X) & 0xFFFF])
+            elif op == "LDP":  self.P = arg & 0xFFFFFF                     # 24-bit far pointer (bank<<16|hi<<8|lo)
+            elif op == "ADDP": self.P = (self.P + arg) & 0xFFFFFF
+            elif op == "PLO":  self.P = (self.P & 0xFFFF00) | a            # set P low byte from A
+            elif op == "PHI":  self.P = (self.P & 0xFF00FF) | (a << 8)     # set P mid byte from A
+            elif op == "PBK":  self.P = (self.P & 0x00FFFF) | (a << 16)    # set P bank byte from A (reach > 64 KB)
+            elif op == "STPX": self.M[(self.P + self.X) & self.amask] = a  # M[P+X] = A  (far)
+            elif op == "LDPX": self.A = self._set(self.M[(self.P + self.X) & self.amask])
             elif op == "IN":  self.A = self._set(self.M[self.inp_addr])
             elif op == "FRAME":
                 if set_input is not None: self.M[self.inp_addr] = set_input(self) & MASK

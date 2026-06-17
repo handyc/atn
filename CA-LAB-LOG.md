@@ -1469,3 +1469,16 @@ inside the CAs, so focus on that"; "live, real visualizations of the actual CAs 
    TDZ, all placeholders substituted); lab21 embedded boots byte-identical.
  - HONEST NOTE: the full CA-1 CPU is NOT animated as gliders (≈1e8x too slow); it's ISA-emulated, and the
    tab says so plainly. What's live-real: the pact CAs + the gate/latch/wire/register/inverter CAs.
+
+## CA-1 memory: 64 KB -> 1 MB via a faithful bank/far-pointer (2026-06-17)
+User: "expand the memory beyond 64K to say 512K" (then 1MB). Done the honest 8-bit-micro way:
+ - ca1sys.py: memsize default 0x100000 (1 MB, 16 banks). NEAR addressing (LDA/STA/LDAX/STAX) stays
+   16-bit = the low 64 KB bank, so all existing code is unaffected. The FAR pointer P is now 24-bit:
+   added opcode PBK (set P bank byte from A); PLO/PHI set the low/mid bytes; LDP/ADDP are 24-bit;
+   LDPX/STPX mask to the full memsize. This is exactly how 6502/Z80-era machines banked past 64 KB.
+ - VERIFIED: a CA-1 program writes a distinct marker into offset 0x1234 of all 16 banks via the bank
+   pointer and reads them all back correctly (far STPX + far LDPX across the whole 1 MB); bank-0 near
+   code (sum 1..10) unchanged; caos3 still boots & draws on the 1 MB VM; lab18 still byte-identical.
+ - NOT YET USED by the OS (it lives in bank 0); banks 1..15 (960 KB) are a free far arena for a RAM
+   disk / bigger buffers / relocating the framebuffer. 32-bit width is a separate, bigger question
+   (see notes / discussion) because of the CA-adder re-verification + the OS's 8-bit-wrap assumptions.
