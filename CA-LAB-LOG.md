@@ -1497,3 +1497,13 @@ room to expand. Refactored the VM into one parameterized core instead of a destr
    CA" claim for CA-2 needs the wider CA ripple-adder verified (it tiles, so expected to pass) + the OS
    ported off 8-bit-wrap assumptions. That is Phase 2. This commit is the scaffolding that makes CA-2
    (and CA-3, …, and networks) a configuration rather than a rewrite.
+
+## Phase 1: RAM disk — Writer documents persist in FAR memory (2026-06-17)
+First use of the 1 MB beyond bank 0. CA-OFFICE Writer gets a Save/Load toolbar + 4 document slots
+living in FAR memory (bank 1, abs 0x10000 + slot*0x100; byte0=length, then the doc). wsave/wload use
+the PBK far pointer: near reads/writes of TBUF (bank 0) are unaffected by PBK, only the far P-access
+(STPX/LDPX) targets bank 1, so the renderer is completely untouched (zero regression risk). Slot
+cycles 0-3 via the "S<n>" button. VERIFIED (Python on the 1 MB VM): type->save->clear->load restores;
+slot 0 and slot 1 hold independent docs that both persist (far 0x10000 and 0x10100); toolbar renders
+Save/Load/S0; all 6 apps still open; labs 18-21 regenerated, boot byte-identical. The 8-bit CA-1 now
+genuinely uses memory past 64 KB for a real capability (persistent storage).

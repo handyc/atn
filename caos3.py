@@ -43,6 +43,9 @@ MSTK  = 0x0100   # flood-fill stack (deduped via queued bit -> <=64 deep)
 GW,MINES = 8,10  # grid 8x8, 10 mines
 # Clock (APP=6): counts CA-1 frames (no RTC) -> deterministic, so Alice/Bob clocks match
 CLKFR,CSEC,CMIN,CKCX,CKCY,CKI,CKT = 0x63,0x64,0x65,0x66,0x67,0x68,0x69
+WSLOT = 0x6A     # Writer RAM-disk: current document slot (0-3); slots live in FAR memory (bank 1)
+# 4 document slots of 256 bytes each at bank-1 offset slot*0x100 (i.e. abs 0x10000 + slot*0x100):
+# byte 0 = length, bytes 1.. = the document. Reached via the PBK far pointer; bank 0 untouched.
 CLKSX,CLKSY,CLKMX,CLKMY = 0x0140,0x0180,0x01C0,0x0200   # 60-entry sin/cos dot tables (signed bytes)
 CKR1,CKR2 = 42,28   # second-hand / minute-hand radii (px)
 FONT  = 0x0500      # 5x7 font, 7 bytes/glyph (now ~80 glyphs incl lowercase -> ~560 bytes)
@@ -106,7 +109,7 @@ def enc_rows(rows):
     return out
 STRINGS={"caoffice":("CA-Office",0x00),"start":("Start",0x10),"writer":("Writer",0x18),
          "sheet":("Sheet",0x20),"calc":("Calc",0x28),"total":("Total",0x30),"paint":("Paint",0x38),
-         "mine":("Mines",0x40),"clock":("Clock",0x48)}
+         "mine":("Mines",0x40),"clock":("Clock",0x48),"save":("Save",0x50),"load":("Load",0x58)}
 def soff(k): return STRINGS[k][1]
 
 # calculator buttons (window-relative), used by CALC app
@@ -282,10 +285,19 @@ def program():
 
     # ---- WRITER body: text area + buffer glyphs + caret ----
     a(("draw_writer:",))
-    wx(AX,6); wy(AY,18); a(("LDI",WW-12)); a(("STA",AW)); a(("LDI",WH-26)); a(("STA",AH)); a(("LDI",WHT)); a(("STA",ACOL)); a(("CALL","fillrect"))
+    # toolbar: Save / Load (RAM disk in far memory) + current slot
+    wx(AX,6); wy(AY,16); a(("LDI",28)); a(("STA",AW)); a(("LDI",11)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    wx(SX,9); wy(SY,18); a(("LDI",soff("save"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    wx(AX,38); wy(AY,16); a(("LDI",28)); a(("STA",AW)); a(("LDI",11)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    wx(SX,41); wy(SY,18); a(("LDI",soff("load"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    wx(AX,70); wy(AY,16); a(("LDI",26)); a(("STA",AW)); a(("LDI",11)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
+    wx(GX,73); wy(GY,18); a(("LDI",gi('S'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
+    wx(GX,82); wy(GY,18); a(("LDA",WSLOT)); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))   # slot digit (0-3 -> glyph idx)
+    # text area
+    wx(AX,6); wy(AY,29); a(("LDI",WW-12)); a(("STA",AW)); a(("LDI",WH-37)); a(("STA",AH)); a(("LDI",WHT)); a(("STA",ACOL)); a(("CALL","fillrect"))
     # draw TBUF glyphs, wrapping; 6px/char, 8px/line
     a(("LDI",0)); a(("STA",T0))
-    wx(GX,9); wy(GY,22)
+    wx(GX,9); wy(GY,32)
     a(("dw_l:",)); a(("LDA",T0)); a(("CMP",TLEN)); a(("JC","dw_caret"))   # exit when T0>=TLEN
     a(("LDX",T0)); a(("LDAX",TBUF)); a(("CMPI",0xFD)); a(("JZ","dw_nl"))  # 0xFD = newline marker
     a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
@@ -297,6 +309,19 @@ def program():
     a(("LDA",BLINK)); a(("ANDI",8)); a(("JZ","dw_done2"))
     a(("LDA",GX)); a(("STA",AX)); a(("LDA",GY)); a(("STA",AY)); a(("LDI",1)); a(("STA",AW)); a(("LDI",7)); a(("STA",AH)); a(("LDI",BLK)); a(("STA",ACOL)); a(("CALL","fillrect"))
     a(("dw_done2:",)); a(("RET",))
+
+    # ---- RAM disk: save/load the Writer doc to/from FAR memory (bank 1, slot WSLOT) ----
+    # near reads/writes (TBUF, bank 0) are unaffected by PBK; only the far P-access uses bank 1.
+    a(("wsave:",)); a(("LDI",1)); a(("PBK",)); a(("LDA",WSLOT)); a(("PHI",)); a(("LDI",0)); a(("PLO",))   # P = bank1 : slot*0x100
+    a(("LXI",0)); a(("LDA",TLEN)); a(("STPX",))                                # M[slot+0] = length
+    a(("LDI",1)); a(("PLO",)); a(("LXI",0))                                    # P = slotbase+1, X=0
+    a(("ws_l:",)); a(("TXA",)); a(("CMP",TLEN)); a(("JC","ws_d")); a(("LDAX",TBUF)); a(("STPX",)); a(("INX",)); a(("JMP","ws_l"))
+    a(("ws_d:",)); a(("LDI",0)); a(("PBK",)); a(("RET",))                      # back to bank 0
+    a(("wload:",)); a(("LDI",1)); a(("PBK",)); a(("LDA",WSLOT)); a(("PHI",)); a(("LDI",0)); a(("PLO",))
+    a(("LXI",0)); a(("LDPX",)); a(("STA",TLEN))                                # length = M[slot+0]
+    a(("LDI",1)); a(("PLO",)); a(("LXI",0))
+    a(("wl_l:",)); a(("TXA",)); a(("CMP",TLEN)); a(("JC","wl_d")); a(("LDPX",)); a(("STAX",TBUF)); a(("INX",)); a(("JMP","wl_l"))
+    a(("wl_d:",)); a(("LDI",0)); a(("PBK",)); a(("LDI",1)); a(("STA",DIRTY)); a(("RET",))
 
     # ---- SHEET body: 3x4 grid + TOTAL (CA sum) ----
     a(("draw_sheet:",))
@@ -475,7 +500,7 @@ def program():
 
     # ============ boot + main ============
     a(("boot:",)); a(("LDI",0))
-    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD,PCOL,MFLAG,CLKFR,CSEC,CMIN): a(("STA",v))
+    for v in (APP,START,MBP,HAVES,C_ACC,C_CUR,C_OP,TLEN,SELC,BLINK,KEY,DRAG,BOLD,PCOL,MFLAG,CLKFR,CSEC,CMIN,WSLOT): a(("STA",v))
     a(("LDI",1)); a(("STA",C_FRESH)); a(("STA",DIRTY))
     a(("CALL","clearpaint"))    # paint canvas starts white
     a(("LDI",0x4D)); a(("STA",MSEED)); a(("CALL","mnew"))   # minesweeper: seed LCG + first board
@@ -552,7 +577,7 @@ def program():
     hx(2,"oc_notitle",False); hx(WW-14,"oc_notitle",True); hy(2,"oc_notitle",False); hy(14,"oc_notitle",True)
     a(("LDI",1)); a(("STA",DRAG)); a(("LDA",MX)); a(("SUB",WX)); a(("STA",DOFX)); a(("LDA",MY)); a(("SUB",WY)); a(("STA",DOFY)); a(("RET",))
     a(("oc_notitle:",))
-    a(("LDA",APP)); a(("CMPI",2)); a(("JZ","oc_sheet")); a(("CMPI",3)); a(("JZ","oc_calc")); a(("CMPI",4)); a(("JZ","oc_paint")); a(("CMPI",5)); a(("JZ","oc_mine")); a(("JMP","oc_dirty"))  # writer body: nothing on click
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","oc_writer")); a(("CMPI",2)); a(("JZ","oc_sheet")); a(("CMPI",3)); a(("JZ","oc_calc")); a(("CMPI",4)); a(("JZ","oc_paint")); a(("CMPI",5)); a(("JZ","oc_mine")); a(("JMP","oc_dirty"))
     # sheet clicks: cells + +/- buttons
     a(("oc_sheet:",))
     for idx,(bx,by) in enumerate(SCELLS):
@@ -584,6 +609,15 @@ def program():
         a(("LDI",col)); a(("STA",PCOL)); a(("JMP","oc_dirty")); a((f"{lbl}:",))
     hx(106,"oc_dirty",False); hx(136,"oc_dirty",True); hy(132,"oc_dirty",False); hy(145,"oc_dirty",True)
     a(("CALL","clearpaint")); a(("JMP","oc_dirty"))
+
+    # writer clicks: Save / Load (RAM disk) + cycle slot
+    a(("oc_writer:",))
+    hx(6,"w_nosave",False); hx(34,"w_nosave",True); hy(16,"w_nosave",False); hy(27,"w_nosave",True)
+    a(("CALL","wsave")); a(("JMP","oc_dirty")); a(("w_nosave:",))
+    hx(38,"w_noload",False); hx(66,"w_noload",True); hy(16,"w_noload",False); hy(27,"w_noload",True)
+    a(("CALL","wload")); a(("JMP","oc_dirty")); a(("w_noload:",))
+    hx(70,"oc_dirty",False); hx(96,"oc_dirty",True); hy(16,"oc_dirty",False); hy(27,"oc_dirty",True)
+    a(("LDA",WSLOT)); a(("ADDI",1)); a(("ANDI",3)); a(("STA",WSLOT)); a(("JMP","oc_dirty"))
 
     # minesweeper clicks: New / Flag-toggle / grid cell
     a(("oc_mine:",))
