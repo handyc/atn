@@ -1581,3 +1581,17 @@ checks (same rigor as the other labs' JS VMs). The CA datapath itself has no wid
 tiles); BigInt just lets the JS *emulator* match it. ALICE note: the workload runs locally in ms (no
 ALICE needed); ALICE is the place to verify the GENUINE CA gates at 256/512-bit (real gliders, too slow
 locally) -- would stay local per user.
+
+## (a) ALICE: genuine CA adder verified at 256/512-bit + (b) RSA on the CA via BigInt (2026-06-17)
+(a) ALICE job cawide-v1 (array, bundle/sbatch/pull via the flaky-login retry loop): ran cacpu.add_n
+   with the REAL ca_nand gates at 256 and 512 bits. Result: 256-bit 3/3 correct (~145 s/add), 512-bit
+   3/3 correct (~287 s/add). So the genuine CA datapath adds 512-bit numbers (way beyond any host
+   register) bit-for-bit correctly -- the adder really is just the 1-bit CA full-adder tiled. ALICE
+   bundle + outputs stay LOCAL (alice/ not committed), per user.
+(b) lab23 v2 (build_lab23.py): added MODULAR EXPONENTIATION -> a real RSA encrypt/decrypt workload on
+   the CA. modexp = square-and-multiply; modmul = shift-add multiply + shift-subtract long-division
+   modulo; all CA machine code (CALL/RET subroutine). The browser VM carries registers as BigInt to
+   bypass JS's 32-bit limit. Verified on the 256-bit reference AND a Python mirror of the BigInt VM:
+   factorial 20..170! exact; RSA round-trip with a build-time 128-bit key (m^e mod n then c^d mod n = m,
+   == Python pow). Static checks pass (braces, 22 opcodes incl CALL/RET, placeholder). JS not runnable
+   in build env -> verified by mirror + static checks as with the other labs.
