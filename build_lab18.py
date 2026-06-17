@@ -60,7 +60,7 @@ const vm=makeVM(OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];
 const sc=document.getElementById("screen"),sx=sc.getContext("2d"),im=sx.createImageData(OS.W,OS.H);
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
 let mx=80,my=70,mb=0;
-function rel(e){const r=sc.getBoundingClientRect();return[Math.max(0,Math.min(OS.W-1,((e.clientX-r.left)/r.width*OS.W)|0)),Math.max(0,Math.min(OS.H-1,((e.clientY-r.top)/r.height*OS.H)|0))];}
+function rel(e){return[Math.max(0,Math.min(OS.W-1,(e.offsetX/sc.clientWidth*OS.W)|0)),Math.max(0,Math.min(OS.H-1,(e.offsetY/sc.clientHeight*OS.H)|0))];}  // content-box -> exact (no border offset)
 sc.addEventListener("mousemove",e=>{[mx,my]=rel(e);});
 sc.addEventListener("mousedown",e=>{[mx,my]=rel(e);mb=1;sc.focus();});
 window.addEventListener("mouseup",()=>mb=0);
@@ -69,7 +69,7 @@ sc.addEventListener("keydown",e=>{let code=0;
  if(e.key==="Backspace")code=0xFE;
  else if(e.key==="Enter")code=0xFD;
  else if(e.key===" ")code=(OS.GIDX[" "]||0);
- else if(e.key.length===1){const ch=e.key.toUpperCase();if(OS.GIDX[ch]!==undefined)code=OS.GIDX[ch];}
+ else if(e.key.length===1&&OS.GIDX[e.key]!==undefined)code=OS.GIDX[e.key];   // preserve case (font has a-z and A-Z)
  if(code){e.preventDefault();vm.M[OS.KEY]=code;}});
 const APPNAME=["(desktop)","Writer","Sheet","Calc"];
 let last=performance.now(),fc=0,ipf=0;

@@ -1360,3 +1360,15 @@ Delivered the requested bundle (all verified in python):
    while body/taskbar stay regular (verified: SHEET title bold, START regular).
 Embedded lab18/19 boot byte-identical to the python reference. (Earlier this session also fixed the
 blitglyph 8-bit font-addr overflow that garbled all titles, and the spreadsheet digit overflow.)
+
+## CA-OFFICE: lowercase font + mixed-case labels; fixed start-button reach + sheet numerics (2026-06-17)
+User: interface looks too limited (all-caps), can't reach Start button (y-shift), sheet numeric entry broken.
+ - FONT EXPANSION: added lowercase a-z + ( ) ' ; glyphs (76 total, blitglyph already 16-bit so it fits;
+   moved STRP/TBUF/CELLS up). Labels now mixed-case ("Start","Writer","Sheet","Calc","Total","CA-Office")
+   via a (text,offset) string table + soff(). Browser preserves case (font has a-z AND A-Z) -> real text.
+ - START BUTTON / y-shift: the software cursor was clamped 12px from the bottom so its tip couldn't reach
+   the taskbar. Trimmed the cursor to 8 tall + clamp H-8 (tip reaches y184); verified clicking Start@y186
+   toggles it. Also made the browser mouse mapping border-exact (offsetX/offsetY / clientWidth) to remove a
+   residual few-px shift from the canvas border.
+ - SHEET numeric: verified typing digits into the selected cell works (57); the prior breakage was the
+   imprecise clicking from the y-shift. Verified lowercase typing ('Hello'), dragging, embedded byte-identical.

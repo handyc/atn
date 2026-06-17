@@ -31,10 +31,10 @@ SUMSRC = 0x46
 BFL,BFH = 0x47,0x48      # blitglyph 16-bit font-base pointer (font table > 256 bytes)
 WX,WY,DRAG,DOFX,DOFY = 0x49,0x4A,0x4B,0x4C,0x4D   # runtime window position + drag state
 BOLD = 0x4E      # 1 = blitglyph draws 2px-wide strokes (bold heading font)
-FONT  = 0x0500
-STRP  = 0x0700      # strings (page 7) for puts2
-TBUF  = 0x0800      # writer text buffer (glyph indices), up to 96
-CELLS = 0x0880      # 12 spreadsheet cells (bytes)
+FONT  = 0x0500      # 5x7 font, 7 bytes/glyph (now ~80 glyphs incl lowercase -> ~560 bytes)
+STRP  = 0x0780      # strings table base (moved past the bigger font)
+TBUF  = 0x0900      # writer text buffer (glyph indices)
+CELLS = 0x0A00      # 12 spreadsheet cells (bytes)
 CURBUF= 0x0300
 
 # ── 5x7 font: full A-Z, 0-9, space, symbols ──
@@ -63,6 +63,21 @@ GART = {
  'W':["#...#","#...#","#...#","#.#.#","#.#.#","##.##","#...#"],'X':["#...#","#...#",".#.#.","..#..",".#.#.","#...#","#...#"],
  'Y':["#...#","#...#",".#.#.","..#..","..#..","..#..","..#.."],'Z':["#####","....#","...#.","..#..",".#...","#....","#####"],
  'x':[".....",".....","#...#",".#.#.","..#..",".#.#.","#...#"],
+ 'a':[".....",".....",".###.","....#",".####","#...#",".####"],'b':["#....","#....","####.","#...#","#...#","#...#","####."],
+ 'c':[".....",".....",".###.","#...#","#....","#...#",".###."],'d':["....#","....#",".####","#...#","#...#","#...#",".####"],
+ 'e':[".....",".....",".###.","#...#","#####","#....",".###."],'f':["..##.",".#..#",".#...","###..",".#...",".#...",".#..."],
+ 'g':[".....",".####","#...#","#...#",".####","....#",".###."],'h':["#....","#....","####.","#...#","#...#","#...#","#...#"],
+ 'i':["..#..",".....","..#..","..#..","..#..","..#..","..#.."],'j':["...#.",".....","...#.","...#.","...#.","#..#.",".##.."],
+ 'k':["#....","#....","#..#.","#.#..","##...","#.#..","#..#."],'l':["..#..","..#..","..#..","..#..","..#..","..#..","..#.."],
+ 'm':[".....",".....","##.#.","#.#.#","#.#.#","#...#","#...#"],'n':[".....",".....","####.","#...#","#...#","#...#","#...#"],
+ 'o':[".....",".....",".###.","#...#","#...#","#...#",".###."],'p':[".....","####.","#...#","#...#","####.","#....","#...."],
+ 'q':[".....",".####","#...#","#...#",".####","....#","....#"],'r':[".....",".....","#.##.","##..#","#....","#....","#...."],
+ 's':[".....",".....",".####","#....",".###.","....#","####."],'t':[".#...",".#...","###..",".#...",".#...",".#..#","..##."],
+ 'u':[".....",".....","#...#","#...#","#...#","#..##",".##.#"],'v':[".....",".....","#...#","#...#","#...#",".#.#.","..#.."],
+ 'w':[".....",".....","#...#","#...#","#.#.#","#.#.#",".#.#."],'y':[".....","#...#","#...#",".####","....#","#...#",".###."],
+ 'z':[".....",".....","#####","...#.","..#..",".#...","#####"],
+ '(':["..#..",".#...",".#...",".#...",".#...",".#...","..#.."],')':["..#..","...#.","...#.","...#.","...#.","...#.","..#.."],
+ "'":["..#..","..#..","..#..",".....",".....",".....","....."],';':[".....","..#..",".....",".....","..#..","..#..",".#..."],
 }
 GLYPHS=list(GART.keys()); GIDX={ch:i for i,ch in enumerate(GLYPHS)}
 def gi(ch): return GIDX.get(ch, GIDX[' '])
@@ -74,7 +89,9 @@ def enc_rows(rows):
             if r[c]=='#': b|=1<<(4-c)
         out.append(b)
     return out
-STRINGS={"CA-OFFICE":0x00,"START":0x10,"WRITER":0x18,"SHEET":0x20,"CALC":0x28,"TOTAL":0x30}
+STRINGS={"caoffice":("CA-Office",0x00),"start":("Start",0x10),"writer":("Writer",0x18),
+         "sheet":("Sheet",0x20),"calc":("Calc",0x28),"total":("Total",0x30)}
+def soff(k): return STRINGS[k][1]
 
 # calculator buttons (window-relative), used by CALC app
 BTN_W,BTN_H=22,16
@@ -100,9 +117,9 @@ WINX,WINY,WW,WH=40,16,150,150
 def load_memory(m):
     for ch,i in GIDX.items():
         for r,b in enumerate(enc_rows(GART[ch])): m.M[FONT+i*7+r]=b
-    for s,off in STRINGS.items():
-        for j,ch in enumerate(s): m.M[STRP+off+j]=gi(ch)
-        m.M[STRP+off+len(s)]=0xFF
+    for k,(text,off) in STRINGS.items():
+        for j,ch in enumerate(text): m.M[STRP+off+j]=gi(ch)
+        m.M[STRP+off+len(text)]=0xFF
 
 def program():
     L=[]; a=L.append
@@ -150,14 +167,14 @@ def program():
     a(("LDA",GX)); a(("ADDI",6)); a(("ADD",BOLD)); a(("STA",GX)); a(("LDA",T0)); a(("ADDI",1)); a(("STA",T0)); a(("JMP","pl2")); a(("pl2d:",)); a(("RET",))
     # ---- cursor save/restore/draw (8x12) ----
     a(("saveun:",)); a(("LDI",0)); a(("STA",T2))
-    a(("su_r:",)); a(("LDA",T2)); a(("CMPI",12)); a(("JC","su_d"))
+    a(("su_r:",)); a(("LDA",T2)); a(("CMPI",8)); a(("JC","su_d"))
     a(("LDI",0)); a(("PLO",)); a(("LDA",CY)); a(("ADD",T2)); a(("ADDI",FBPAGE)); a(("PHI",)); a(("LDI",0)); a(("STA",T3))
     a(("su_c:",)); a(("LDA",T3)); a(("CMPI",8)); a(("JC","su_n"))
     a(("LDA",CX)); a(("ADD",T3)); a(("TAX",)); a(("LDPX",)); a(("STA",T1))
     a(("LDA",T2)); a(("SHL",)); a(("SHL",)); a(("SHL",)); a(("ADD",T3)); a(("TAX",)); a(("LDA",T1)); a(("STAX",CURBUF))
     a(("LDA",T3)); a(("ADDI",1)); a(("STA",T3)); a(("JMP","su_c")); a(("su_n:",)); a(("LDA",T2)); a(("ADDI",1)); a(("STA",T2)); a(("JMP","su_r")); a(("su_d:",)); a(("RET",))
     a(("restun:",)); a(("LDI",0)); a(("STA",T2))
-    a(("ru_r:",)); a(("LDA",T2)); a(("CMPI",12)); a(("JC","ru_d"))
+    a(("ru_r:",)); a(("LDA",T2)); a(("CMPI",8)); a(("JC","ru_d"))
     a(("LDI",0)); a(("PLO",)); a(("LDA",OCY)); a(("ADD",T2)); a(("ADDI",FBPAGE)); a(("PHI",)); a(("LDI",0)); a(("STA",T3))
     a(("ru_c:",)); a(("LDA",T3)); a(("CMPI",8)); a(("JC","ru_n"))
     a(("LDA",T2)); a(("SHL",)); a(("SHL",)); a(("SHL",)); a(("ADD",T3)); a(("TAX",)); a(("LDAX",CURBUF)); a(("STA",T1))
@@ -191,7 +208,7 @@ def program():
     a(("LDI",0)); a(("STA",AX)); a(("LDI",182)); a(("STA",AY)); a(("LDI",255)); a(("STA",AW)); a(("LDI",10)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect"))
     a(("LDI",0)); a(("STA",AX)); a(("LDI",181)); a(("STA",AY)); a(("LDI",255)); a(("STA",AW)); a(("LDI",1)); a(("STA",AH)); a(("LDI",WHT)); a(("STA",ACOL)); a(("CALL","fillrect"))
     a(("LDI",2)); a(("STA",AX)); a(("LDI",183)); a(("STA",AY)); a(("LDI",40)); a(("STA",AW)); a(("LDI",8)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
-    a(("LDI",6)); a(("STA",SX)); a(("LDI",184)); a(("STA",SY)); a(("LDI",STRINGS["START"])); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",6)); a(("STA",SX)); a(("LDI",184)); a(("STA",SY)); a(("LDI",soff("start"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
     # active app window
     a(("LDA",APP)); a(("JZ","dw_done")); a(("CALL","drawwin")); a(("dw_done:",))
     # start menu (on top)
@@ -208,8 +225,8 @@ def program():
     wx(AX,2); wy(AY,2); a(("LDI",WW-4)); a(("STA",AW)); a(("LDI",12)); a(("STA",AH)); a(("LDI",NAV)); a(("STA",ACOL)); a(("CALL","fillrect"))
     # title text by app
     wx(SX,5); wy(SY,4); a(("LDI",WHT)); a(("STA",SCOL)); a(("LDI",1)); a(("STA",BOLD))   # bold title
-    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("LDI",STRINGS["CALC"])); a(("STA",SPTR)); a(("JMP","tp"))
-    a(("tw:",)); a(("LDI",STRINGS["WRITER"])); a(("STA",SPTR)); a(("JMP","tp")); a(("ts:",)); a(("LDI",STRINGS["SHEET"])); a(("STA",SPTR))
+    a(("LDA",APP)); a(("CMPI",1)); a(("JZ","tw")); a(("CMPI",2)); a(("JZ","ts")); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("JMP","tp"))
+    a(("tw:",)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("JMP","tp")); a(("ts:",)); a(("LDI",soff("sheet"))); a(("STA",SPTR))
     a(("tp:",)); a(("CALL","puts2")); a(("LDI",0)); a(("STA",BOLD))
     # close box
     wx(AX,WW-13); wy(AY,3); a(("LDI",10)); a(("STA",AW)); a(("LDI",10)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
@@ -254,7 +271,7 @@ def program():
     wx(GX,14); wy(GY,98); a(("LDI",gi('+'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
     wx(AX,28); wy(AY,94); a(("LDI",16)); a(("STA",AW)); a(("LDI",14)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
     wx(GX,34); wy(GY,98); a(("LDI",gi('-'))); a(("STA",GCH)); a(("LDI",BLK)); a(("STA",GCOL)); a(("CALL","blitglyph"))
-    wx(SX,52); wy(SY,98); a(("LDI",STRINGS["TOTAL"])); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    wx(SX,52); wy(SY,98); a(("LDI",soff("total"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
     a(("CALL","sheet_sum"))                     # -> NVL/NVH
     wx(GX,100); wy(GY,98); a(("CALL","drawnum"))
     a(("RET",))
@@ -277,9 +294,9 @@ def program():
     # ---- start menu ----
     a(("drawmenu:",))
     a(("LDI",2)); a(("STA",AX)); a(("LDI",146)); a(("STA",AY)); a(("LDI",70)); a(("STA",AW)); a(("LDI",36)); a(("STA",AH)); a(("LDI",SIL)); a(("STA",ACOL)); a(("CALL","fillrect")); a(("CALL","bevel"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",149)); a(("STA",SY)); a(("LDI",STRINGS["WRITER"])); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",160)); a(("STA",SY)); a(("LDI",STRINGS["SHEET"])); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
-    a(("LDI",8)); a(("STA",SX)); a(("LDI",171)); a(("STA",SY)); a(("LDI",STRINGS["CALC"])); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",149)); a(("STA",SY)); a(("LDI",soff("writer"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",160)); a(("STA",SY)); a(("LDI",soff("sheet"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
+    a(("LDI",8)); a(("STA",SX)); a(("LDI",171)); a(("STA",SY)); a(("LDI",soff("calc"))); a(("STA",SPTR)); a(("LDI",BLK)); a(("STA",SCOL)); a(("CALL","puts2"))
     a(("RET",))
 
     # ============ boot + main ============
@@ -290,7 +307,7 @@ def program():
     a(("LDI",WINX)); a(("STA",WX)); a(("LDI",WINY)); a(("STA",WY))
     a(("main:",))
     a(("LDA",MX)); a(("CMPI",W-8)); a(("JNC","cxok")); a(("LDI",W-8)); a(("STA",CX)); a(("JMP","cxd")); a(("cxok:",)); a(("LDA",MX)); a(("STA",CX)); a(("cxd:",))
-    a(("LDA",MY)); a(("CMPI",H-12)); a(("JNC","cyok")); a(("LDI",H-12)); a(("STA",CY)); a(("JMP","cyd")); a(("cyok:",)); a(("LDA",MY)); a(("STA",CY)); a(("cyd:",))
+    a(("LDA",MY)); a(("CMPI",H-8)); a(("JNC","cyok")); a(("LDI",H-8)); a(("STA",CY)); a(("JMP","cyd")); a(("cyok:",)); a(("LDA",MY)); a(("STA",CY)); a(("cyd:",))
     a(("LDA",MB)); a(("JZ","noedge")); a(("LDA",MBP)); a(("JNZ","noedge")); a(("CALL","onclick")); a(("noedge:",))
     # window dragging (title-bar grab set DRAG in onclick; follow the mouse while held)
     a(("LDA",DRAG)); a(("JZ","nodrag")); a(("LDA",MB)); a(("JZ","dragend"))
