@@ -18,6 +18,7 @@ class CA1Sys:
     def __init__(self, fb_addr=0x8000, fb_w=0, fb_h=0, inp_addr=0xFF00):
         self.M = bytearray(0x10000)
         self.A = 0; self.X = 0; self.P = 0; self.PC = 0    # P = 16-bit address pointer (control-side)
+        self.SP = 0x7FFF                                    # call/data stack (grows down), control-side
         self.Z = 1; self.C = 0; self.N = 0
         self.fb_addr = fb_addr; self.fb_w = fb_w; self.fb_h = fb_h; self.inp_addr = inp_addr
         self.icount = 0; self.frames = []
@@ -66,8 +67,16 @@ class CA1Sys:
             elif op == "JC":  self.PC = arg if self.C else self.PC       # a >= operand (unsigned)
             elif op == "JNC": self.PC = arg if not self.C else self.PC   # a <  operand
             elif op == "JN":  self.PC = arg if self.N else self.PC
+            elif op == "CALL": self.M[self.SP] = self.PC & 0xFF; self.M[self.SP-1] = (self.PC >> 8) & 0xFF; self.SP -= 2; self.PC = arg
+            elif op == "RET":  self.SP += 2; self.PC = (self.M[self.SP-1] << 8) | self.M[self.SP]
+            elif op == "PUSH": self.M[self.SP] = a; self.SP -= 1
+            elif op == "POP":  self.SP += 1; self.A = self._set(self.M[self.SP])
+            elif op == "PUSHX":self.M[self.SP] = self.X; self.SP -= 1
+            elif op == "POPX": self.SP += 1; self.X = self._set(self.M[self.SP])
             elif op == "LDP":  self.P = arg & 0xFFFF                       # 16-bit fb/array pointer
             elif op == "ADDP": self.P = (self.P + arg) & 0xFFFF
+            elif op == "PLO":  self.P = (self.P & 0xFF00) | a              # set P low byte from A
+            elif op == "PHI":  self.P = (self.P & 0x00FF) | (a << 8)       # set P high byte from A
             elif op == "STPX": self.M[(self.P + self.X) & 0xFFFF] = a      # M[P+X] = A
             elif op == "LDPX": self.A = self._set(self.M[(self.P + self.X) & 0xFFFF])
             elif op == "IN":  self.A = self._set(self.M[self.inp_addr])

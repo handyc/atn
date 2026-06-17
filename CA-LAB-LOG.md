@@ -1186,3 +1186,21 @@ result computed on the CA-1 VM, shows instruction count), DOOM.EXE (the CA-1 ray
 exact ISA (ALU verified == CA gates); embedded calc program re-verified 200/200 via the browser
 VM logic. Purpose: a legible "it's a real computer" demo for non-experts — the arithmetic and the
 game are genuinely the cellular automaton; the window chrome is an honest skin (stated in About).
+
+## CA-OS: an entire GUI desktop running on the CA-1 machine (2026-06-17)
+User: "I would like for the entire OS to be running on the CA" (+ keep lab10's live CA components
+visible). Done. Added CALL/RET/PUSH/POP + a stack and PLO/PHI (set 16-bit pointer bytes) to the
+CA-1 control unit (ca1sys.py) so structured subroutines + 2D framebuffer addressing are possible.
+caos.py = CA-OS: a GUI written entirely as CA-1 machine code (1165 instrs) that draws the whole
+160x120 screen each frame (~335,364 CA-1 instructions/frame) into the memory-mapped framebuffer:
+teal desktop, taskbar+Start, a Calculator window (navy title bar, white display, 4x4 button grid),
+and the mouse cursor. CA-1 code hit-tests the mouse against buttons, runs the calculator state
+machine, computes +/-/x (multiply = repeated CA addition), and converts the 16-bit result to
+decimal digits via a CA div-by-10 routine, blitting a 3x5 CA-1 font. Verified: renders correctly
+(ASCII preview) and interactively computes 9x9=81 from scripted clicks. The browser is a DUMB
+TERMINAL: blit framebuffer + forward mouse only. build_lab13.py -> dissemination/glider-lab13.html
+(local): runs CA-OS on the VM + shows the live lab10 CA-internals panels (NAND gate, latch,
+inverter, autonomous wire, circulating register) on the verified LUTs underneath. Embedded OS
+re-verified: standalone VM (mirrors the JS, incl CALL/RET/PLO/PHI) renders byte-identical to caos.
+Honest: control unit (PC/stack/clock) orchestrated as in any CPU; all drawing/logic/arithmetic =
+CA-1 instructions = the cellular automaton. One OS frame on the genuine CA ~1.5 days; VM ~1e8x faster.
