@@ -1568,3 +1568,16 @@ User insight: since the CA rules run independent of the host CPU, register width
    is ~24s, 1024-bit would be minutes, a physical CA astronomically slow -- the emulator is fast only
    because it shortcuts the arithmetic via bignum. Width without wide-word software is a flex; crypto/
    bignum workloads would be the real payoff.
+
+## Bypassing JS's 32-bit limit: BigInt + a wide-word workload (lab23) (2026-06-17)
+User: "is there a way to bypass the 32-bit limit in JS?" -> YES, BigInt (arbitrary precision; bitwise
+ops work on big values). Cost: slower than Number; can't mix BigInt with Number (memory/addresses stay
+byte Numbers, only registers are BigInt). build_lab23.py = glider-lab23.html: a BigInt CA VM mirroring
+make_machine("CA-4") (1024-bit) running a WIDE-WORD WORKLOAD -- N! for a runtime N, shown as an exact
+decimal. Verified: CA-4 reference computes 50!/100!/170! exactly (170! = 1020 bits, 307 digits); a
+Python mirror of the exact BigInt-VM ops reproduces them (13/13 opcodes, braces balanced, placeholder
+substituted). Can't execute JS in this env, so the browser run is verified by logic-mirror + static
+checks (same rigor as the other labs' JS VMs). The CA datapath itself has no width limit (genuine adder
+tiles); BigInt just lets the JS *emulator* match it. ALICE note: the workload runs locally in ms (no
+ALICE needed); ALICE is the place to verify the GENUINE CA gates at 256/512-bit (real gliders, too slow
+locally) -- would stay local per user.
