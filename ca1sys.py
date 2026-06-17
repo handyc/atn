@@ -51,6 +51,9 @@ class CA1Sys:
             elif op == "STAX":self.M[(arg + self.X) & self.near_mask] = a & 0xFF            # M[arg+X]=A
             elif op == "LDW": self.A = self._set(sum(self.M[(arg + i) & self.amask] << (8*i) for i in range(self.bpw)))   # load word (bpw bytes, little-endian)
             elif op == "STW": [self.M.__setitem__((arg + i) & self.amask, (a >> (8*i)) & 0xFF) for i in range(self.bpw)]   # store word
+            elif op == "ADDW":w = sum(self.M[(arg + i) & self.amask] << (8*i) for i in range(self.bpw)); self.A = self._set(a + w, carry=(a + w) > self.mask)   # A += word
+            elif op == "SUBW":w = sum(self.M[(arg + i) & self.amask] << (8*i) for i in range(self.bpw)); self.A = self._set(a - w, carry=int(a >= w))            # A -= word
+            elif op == "CMPW":w = sum(self.M[(arg + i) & self.amask] << (8*i) for i in range(self.bpw)); self._set(a - w, carry=int(a >= w))                      # compare word (flags only)
             elif op == "LDX": self.X = self._set(self.M[arg])
             elif op == "LXI": self.X = self._set(arg)
             elif op == "TAX": self.X = self._set(a)
