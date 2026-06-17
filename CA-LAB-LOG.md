@@ -1694,3 +1694,17 @@ on-screen, full-redraw each frame to clear the old position. Verified in the Pyt
 (200,44) -> drag to (150,70) -> window at (36,60), apps work relocated (Writer typed "Move!"), and
 CA-2/CA-3 still boot identical (width-clean preserved). All in OS machine code, so the labs get it
 free (lab24's Bob replays Alice's mouse deltas -> both panes drag in sync). Boot byte-identical.
+
+## CA Unicode Writer (lab25): full-BMP Unifont rendered by the CA (2026-06-17)
+User: "trap the whole keyboard + display all major Unicode glyphs (European + CJK)." Done as a new lab.
+- font_gen.py rasterizes GNU Unifont (unifont.otf, installed) to 16x16 1-bit glyphs for every assigned
+  BMP codepoint (57,054 glyphs). raw 1.74 MB -> zlib 0.65 MB. unifont16.json (b64) = 1.0 MB.
+- caos_uni.py: a CA-2 program in a 4 MB machine. Direct codepoint->glyph table at 0x100000 (cp*32),
+  a per-codepoint width table (WTAB, 8 or 16), a 16x16 blitter (blit16), word-wrap + caret, and a
+  keyboard protocol where KEY = a Unicode codepoint (8=BS, 10=newline). UBUF stores 16-bit codepoints.
+- build_lab25.py: 4 MB JS VM; inflates the font with DecompressionStream('deflate') and expands it into
+  the CA's RAM; mirrors an IME/paste-friendly <input> into the CA (codepoint deltas, lossless queue);
+  sample buttons per script. The browser uses NO font for the canvas -- the CA blits every glyph.
+VERIFIED in real Chromium (synchronous-render dataURL, since headless rAF stalls under virtual-time):
+renders "Hello! Привет αβγ Ελληνικα こんにちは カタカナ 中文世界 한국어 日本語 0123" -- Latin, Cyrillic,
+Greek, kana, CJK, Hangul, with wrap. Honest scope: LTR only (no bidi/shaping). lab25 = 1.07 MB.
