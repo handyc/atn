@@ -27,7 +27,9 @@ _m = make_machine("CA-2", fb_addr=o2.FB, fb_w=o2.W, fb_h=o2.H); o2.load_memory(_
 _prog, _ = o2.program()
 OS = dict(prog=[[op, (arg if arg is not None else 0)] for op, arg in _prog],
           mem={str(a): _m.M[a] for a in range(0x10000) if _m.M[a]},   # initial mem (font/data); FB drawn at runtime
-          SP=0x7FFF, W=o2.W, H=o2.H, FB=o2.FB, MX=o2.MX, MY=o2.MY, MB=o2.MB, KEY=o2.KEY, PAL=o2.PAL, GIDX=o2.c1.GIDX)
+          SP=0x7FFF, W=o2.W, H=o2.H, FB=o2.FB, MX=o2.MX, MY=o2.MY, MB=o2.MB, KEY=o2.KEY, PAL=o2.PAL, GIDX=o2.c1.GIDX,
+          TBUF=o2.TBUF, TLEN=o2.TLEN, CELLS=o2.CELLS, DIRTY=o2.DIRTY, APP=o2.APP,
+          WINX=o2.WINX, WINY=o2.WINY, WW=o2.WW, WH=o2.WH)
 OSJSON = json.dumps(OS, separators=(",", ":"))
 PLUTS = json.load(open("caos_pipeluts.json"))   # verified gate/latch rule tables (base64) for the live CA panels
 
@@ -114,6 +116,13 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  <div class="cols">
    <div class="card alice"><h2>👩 Alice — you drive (mouse + keyboard)</h2><canvas class="screen" id="sa" width="512" height="384" tabindex="0"></canvas></div>
    <div class="card bob"><h2>🧑 Bob — mirror (replays deltas in seq order)</h2><canvas class="screen" id="sb" width="512" height="384"></canvas></div>
+ </div>
+ <div class="seedbar" style="margin-top:8px">
+  <span class="grp" style="color:var(--mut);font-size:11px">files (apply to both panes):</span>
+  <span class="grp" style="color:var(--mut);font-size:11px">Writer</span><button id="wsave">Save .txt</button><button id="wload">Open .txt</button>
+  <span class="grp" style="color:var(--mut);font-size:11px">Sheet</span><button id="csave">Export CSV</button><button id="cload">Import CSV</button>
+  <span class="grp" style="color:var(--mut);font-size:11px">Paint</span><button id="psave">Save PNG</button><button id="pload">Open image</button>
+  <input id="file" type="file" style="display:none">
  </div>
  <div class="line"><h3>🔐 the classical line — only encrypted input deltas cross it</h3>
    <div class="wire" id="wire">idle</div>
@@ -451,6 +460,23 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=function(){document.query
   const t=this.dataset.t;aboutVisible=(t==="about");$("tab-demo").style.display=t==="demo"?"":"none";$("tab-about").style.display=t==="about"?"":"none";});
 $("selftest").textContent=hex(sha256(enc("abc")))==="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"?"":"  [SHA-256 self-test FAILED]";
 $("rekey").onclick=reset;$("seed").onchange=reset;
+/* ---- files: Writer .txt / Sheet CSV / Paint PNG. Loads write BOTH VMs so the panes stay in sync. ---- */
+(function(){
+ const PALrgb=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
+ const REV={};for(const k in OS.GIDX)REV[OS.GIDX[k]]=k;
+ const rd32=(vm,a)=>(vm.M[a]|(vm.M[a+1]<<8)|(vm.M[a+2]<<16)|(vm.M[a+3]<<24))>>>0;
+ const both=(addr,v)=>{wr32(aliceVM,addr,v);wr32(bobVM,addr,v);};
+ const dl=(name,blob)=>{const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),800);};
+ const pick=(acc,cb)=>{const f=$("file");f.value="";f.accept=acc;f.onchange=()=>{if(f.files[0])cb(f.files[0]);};f.click();};
+ const near=(r,g,b)=>{let bi=0,bd=1e9;for(let i=0;i<PALrgb.length;i++){const p=PALrgb[i],dr=p[0]-r,dg=p[1]-g,db=p[2]-b,dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=i;}}return bi;};
+ $("wsave").onclick=()=>{const n=rd32(aliceVM,OS.TLEN);let s="";for(let i=0;i<n;i++){const g=aliceVM.M[OS.TBUF+i];s+=(g===0xFD?"\n":(REV[g]!==undefined?REV[g]:""));}dl("document.txt",new Blob([s],{type:"text/plain"}));};
+ $("wload").onclick=()=>pick(".txt,text/plain",f=>{const r=new FileReader();r.onload=()=>{let i=0;for(const ch of r.result){if(i>=1800)break;let g;if(ch==="\r")continue;else if(ch==="\n")g=0xFD;else if(OS.GIDX[ch]!==undefined)g=OS.GIDX[ch];else continue;aliceVM.M[OS.TBUF+i]=g;bobVM.M[OS.TBUF+i]=g;i++;}both(OS.TLEN,i);both(OS.APP,3);both(OS.DIRTY,1);};r.readAsText(f);});
+ $("csave").onclick=()=>{const rows=[];for(let r=0;r<4;r++){const c=[];for(let col=0;col<3;col++)c.push(rd32(aliceVM,OS.CELLS+(r*3+col)*4));rows.push(c.join(","));}dl("sheet.csv",new Blob([rows.join("\n")+"\n"],{type:"text/csv"}));};
+ $("cload").onclick=()=>pick(".csv,text/csv",f=>{const r=new FileReader();r.onload=()=>{const cells=[];r.result.split(/\r?\n/).forEach(L=>{if(!L.trim())return;L.split(",").forEach(v=>cells.push((parseInt(v.trim(),10)||0)>>>0));});for(let i=0;i<12;i++)both(OS.CELLS+i*4,cells[i]||0);both(OS.APP,4);both(OS.DIRTY,1);};r.readAsText(f);});
+ const CXo=OS.WINX+10,CYo=OS.WINY+42,CWp=OS.WW-20,CHp=OS.WH-54;
+ $("psave").onclick=()=>{const cv=document.createElement("canvas");cv.width=CWp;cv.height=CHp;const g2=cv.getContext("2d"),id=g2.createImageData(CWp,CHp);for(let y=0;y<CHp;y++)for(let x=0;x<CWp;x++){const v=aliceVM.M[OS.FB+(CYo+y)*OS.W+(CXo+x)],p=PALrgb[v]||PALrgb[0],o=(y*CWp+x)*4;id.data[o]=p[0];id.data[o+1]=p[1];id.data[o+2]=p[2];id.data[o+3]=255;}g2.putImageData(id,0,0);cv.toBlob(b=>dl("paint.png",b));};
+ $("pload").onclick=()=>pick("image/*",f=>{const img=new Image();img.onload=()=>{const cv=document.createElement("canvas");cv.width=CWp;cv.height=CHp;const g2=cv.getContext("2d");g2.fillStyle="#fff";g2.fillRect(0,0,CWp,CHp);g2.drawImage(img,0,0,CWp,CHp);const d=g2.getImageData(0,0,CWp,CHp).data;both(OS.APP,1);both(OS.DIRTY,1);requestAnimationFrame(()=>requestAnimationFrame(()=>{for(let y=0;y<CHp;y++)for(let x=0;x<CWp;x++){const o=(y*CWp+x)*4,idx=near(d[o],d[o+1],d[o+2]);aliceVM.M[OS.FB+(CYo+y)*OS.W+(CXo+x)]=idx;bobVM.M[OS.FB+(CYo+y)*OS.W+(CXo+x)]=idx;}}));URL.revokeObjectURL(img.src);};img.src=URL.createObjectURL(f);});
+})();
 reset();
 </script></body></html>'''
 HTML = HTML.replace("__OS__", OSJSON).replace("__LO__", PLUTS["LO"]).replace("__LZ__", PLUTS["LZ"]).replace("__LW__", PLUTS["LW"])

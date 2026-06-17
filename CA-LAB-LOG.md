@@ -1640,3 +1640,20 @@ redraws just the active app's window interior, not the whole desktop. Content ch
 sheet entry, paint palette) now set BDIRTY; only app-switch sets full DIRTY. Keystroke cost dropped to
 623,832 instr (~4.6x faster). caos_ca2 + labs 22/24 regenerated, boot byte-identical. Next (user QA pass):
 fonts, mouse y-shift, Writer save/load, Sheet CSV import/export, Paint save/load, visual inspection.
+
+## CA-OS/2 QA + file I/O pass, verified in real Chromium (2026-06-17)
+User asked to go back through lab24 and repair fonts, mouse, and add save/load (Writer doc,
+Sheet CSV, Paint image), "actually look at the screen using an external browser module."
+Found cached Chromium binaries (playwright's) + PIL -> could finally SEE the labs.
+- Rendered every app to PNG (byte-identical to browser) and inspected. Fixed: Writer rendered only
+  the first char (draw_writer's T0 loop index was clobbered by blitglyph -> dedicated WI index);
+  Sheet Total overlapped (now clears the line); Calc buttons invisible (added raised 3-D look);
+  Paint canvas wiped on palette pick (PFRESH gate: clear only on open); About text lists all apps.
+- Font: redrew lowercase g/q/p/y so descenders read as lowercase (were '9'/'P'). Proven in Chromium.
+- Mouse: replaced offsetX/Y with a getBoundingClientRect border-exact mapping (the y-shift). Verified
+  pixel-exact + a held click on the Writer launcher opens Writer (APP=3).
+- Files (lab22 + lab24): Writer .txt, Sheet CSV, Paint PNG -- poke VM memory directly, no new CA code.
+  lab24 loads write BOTH Alice+Bob VMs so the panes stay in sync (verified FB diff=0 after CSV+PNG load).
+  All round-trips verified end-to-end in headless Chromium (dump-dom + screenshots).
+Tooling note: chromium-1223/chrome --headless=new --screenshot / --dump-dom + DataTransfer file injection
+is now my browser-truth harness for the labs (previously I had no JS engine).
