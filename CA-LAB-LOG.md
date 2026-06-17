@@ -1416,3 +1416,11 @@ User: "I also liked your earlier idea of a Paint clone." First of the "1998 suit
  - VERIFIED (Python, scripted): open via menu -> APP=4; pick swatch -> PCOL; drag -> 2x2 RED dabs in
    buffer + rendered on screen; Clear -> 0 red / 9216 white. Regression: writer typing, sheet store,
    calc all still open/work. All 3 labs (18/19/20) regenerated, embedded boots byte-identical.
+
+## lab21: the showcase — full CA-Office over the encrypted line + live metrics panel (2026-06-17)
+"metrics -> Minesweeper -> Clock, feature it as lab21." lab21 = lab20 (cut/restore + mother server)
++ a METRICS panel answering "how much data crosses the classical line": total bytes, bytes/sec
+(live), avg bytes/delta, mouse-vs-keystroke split, a bytes/sec sparkline, and the headline ratio vs
+a 30 fps full-screen stream (the line carries ~10 B/action vs 49,152 B/frame). Apps come from the
+shared caos3 export, so Minesweeper/Clock (added next) appear here automatically. Static checks pass
+(braces, 32/32 opcodes, all metric element ids present, no display:none/TDZ); embedded boots byte-identical.
