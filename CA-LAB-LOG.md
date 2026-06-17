@@ -1223,3 +1223,31 @@ User: make it better/more Windows/optimized/real. caos2.py rewrite, all still pu
 build_lab14.py -> dissemination/glider-lab14.html (local): CA-OS v2 running (browser = dumb
 terminal) + the live lab10 CA-internals panels underneath. Honest scope unchanged; one full-
 repaint frame on the genuine CA ~2.4 days, VM ~1e8x faster.
+
+## spoeqi integration: sending the entire CA-1 computer through a pact (2026-06-17)
+User's spoeqi project (velour-caml/spoeqi): two parties share a "pact" (seed + hex-CA ruleset);
+they run identical CAs on unconnected machines, giving a shared deterministic addressable
+byte-tape (keystream.tap) + a rolling-key envelope (ChaCha20-Poly1305 keyed by the CA state).
+The pact CA is the SAME hex-K4 family as atn -> natural unification. (NB: spoeqi .py sources
+live in velour-caml/spoeqi; velour-dev/spoeqi has only orphaned .pyc from when it moved.)
+atn_spoeqi.py — a faithful spoeqi-style pact bridge driven by atn's hex CA: Pact(seed) ->
+identical CA state on both sides; tap(c,g,n) (SHA-256 chain, mirrors keystream.py); derive_key
+(SHA-256 of full state) + seal/unseal (ChaCha20-Poly1305, +/-window brute force, mirrors
+envelope.py); ca1_image/boot_image serialize a CA-1 computer (prog+mem+regs). A CA-1 computer
+is just a byte image, so it rides the pact like any payload.
+spoeqi_demo.py — all four modes the user wanted to try, all PASS:
+  A  seal & ship: calculator computer sealed (788B img -> 824B envelope, key NOT sent),
+     Bob unseals from seed alone, boots, runs 13x11=143. Byte-identical.
+  A' live snapshot: a running CA-OS desktop (mid-session, 81 on its display) snapshotted (85KB),
+     sealed, resumed on Bob -> Bob's next frame byte-identical to Alice's.
+  B  unify substrate: place the computer at pact coordinate (component 2, gen 7) via OTP-XOR
+     against tap; Bob recovers by "relative position" -> 13x11=143, byte-identical.
+  C  live shared + relative positions: Alice computes secret 47+6, says publicly "read relative
+     position 0x13"; Bob unseals (CA-decrypted) and reads 53 -- only a POSITION crossed in clear.
+  D  computer-quine search (bounded, honest): 1176/4000 tiny pacts yield a halting nonzero micro-
+     program (tiny op-space), but a USEFUL chosen computer-quine appearing for free is a real
+     search problem (kin to spoeqi l0_quine_search/keychain_quine) -- not free; honestly flagged.
+Honest core: "no data crosses" = shared RANDOMNESS; a CHOSEN computer's info content still travels
+(sealed), but the key (CA state) is never sent and the computer is addressable by relative CA
+position. Uses cryptography (ChaCha20-Poly1305) like spoeqi; pact CA = atn hex engine (byte-level
+interop with a specific velour pact would need spoeqi's exact neighbour-order constants).
