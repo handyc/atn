@@ -1321,3 +1321,16 @@ restructured to consume stray keys outside Writer. (My test harness also had a b
 caps CUMULATIVE icount, which I wasn't resetting per frame -> false "freezes"; reset m.icount per frame.)
 build_lab18.py -> dissemination/glider-lab18.html (local): CA-OFFICE standalone in-browser (mouse +
 keyboard; browser = dumb terminal). Embedded image verified byte-identical boot to the python reference.
+
+## Dual Alice/Bob desktop, now running CA-OFFICE (2026-06-17)
+build_lab19.py -> dissemination/glider-lab19.html (local): the live-shared dual desktop (lab17
+pattern) but running the full CA-OFFICE suite (caos3). Input deltas extended to 4 bytes
+[x,y,button,KEY] so KEYBOARD strokes ride the encrypted line too -> Alice can type in Writer /
+edit the Sheet / use Calc and Bob's mirror stays pixel-identical (deterministic CA-1). Each delta
+= [x,y,button,key] XOR tap(pact,channel,seq) + SHA-256 tag, fresh keystream per delta; pact CA
+advances one gen per delta. Mouse persists (held), key is one-shot (applied only on the frame its
+delta carries it). "Drop the line" freezes Bob. Live FB sync check (49,152-byte compare) -> in
+sync ✓. Pre-flight: TDZ ok (lets before reset()), no display:none, all 28 opcodes, keyboard via
+GIDX char->glyph map. Browser = dumb terminal (mouse+keys); the suite + arithmetic are CA-1.
+Can't run a browser here -> residual runtime risk; user verifies. Brings back the dual view at
+office-suite scale.
