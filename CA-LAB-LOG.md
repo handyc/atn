@@ -1303,3 +1303,21 @@ steering). Pre-flight: checked the two prior browser-bug classes (TDZ: all lets 
 display: canvases visible, no display:none) + balance/opcodes/sync-logic. Still can't run a browser
 here -> residual runtime risk; user verifies. Answers "can they interact over an encrypted classical
 line?" = yes, the spoeqi-native way (shared randomness + a thin classical channel for the steering).
+
+## CA-OFFICE: a small office suite on CA-1 (2026-06-17)
+User: "flesh it out (complete MS Office Suite clone?)". Honest scope: recognizable MINIATURES, not
+literal MS Office. caos3.py grows CA-OS into an office suite, all pure CA-1 machine code: a Start
+menu + one-window app switcher + KEYBOARD input (new KEY register; browser sends font-glyph codes),
+and three apps:
+  WRITER  — a word processor: type text (5x7 full A-Z font added), backspace, blinking caret.
+  SHEET   — a 3x4 spreadsheet; click a cell, +/- to change it; TOTAL summed by the CA ALU (repeated
+            CA adds, verified e.g. 12+7=19 shown).
+  CALC    — the calculator, ported into a window.
+Same engine as caos2 (page-aligned 256x192 FB, beveled chrome, software cursor, dirty-rect, CALL/RET).
+VERIFIED in python (scripted clicks/keys): Writer types "CA OFFICE"+backspace; Sheet CA-total correct;
+Calc 9x9=81; Start menu opens, apps switch, close box -> APP=0. Bug found+fixed: draw_writer loop used
+JNC (exit when T0<TLEN) instead of JC (exit when T0>=TLEN) -> infinite loop on empty doc; also keyin
+restructured to consume stray keys outside Writer. (My test harness also had a bug: ca1sys.run's max_i
+caps CUMULATIVE icount, which I wasn't resetting per frame -> false "freezes"; reset m.icount per frame.)
+build_lab18.py -> dissemination/glider-lab18.html (local): CA-OFFICE standalone in-browser (mouse +
+keyboard; browser = dumb terminal). Embedded image verified byte-identical boot to the python reference.
