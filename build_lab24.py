@@ -12,7 +12,7 @@
 #
 # Inherits from lab20:
 #   PART A — cut/restore resilience (client-only):
-#     * Each delta is sealed (ct + SHA-256 tag) and seq-numbered. When the line is DROPPED, Alice keeps
+#     * Each delta is sealed with AES-256-GCM (key from the CA at its seq) and seq-numbered. When DROPPED, Alice keeps
 #       working locally and her sealed deltas QUEUE instead of vanishing. On RESTORE they replay to Bob
 #       in seq order -> Bob catches up and reconverges (lossless). Bob applies the *next expected* seq
 #       only, so keystrokes replay one-per-frame and a gap stalls Bob until it's filled (lossy demo).
@@ -240,9 +240,9 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
   <p><b>The pact (shared randomness, nothing secret on the wire).</b> Alice and Bob seed an identical cellular automaton
   from the shared passphrase and run it in lockstep, generating an endless <em>identical</em> key tape on both sides.
   The key is regenerated, never transmitted — shared, not sent.</p>
-  <p><b>The classical line (≈10 bytes per action).</b> Because both run the identical, deterministic CA-1, Bob only
-  needs Alice's <em>inputs</em>. Each delta — <code>[x, y, button, key]</code>, 4 bytes — is sealed with AES-256-GCM under a key from
-  the pact's CA state at that seq, then sent. Bob unseals and replays it; his screen stays pixel-identical.
+  <p><b>The classical line (~37 bytes per action).</b> Because both run the identical, deterministic CA-2, Bob only
+  needs Alice's <em>inputs</em>. Each delta — <code>[x, y, button, key]</code>, a few plaintext bytes — is sealed with AES-256-GCM
+  (12-byte nonce + ciphertext + 16-byte tag) under a key from the pact's CA state at that seq, then sent. Bob unseals and replays it; his screen stays pixel-identical.
   The 196,608-byte screen never travels (see the Metrics).</p>
   <p><b>Cut &amp; restore.</b> Each side is a whole computer, so cutting the line doesn't stop Alice — her deltas queue,
   seq-numbered, and replay in order on restore so Bob reconverges exactly. He applies only the next expected seq, so a
