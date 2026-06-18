@@ -17,9 +17,11 @@ FB     = 0x010000
 UBUF   = 0x040000
 WTAB   = 0x080000
 FONT16 = 0x100000
-MEMSIZE = 0x400000
-PAL = ["#000000","#008080","#c0c0c0","#808080","#ffffff","#000080","#dfdfdf","#1084d0","#b00000","#107010"]
+MEMSIZE = 0x800000        # 8 MB (power of two; the 64 B/glyph antialiased table at 0x100000 is 4 MB)
+PALMAP  = 0x000340        # glyph level (1..3) -> palette index
+PAL = ["#000000","#008080","#c0c0c0","#808080","#ffffff","#000080","#dfdfdf","#1084d0","#b00000","#107010","#aaaaaa","#555555"]
 BLK, TEAL, SIL, GRY, WHT, NAV, LSV, BLU, RED, GRN = range(10)
+TXL, TXD = 10, 11         # antialias greys: light / dark (full ink = BLK)
 
 VS = 16
 _V = ("AX AY AW AH ACOL PX PY CP GA ROW T0 T1 T2 T3 MX MY MB MBP KEY ULEN DIRTY CW WI").split()
@@ -55,18 +57,20 @@ def program():
 
     # ---- blit16: draw the 16x16 glyph for codepoint CP at (PX,PY) in black ----
     a(("blit16:",))
-    a(("LDW", CP)); shl(5); a(("STW", GA))                 # GA = CP*32  (offset into FONT16)
+    a(("LDW", CP)); shl(6); a(("STW", GA))                 # GA = CP*64  (offset into FONT16, 64 B/glyph)
     a(("LDI", 0)); a(("STW", ROW))
     a(("b16_row:",)); a(("LDW", ROW)); a(("CMPI", 16)); a(("JC", "b16_done"))
     a(("LDW", PY)); a(("ADDW", ROW)); shl(9); a(("ADDW", PX)); a(("STW", T1))   # T1 = FB index of (PX, PY+ROW)
-    a(("LDW", GA)); a(("ADDW", ROW)); a(("ADDW", ROW)); a(("TAX",))             # X = GA + 2*ROW
-    a(("LDAX", FONT16)); a(("STW", T2)); a(("INX",)); a(("LDAX", FONT16)); a(("STW", T3))   # T2=byte0(cols0-7), T3=byte1(cols8-15)
-    for col in range(8):
-        a(("LDW", T2)); a(("ANDI", 0x80 >> col)); a(("JZ", f"b16a{col}"))
-        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDI", BLK)); a(("STAX", FB)); a((f"b16a{col}:",))
-    for col in range(8):
-        a(("LDW", T3)); a(("ANDI", 0x80 >> col)); a(("JZ", f"b16b{col}"))
-        a(("LDW", T1)); a(("ADDI", 8 + col)); a(("TAX",)); a(("LDI", BLK)); a(("STAX", FB)); a((f"b16b{col}:",))
+    a(("LDW", ROW)); a(("SHL",)); a(("SHL",)); a(("ADDW", GA)); a(("TAX",))     # X = GA + ROW*4 (4 bytes/row)
+    a(("LDAX", FONT16)); a(("STW", T2))                                         # assemble the 16x2-bit row into T2
+    a(("INX",)); a(("LDAX", FONT16)); shl(8);  a(("ADDW", T2)); a(("STW", T2))
+    a(("INX",)); a(("LDAX", FONT16)); shl(16); a(("ADDW", T2)); a(("STW", T2))
+    a(("INX",)); a(("LDAX", FONT16)); shl(24); a(("ADDW", T2)); a(("STW", T2))
+    for col in range(16):                                                       # consume px low-end, 2 bits each
+        a(("LDW", T2)); a(("ANDI", 3)); a(("JZ", f"b16s{col}"))
+        a(("TAX",)); a(("LDAX", PALMAP)); a(("STW", T3))
+        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
+        a((f"b16s{col}:",)); a(("LDW", T2)); a(("SHR",)); a(("SHR",)); a(("STW", T2))
     a(("LDW", ROW)); a(("ADDI", 1)); a(("STW", ROW)); a(("JMP", "b16_row"))
     a(("b16_done:",)); a(("RET",))
 
@@ -106,6 +110,7 @@ def program():
     # ---- boot + main ----
     a(("boot:",))
     for v in (ULEN, KEY, MB, MBP): a(("LDI", 0)); a(("STW", v))
+    a(("LDI", TXL)); a(("STA", PALMAP+1)); a(("LDI", TXD)); a(("STA", PALMAP+2)); a(("LDI", BLK)); a(("STA", PALMAP+3))
     a(("LDI", 1)); a(("STW", DIRTY))
     a(("main:",))
     a(("LDW", KEY)); a(("JZ", "nokey")); a(("CALL", "keyin")); a(("LDI", 0)); a(("STW", KEY)); a(("nokey:",))

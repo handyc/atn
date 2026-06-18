@@ -1811,3 +1811,10 @@ User: the 1-bit Unifont "looks like shit". Upgraded to ANTIALIASED text.
   real Chromium file://): "Smooth! 中文 日本語 한국어 Привет" renders fully antialiased across all scripts.
 - labs (lab22/24/min): font expander -> 64 B/glyph + w_b64 advances; MEM=8MB (from OS.MEM). Boot byte-
   identical; ~2 MB each (the AA font is ~2x the 1-bit). Still to do: caos_uni/lab25 + the pact bundle.
+
+## AA font propagated to lab25 + the pact bundle (2026-06-18)
+caos_uni.py (standalone Unicode Writer): 2-bit blit16 + PALMAP + 2 grey palette entries + 8 MB power-of-
+two machine (same fix). build_lab25.py loader -> 64 B/glyph + advances. build_pactbundle.py: ASCII font
+subset now 2-bit (64 B/glyph + advance), MEM 8 MB (auto from caos_ca2). Verified: caos_uni renders
+"AA smooth 中文 日本語 한국어 g" (Python); the pact bundle renders "Pact AA: Hello gjpqy 42" antialiased
+(file://). ELF still 34.2 KB. ALL consumers now use the antialiased font; nothing left on 1-bit.

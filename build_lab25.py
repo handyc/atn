@@ -82,10 +82,10 @@ const b2u=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;
 async function loadFont(){
  const comp=b2u(FONT.b64);
  const blob=new Uint8Array(await new Response(new Blob([comp]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
- const cpb=b2u(FONT.cps_b64),n=FONT.n,M=vm.M,F16=OS.FONT16,WT=OS.WTAB;
- for(let i=0;i<n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F16+cp*32,src=i*32;let wide=0;
-   for(let b=0;b<32;b++){const v=blob[src+b];M[off+b]=v;if((b&1)&&v)wide=1;}
-   M[WT+cp]=wide?16:8;}
+ const cpb=b2u(FONT.cps_b64),wv=b2u(FONT.w_b64),n=FONT.n,M=vm.M,F16=OS.FONT16,WT=OS.WTAB;
+ for(let i=0;i<n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F16+cp*64,src=i*64;
+   for(let b=0;b<64;b++)M[off+b]=blob[src+b];
+   M[WT+cp]=wv[i];}
  ready=true;document.getElementById("stat").textContent="font loaded ("+n.toLocaleString()+" glyphs in the CA's memory) — type away.";
 }
 /* keyboard: codepoint (8=backspace, 10=enter); mirror the IME box so paste & CJK input work */

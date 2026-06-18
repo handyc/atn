@@ -15,12 +15,14 @@ prog, _ = o.program()
 _f = json.load(open("unifont16.json"))
 _blob = zlib.decompress(base64.b64decode(_f["b64"]))
 _cps = struct.unpack("<%dH" % (_f["n"]), base64.b64decode(_f["cps_b64"]))
+_w = base64.b64decode(_f["w_b64"])
 _idx = {cp: i for i, cp in enumerate(_cps)}
 ascii_glyphs = {}
 for cp in range(0x20, 0x7F):
     if cp in _idx:
-        ascii_glyphs[cp] = base64.b64encode(_blob[_idx[cp]*32:_idx[cp]*32+32]).decode()
-FONTASCII = ascii_glyphs            # {codepoint: b64(32 bytes)}
+        i = _idx[cp]
+        ascii_glyphs[cp] = [base64.b64encode(_blob[i*64:i*64+64]).decode(), _w[i]]   # [b64(64 B, 2-bit AA), advance]
+FONTASCII = ascii_glyphs
 
 OS = dict(prog=[[op, (a if a is not None else 0)] for op, a in prog],
           mem={str(a): m.M[a] for a in range(0x10000) if m.M[a]},
@@ -61,7 +63,7 @@ function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7
 const vm=makeVM(OS.MEM,OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];
 // regenerate the ASCII font into the CA's RAM (FONT16 table + WTAB widths)
 {const b2u=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
- for(const cp in OS.FONT){const g=b2u(OS.FONT[cp]),off=OS.FONT16+(+cp)*32;let wide=0;for(let i=0;i<32;i++){vm.M[off+i]=g[i];if((i&1)&&g[i])wide=1;}vm.M[OS.WTAB+ +cp]=wide?16:8;}}
+ for(const cp in OS.FONT){const e=OS.FONT[cp],g=b2u(e[0]),off=OS.FONT16+(+cp)*64;for(let i=0;i<64;i++)vm.M[off+i]=g[i];vm.M[OS.WTAB+ +cp]=e[1];}}
 const W=OS.W,H=OS.H,FB=OS.FB,sc=document.getElementById("screen"),sx=sc.getContext("2d"),im=sx.createImageData(W,H);
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
 let mx=W>>1,my=H>>1,mb=0,keyq=[];
