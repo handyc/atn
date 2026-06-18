@@ -56,7 +56,7 @@ _VARS = ("AX AY AW AH ACOL GX GY GCH GCOL T0 T1 T2 T3 MX MY MB MBP "
          "WVX WVY DRAG DGX DGY MRX MRY "
          "UCP UGA UROW UCW GRAMP "
          "M0 M1 M2 M3 M4 M5 MHI MLO MCH MCL MPL FCB FPLACE CDIG "
-         "CMAN CDOT CSGN DVH DVL DSR QUO REM FCNT").split()   # + glyph blitter regs + Q16.16 FPU scratch
+         "CMAN CDOT CSGN DVH DVL DSR QUO REM FCNT CFLIP").split()   # + glyph blitter regs + Q16.16 FPU scratch
 for _i, _n in enumerate(_VARS): globals()[_n] = _i * VS   # AX=0, AY=VS, ... laid out contiguously
 CURBUF  = 0x0380          # cursor 8x8 save-under (byte-addressed -> width-independent)
 CELLS   = 0x0F00          # sheet cells (12 x VS-byte words)
@@ -79,6 +79,16 @@ SHTOT      = SHY + 8*SHCH + 4    # y of the Total line (= 280)
 # shift-add mul, restoring div, series) is the verified cafpu.py spec, ported here to CA-2 machine code —
 # whose add/sub IS the CA NAND-gate adder, so the calculator computes on the cellular automaton.
 FXFRAC = 16; FXONE = 1 << FXFRAC
+import math as _math
+PI16   = round(_math.pi * FXONE)        # π, 2π, π/2 in Q16.16
+TWOPI16 = round(2*_math.pi * FXONE)
+HALFPI16 = round(_math.pi/2 * FXONE)
+CORDN  = 20                              # CORDIC iterations
+_Ag = 1.0
+for _i in range(CORDN): _Ag *= _math.sqrt(1 + 2.0**(-2*_i))
+KFX16  = round((1.0/_Ag) * FXONE)       # CORDIC gain^-1 (prescale x0)
+ATAN16 = [round(_math.atan(2.0**-_i) * FXONE) for _i in range(CORDN)]
+LN2_16 = round(_math.log(2) * FXONE)
 TBY = H - 22                                # taskbar top (taller, to fit antialiased labels)
 PSWATCH = [BLK, GRY, WHT, RED, GRN, BLU, NAV, TEAL]                # 8 paint colours
 # calc keypad: (label, kind, value) ; kind: d=digit o=op(0+,1-,2x) e== c=clear
@@ -294,6 +304,33 @@ def program():
     a(("LDW", M4)); a(("SUBI", 1)); a(("STW", M4)); a(("JNZ", "fps_l"))
     a(("LDW", M3)); a(("STW", M0)); a(("RET",))
 
+    # ---- cordic_cs: CCUR (radians) -> M2=cos, M3=sin.  Circular CORDIC, every step is add/sub/shift. ----
+    _asc = [0]
+    def asr_to(src, n, dst):                                    # arithmetic (signed) shift right by n
+        if n == 0: a(("LDW", src)); a(("STW", dst)); return
+        _asc[0] += 1; L = _asc[0]
+        a(("LDW", src)); a(("JN", f"asn{L}")); shr(n); a(("STW", dst)); a(("JMP", f"asd{L}"))
+        a((f"asn{L}:",)); shr(n); a(("ADDI", (((1 << n) - 1) << (32 - n)) & 0xFFFFFFFF)); a(("STW", dst)); a((f"asd{L}:",))
+    a(("cordic_cs:",))
+    a(("LDW", CCUR)); a(("STW", M4)); a(("LDI", 0)); a(("STW", CFLIP))           # Z=angle
+    a(("cr_hi:",)); a(("LDW", M4)); a(("SUBI", PI16)); a(("JN", "cr_hid")); a(("LDW", M4)); a(("SUBI", TWOPI16)); a(("STW", M4)); a(("JMP", "cr_hi")); a(("cr_hid:",))
+    a(("cr_lo:",)); a(("LDW", M4)); a(("ADDI", PI16)); a(("JN", "cr_lodo")); a(("JMP", "cr_lod")); a(("cr_lodo:",)); a(("LDW", M4)); a(("ADDI", TWOPI16)); a(("STW", M4)); a(("JMP", "cr_lo")); a(("cr_lod:",))
+    a(("LDW", M4)); a(("JN", "cr_qn")); a(("STW", M5)); a(("JMP", "cr_qd")); a(("cr_qn:",)); a(("LDI", 0)); a(("SUBW", M4)); a(("STW", M5)); a(("cr_qd:",))   # M5=|Z|
+    a(("LDW", M5)); a(("SUBI", HALFPI16)); a(("JN", "cr_nofold"))                # |Z|>π/2 -> fold to [-π/2,π/2]
+    a(("LDW", M4)); a(("JN", "cr_fneg")); a(("LDI", PI16)); a(("SUBW", M4)); a(("STW", M4)); a(("JMP", "cr_fset"))
+    a(("cr_fneg:",)); a(("LDI", 0)); a(("SUBW", M4)); a(("SUBI", PI16)); a(("STW", M4))
+    a(("cr_fset:",)); a(("LDI", 1)); a(("STW", CFLIP))
+    a(("cr_nofold:",))
+    a(("LDI", KFX16)); a(("STW", M2)); a(("LDI", 0)); a(("STW", M3))             # X=K, Y=0
+    for i in range(CORDN):
+        asr_to(M2, i, T0); asr_to(M3, i, T1)                                     # xi, yi (both signed)
+        a(("LDW", M4)); a(("JN", f"cor_n{i}"))
+        a(("LDW", M2)); a(("SUBW", T1)); a(("STW", M2)); a(("LDW", M3)); a(("ADDW", T0)); a(("STW", M3)); a(("LDW", M4)); a(("SUBI", ATAN16[i])); a(("STW", M4)); a(("JMP", f"cor_d{i}"))
+        a((f"cor_n{i}:",)); a(("LDW", M2)); a(("ADDW", T1)); a(("STW", M2)); a(("LDW", M3)); a(("SUBW", T0)); a(("STW", M3)); a(("LDW", M4)); a(("ADDI", ATAN16[i])); a(("STW", M4))
+        a((f"cor_d{i}:",))
+    a(("LDW", CFLIP)); a(("JZ", "cr_noflip")); a(("LDI", 0)); a(("SUBW", M2)); a(("STW", M2)); a(("cr_noflip:",))   # cos sign
+    a(("RET",))
+
     # ---- cdigit: append the digit in CDIG to the entry mantissa, then commit to CCUR ----
     a(("cdigit:",))
     a(("LDW", CFRESH)); a(("JZ", "cd_keep")); a(("LDI", 0)); a(("STW", CMAN)); a(("STW", FPLACE)); a(("STW", CDOT)); a(("STW", CSGN)); a(("STW", CFRESH)); a(("cd_keep:",))
@@ -497,6 +534,12 @@ def program():
                 a(("LDW", CCUR)); a(("STW", M0)); a(("STW", M1)); a(("CALL", "fpmul")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
             elif lab == '1/x':
                 a(("LDI", FXONE)); a(("STW", M0)); a(("LDW", CCUR)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'sin':
+                a(("CALL", "cordic_cs")); a(("LDW", M3)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'cos':
+                a(("CALL", "cordic_cs")); a(("LDW", M2)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'tan':
+                a(("CALL", "cordic_cs")); a(("LDW", M3)); a(("STW", M0)); a(("LDW", M2)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
             elif lab in '+-x÷':
                 a(("CALL", "calc_apply"))
                 a(("LDI", {'+':0,'-':1,'x':2,'÷':3}[lab])); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH)); a(("LDI", 0)); a(("STW", FPLACE)); a(("STW", CDOT))

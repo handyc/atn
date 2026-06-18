@@ -1963,3 +1963,14 @@ Keypad expanded to the scientific 6×5 layout: [sin cos tan ln log][√ x² 1/x 
 (fpmul), 1/x (fpdiv 1/x). The trig/log/pow keys are drawn but inert until Stages 3–4. VERIFIED:
 √2=1.41420, √144=12, √2.25=1.5, 5²=25, 1.5²=2.25, 1/4=0.25, 1/8=0.125. (Harness gotcha fixed: m.icount
 is cumulative, so reset it per simulated frame or late ops silently stop at max_i.) pact ELF 38.2 KB.
+
+## Scientific Calc, Stage 3: sin/cos/tan via CORDIC in CA-2 assembly (2026-06-19, autonomous)
+Ported the circular CORDIC (cafpu spec) to CA-2 machine code: cordic_cs computes M2=cos, M3=sin from
+CCUR (radians). 20 iterations UNROLLED at build time (the arctan table + gain are immediates, no RAM
+table). Range-reduces mod 2π then folds |angle|>π/2 into [-π/2,π/2] (cos sign flip). Every step is
+add/sub + an arithmetic shift (asr_to: logical shift + sign-extend mask via ADDI, since there's no ASR
+op). sin=Y, cos=X, tan=sin/cos (fpdiv). KEY BUG: first used a LOGICAL shift for X assuming cos≥0, but
+near π/2 the X coordinate dips slightly negative mid-iteration -> garbage; fixed by arithmetic-shifting
+both X and Y. VERIFIED (radians): sin0=0, cos0=1, sin(π/6)=0.50002, cos(π/3)=0.50002, sin(π/2)=1.0,
+sin(π/4)=0.70711, tan(π/4)=0.99997, cos(2)=-0.41614, sin(3)=0.14111, sin(-2)=-0.90929 — all to ~1e-4.
+pact ELF still 38.2 KB.
