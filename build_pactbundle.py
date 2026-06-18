@@ -72,8 +72,55 @@ sc.addEventListener("mousemove",e=>{[mx,my]=rel(e);});
 sc.addEventListener("mousedown",e=>{[mx,my]=rel(e);mb=1;sc.focus();});window.addEventListener("mouseup",()=>mb=0);
 sc.addEventListener("keydown",e=>{let cp=-1;if(e.key==="Backspace")cp=8;else if(e.key==="Enter")cp=10;else if([...e.key].length===1)cp=e.key.codePointAt(0);
  if(cp>=0){e.preventDefault();keyq.push(cp);}});
-function frame(){wr32(OS.MX,mx);wr32(OS.MY,my);wr32(OS.MB,mb);
- if(keyq.length&&vm.M[OS.KEY]===0)wr32(OS.KEY,keyq.shift());
+/* ===== the pact: a hex-K4 CA grown from the shared seed is the AES-256-GCM key schedule ===== */
+const enc=s=>new TextEncoder().encode(s);
+const K=new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+const rotr=(x,n)=>((x>>>n)|(x<<(32-n)))>>>0;
+function sha256(msg){let h0=0x6a09e667,h1=0xbb67ae85,h2=0x3c6ef372,h3=0xa54ff53a,h4=0x510e527f,h5=0x9b05688c,h6=0x1f83d9ab,h7=0x5be0cd19;
+ const ml=msg.length,total=(((ml+8)>>6)+1)<<6,m=new Uint8Array(total);m.set(msg);m[ml]=0x80;const dv=new DataView(m.buffer),bit=ml*8;
+ dv.setUint32(total-4,bit>>>0,false);dv.setUint32(total-8,Math.floor(bit/0x100000000)>>>0,false);const w=new Uint32Array(64);
+ for(let off=0;off<total;off+=64){for(let i=0;i<16;i++)w[i]=dv.getUint32(off+i*4,false);
+  for(let i=16;i<64;i++){const s0=(rotr(w[i-15],7)^rotr(w[i-15],18)^(w[i-15]>>>3))>>>0,s1=(rotr(w[i-2],17)^rotr(w[i-2],19)^(w[i-2]>>>10))>>>0;w[i]=(w[i-16]+s0+w[i-7]+s1)>>>0;}
+  let a=h0,b=h1,c=h2,d=h3,e=h4,f=h5,g=h6,hh=h7;
+  for(let i=0;i<64;i++){const S1=(rotr(e,6)^rotr(e,11)^rotr(e,25))>>>0,ch=((e&f)^((~e)&g))>>>0,t1=(hh+S1+ch+K[i]+w[i])>>>0,S0=(rotr(a,2)^rotr(a,13)^rotr(a,22))>>>0,maj=((a&b)^(a&c)^(b&c))>>>0,t2=(S0+maj)>>>0;hh=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0;}
+  h0=(h0+a)>>>0;h1=(h1+b)>>>0;h2=(h2+c)>>>0;h3=(h3+d)>>>0;h4=(h4+e)>>>0;h5=(h5+f)>>>0;h6=(h6+g)>>>0;h7=(h7+hh)>>>0;}
+ const o=new Uint8Array(32),ov=new DataView(o.buffer);[h0,h1,h2,h3,h4,h5,h6,h7].forEach((v,i)=>ov.setUint32(i*4,v>>>0,false));return o;}
+const NCOMP=4,SIDE=48,DOMENV=enc("spoeqi/envelope/v1");
+function prng(seed,label,n){let out=new Uint8Array(n),pos=0,ctr=0;const s=enc(seed),l=enc(label);
+ while(pos<n){const b=new Uint8Array(s.length+l.length+4);b.set(s,0);b.set(l,s.length);new DataView(b.buffer).setUint32(s.length+l.length,ctr,true);
+  const h=sha256(b);for(let i=0;i<32&&pos<n;i++)out[pos++]=h[i];ctr++;}return out;}
+function buildPact(seed){const luts=[],init=[];for(let c=0;c<NCOMP;c++){const lb=prng(seed,"rule"+c,16384),lut=new Uint8Array(16384);for(let i=0;i<16384;i++)lut[i]=lb[i]&3;luts.push(lut);
+  const gb=prng(seed,"grid"+c,SIDE*SIDE),g=new Uint8Array(SIDE*SIDE);for(let i=0;i<SIDE*SIDE;i++)g[i]=gb[i]&3;init.push(g);}return{luts,init,cache:{0:init.map(g=>g.slice())}};}
+function castep(b,lut,Wd,Hd){const nb=new Uint8Array(Wd*Hd);for(let r=0;r<Hd;r++){const rm=(r-1+Hd)%Hd,rp=(r+1)%Hd,ev=(r%2===0);
+  for(let c=0;c<Wd;c++){const cm=(c-1+Wd)%Wd,cp=(c+1)%Wd,s=b[r*Wd+c],Nn=b[rm*Wd+c],Sd=b[rp*Wd+c],Wc=b[r*Wd+cm],E=b[r*Wd+cp];
+   let nw,ne,sw,se;if(ev){nw=b[rm*Wd+cm];ne=Nn;sw=b[rp*Wd+cm];se=Sd;}else{nw=Nn;ne=b[rm*Wd+cp];sw=Sd;se=b[rp*Wd+cp];}
+   nb[r*Wd+c]=lut[(s<<12)|(nw<<10)|(ne<<8)|(E<<6)|(se<<4)|(sw<<2)|Wc];}}return nb;}
+function gridsAt(p,gen){if(p.cache[gen])return p.cache[gen];let base=0;for(const k in p.cache)if(+k<=gen&&+k>base)base=+k;
+ let g=p.cache[base].map(x=>x.slice());for(let t=0;t<gen-base;t++)g=g.map((gg,c)=>castep(gg,p.luts[c],SIDE,SIDE));p.cache[gen]=g.map(x=>x.slice());return p.cache[gen];}
+let pact=null,role="solo",seq=0,bobSeq=-1,bobIn=[W>>1,H>>1,0],pendKeyB=0,lastM=null;const kc=new Map();
+function dkb(g){const grids=gridsAt(pact,g),st=new Uint8Array(8+NCOMP*SIDE*SIDE);new DataView(st.buffer).setUint32(0,g>>>0,true);let o=8;for(const gr of grids){st.set(gr,o);o+=gr.length;}const full=new Uint8Array(DOMENV.length+st.length);full.set(DOMENV,0);full.set(st,DOMENV.length);return sha256(full);}
+function gk(g){if(!kc.has(g))kc.set(g,crypto.subtle.importKey("raw",dkb(g),{name:"AES-GCM"},false,["encrypt","decrypt"]));return kc.get(g);}
+const b64e=u=>btoa(String.fromCharCode.apply(0,u)),b64d=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
+async function sealDelta(s,plain){const key=await gk(s),nonce=crypto.getRandomValues(new Uint8Array(12)),ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv:nonce},key,plain));
+ const fr=new Uint8Array(4+12+ct.length);new DataView(fr.buffer).setUint32(0,s,true);fr.set(nonce,4);fr.set(ct,16);return b64e(fr);}  // [seq(4) nonce(12) ct]
+async function openDelta(b64){const fr=b64d(b64),s=new DataView(fr.buffer).getUint32(0,true),nonce=fr.slice(4,16),ct=fr.slice(16);
+ try{const key=await gk(s),pl=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:nonce},key,ct));return {s,pl};}catch(e){return null;}}
+async function netSend(b64){try{await fetch("/send",{method:"POST",body:b64});}catch(e){}}
+async function pollLoop(){try{const a=await (await fetch("/poll")).json();
+  /* sort by seq, apply only bobSeq+1 in order */
+  const opened=[];for(const b of a){const o=await openDelta(b);if(o)opened.push(o);}opened.sort((x,y)=>x.s-y.s);
+  for(const o of opened){if(o.s===bobSeq+1){const pl=o.pl;bobIn=[pl[0]|pl[1]<<8,pl[2]|pl[3]<<8,pl[4]];pendKeyB=pl[5]|pl[6]<<8;bobSeq=o.s;}}
+ }catch(e){}setTimeout(pollLoop,90);}
+async function initNet(){try{const cfg=await (await fetch("/config")).json();role=cfg.role;pact=buildPact(cfg.seed);
+  document.getElementById("st").textContent="pact: "+role+(role==="join"?" (mirroring)":role==="host"?" (driving)":"");
+  if(role==="join")pollLoop();}catch(e){role="solo";}}
+initNet();
+function frame(){
+ if(role==="join"){ wr32(OS.MX,bobIn[0]);wr32(OS.MY,bobIn[1]);wr32(OS.MB,bobIn[2]); if(pendKeyB&&vm.M[OS.KEY]===0){wr32(OS.KEY,pendKeyB);pendKeyB=0;} }
+ else { let k=(keyq.length&&vm.M[OS.KEY]===0)?keyq[0]:0;
+   if(role==="host"&&pact){ const ch=!lastM||mx!==lastM[0]||my!==lastM[1]||mb!==lastM[2]; if(ch||k){const s=seq++;lastM=[mx,my,mb];
+     const plain=new Uint8Array([mx&255,(mx>>8)&255,my&255,(my>>8)&255,mb,k&255,(k>>8)&255]);sealDelta(s,plain).then(netSend);} }
+   wr32(OS.MX,mx);wr32(OS.MY,my);wr32(OS.MB,mb); if(k)wr32(OS.KEY,keyq.shift()); }
  vm.run(OS.prog);
  for(let i=0;i<W*H;i++){const v=vm.M[FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}
  sx.putImageData(im,0,0);requestAnimationFrame(frame);}

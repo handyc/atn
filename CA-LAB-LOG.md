@@ -1776,3 +1776,23 @@ pact 2026"` then open the printed URL. (Content is verified via file://; crypto 
 MILESTONE B (networking: ELF relays AES-GCM-sealed deltas between two nodes) = next; correct-by-
 construction only (loopback untestable here). The pieces exist: AES-256-GCM seal/unseal (lab26/lab24),
 the OS regen (bundle), the cover ELF.
+
+## Pact ELF milestone B — the encrypted node-to-node link (2026-06-18, autonomous)
+The 64 KB packet now also networks two nodes, exchanging ONLY AES-256-GCM-sealed input deltas (the OS
+is regenerated on both ends from the same packet -> almost nothing crosses the wire).
+- build_pactelf.py: notesync is now a select()-based zero-knowledge relay. Modes:
+  ./notesync                    -> cover (random note)
+  ./notesync "<key>"            -> solo: serve regenerated CA-OS on http://127.0.0.1:8787
+  ./notesync "<key>" host [pp]  -> Alice: serve + listen tcp/9777 for the peer (driver)
+  ./notesync "<key>" join <ip>  -> Bob:   serve + connect to the peer (mirror)
+  Endpoints: GET / (gzip bundle), GET /config ({role,seed}), GET /poll (queued sealed deltas as b64
+  JSON), POST /send (b64 sealed delta -> framed -> forwarded to the peer TCP socket). The relay never
+  sees plaintext or a key. ELF = 34.2 KB (<= 64 KB).
+- build_pactbundle.py: the page fetches /config; host drives locally + seals each input delta
+  ([x,y,btn,key], key(seq)=SHA-256(domain‖seq‖CA-state)) with AES-256-GCM and POSTs to /send; join
+  polls /poll, opens deltas in seq order, and applies them (lab24's driver/mirror split, HTTP transport).
+VERIFIED here (file://): the seal->open delta roundtrip recovers the input (seq/x/key) and a tampered
+byte is rejected by the GCM tag. NOT verifiable here: the live HTTP+TCP flow (this sandbox firewalls
+loopback). REAL-MACHINE TEST: terminal 1 `./notesync "alice<->bob pact 2026" host`; terminal 2
+`./notesync "alice<->bob pact 2026" join 127.0.0.1`; open http://127.0.0.1:8787 in two browsers ->
+drive the host, watch the join mirror, only sealed deltas on tcp/9777.
