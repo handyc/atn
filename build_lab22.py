@@ -110,8 +110,8 @@ ime.addEventListener("input",()=>{if(!composing)flush();});
 ime.addEventListener("keydown",e=>{if(e.key==="Backspace"){e.preventDefault();keyq.push(8);}else if(e.key==="Enter"){e.preventDefault();keyq.push(10);}});
 const b2u=x=>{const b=atob(x),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
 async function loadFont(){const blob=new Uint8Array(await new Response(new Blob([b2u(FONT.b64)]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
- const cpb=b2u(FONT.cps_b64),M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F+cp*32;let wide=0;
-  for(let b=0;b<32;b++){const v=blob[i*32+b];M[off+b]=v;if((b&1)&&v)wide=1;}M[WT+cp]=wide?16:8;}
+ const cpb=b2u(FONT.cps_b64),wv=b2u(FONT.w_b64),M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F+cp*64;
+  for(let b=0;b<64;b++)M[off+b]=blob[i*64+b];M[WT+cp]=wv[i];}
  ready=true;document.getElementById("stat").textContent="font loaded ("+FONT.n.toLocaleString()+" Unicode glyphs in the CA) — the Writer is multilingual.";}
 /* ---- save / load: poke the CA-2 memory directly; the OS just redraws (no new machine code) ---- */
 function rd32(a){return (vm.M[a]|(vm.M[a+1]<<8)|(vm.M[a+2]<<16)|(vm.M[a+3]<<24))>>>0;}

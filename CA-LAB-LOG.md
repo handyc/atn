@@ -1796,3 +1796,18 @@ byte is rejected by the GCM tag. NOT verifiable here: the live HTTP+TCP flow (th
 loopback). REAL-MACHINE TEST: terminal 1 `./notesync "alice<->bob pact 2026" host`; terminal 2
 `./notesync "alice<->bob pact 2026" join 127.0.0.1`; open http://127.0.0.1:8787 in two browsers ->
 drive the host, watch the join mirror, only sealed deltas on tcp/9777.
+
+## Antialiased font upgrade — 2-bit grey WenQuanYi (2026-06-18)
+User: the 1-bit Unifont "looks like shit". Upgraded to ANTIALIASED text.
+- font_gen.py: rasterize WenQuanYi Zen Hei (smooth, proportional; Unifont fallback) grayscale ->
+  2-bit (4 levels), packed 4 px/byte -> 64 B/glyph, + per-glyph proportional advance widths.
+  57,054 glyphs, 3.48 MB raw -> 1.22 MB zlib.
+- caos_ca2.py: PAL += 2 text-AA greys (idx10 light 0xAA, idx11 dark 0x55); PALMAP[level]->palette idx;
+  blit16 rewritten to read 4 bytes/row, 2 bits/px, map level->grey (skip transparent); load_unifont
+  reads 64 B/glyph + advances. MACHINE -> 8 MB. **KEY BUG FOUND**: I first used MEMSIZE=0x600000 (6 MB,
+  NOT a power of two) -> near_mask=memsize-1=0x5FFFFF has a hole at bit21 -> CJK glyphs (addr >= 0x200000)
+  got bit21 masked off -> read garbage from the FB region (rendered as vertical bars). Latin (low addr)
+  was fine, which masked the bug. Fix: MEMSIZE=0x800000 (power of two) -> clean mask. Verified (Python +
+  real Chromium file://): "Smooth! 中文 日本語 한국어 Привет" renders fully antialiased across all scripts.
+- labs (lab22/24/min): font expander -> 64 B/glyph + w_b64 advances; MEM=8MB (from OS.MEM). Boot byte-
+  identical; ~2 MB each (the AA font is ~2x the 1-bit). Still to do: caos_uni/lab25 + the pact bundle.

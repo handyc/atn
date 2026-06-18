@@ -313,7 +313,7 @@ function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7
  return {M,run};}
 /* state — declared BEFORE any load-time call */
 const $=id=>document.getElementById(id);
-let pact=null,aliceVM=null,bobVM=null,fontBlob=null,fontCps=null,ready=false,bobBusy=false,pendingBobKey=0,mx=80,my=70,mb=0,pendKey=0,keyq=[],bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
+let pact=null,aliceVM=null,bobVM=null,fontBlob=null,fontCps=null,fontW=null,ready=false,bobBusy=false,pendingBobKey=0,mx=80,my=70,mb=0,pendKey=0,keyq=[],bobIn=[80,70,0],seq=0,sent=0,ndelta=0,lastMouse=null,raf=0;
 let bobInbox=[],aliceQueue=[],server=[],srvBytes=0,bobSeq=-1;
 let bytesMouse=0,bytesKey=0,nMouse=0,nKey=0,t0=0,lastSent=0,spark=[];   // metrics
 let ipfTotal=0,aboutVisible=false;   // live CA-2 instruction counter + tab state
@@ -371,10 +371,10 @@ ime.addEventListener("compositionend",()=>{composing=false;flush();});
 ime.addEventListener("input",()=>{if(!composing)flush();});
 ime.addEventListener("keydown",e=>{if(e.key==="Backspace"){e.preventDefault();keyq.push(8);}else if(e.key==="Enter"){e.preventDefault();keyq.push(10);}});
 const b2u=x=>{const b=atob(x),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
-function expandFont(vm){if(!fontBlob)return;const M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=fontCps[i*2]|(fontCps[i*2+1]<<8),off=F+cp*32;let wide=0;
-  for(let b=0;b<32;b++){const v=fontBlob[i*32+b];M[off+b]=v;if((b&1)&&v)wide=1;}M[WT+cp]=wide?16:8;}}
+function expandFont(vm){if(!fontBlob)return;const M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=fontCps[i*2]|(fontCps[i*2+1]<<8),off=F+cp*64;
+  for(let b=0;b<64;b++)M[off+b]=fontBlob[i*64+b];M[WT+cp]=fontW[i];}}
 async function loadFont(){fontBlob=new Uint8Array(await new Response(new Blob([b2u(FONT.b64)]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
- fontCps=b2u(FONT.cps_b64);if(aliceVM)expandFont(aliceVM);if(bobVM)expandFont(bobVM);ready=true;
+ fontCps=b2u(FONT.cps_b64);fontW=b2u(FONT.w_b64);if(aliceVM)expandFont(aliceVM);if(bobVM)expandFont(bobVM);ready=true;
  const st=document.getElementById("stat");if(st)st.textContent="font loaded ("+FONT.n.toLocaleString()+" Unicode glyphs) — Writer is multilingual on both panes.";}
 function syncCheck(){let same=true;for(let i=0;i<OS.W*OS.H;i++){if(aliceVM.M[OS.FB+i]!==bobVM.M[OS.FB+i]){same=false;break;}}
  $("sync").innerHTML=same?"<span class='ok'>in sync ✓</span>":"<span class='no'>diverged ✗ (Bob behind / line cut)</span>";}

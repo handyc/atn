@@ -16,8 +16,9 @@ from ca1sys import asm, make_machine
 
 W, H = 512, 384
 FB = 0x10000
-PAL = c1.PAL
+PAL = list(c1.PAL) + ["#aaaaaa", "#555555"]    # +2 text-antialias greys: idx10 light, idx11 dark
 BLK, TEAL, SIL, GRY, WHT, NAV, LSV, BLU, RED, GRN = range(10)
+TXL, TXD = 10, 11                               # 16x16 glyph antialias levels: light / dark (full ink = BLK)
 gi = c1.gi
 
 # ---- OS variables, each given a slot of VS bytes so the SAME program runs on ANY word width up to
@@ -37,10 +38,12 @@ FONT    = 0x0400          # 5x7 glyphs for UI chrome (byte-addressed)
 CELLS   = 0x0F00          # sheet cells (12 x VS-byte words)
 CSTRIDE = VS              # spacing between sheet cells (>= bytes-per-word on any supported machine)
 # Writer goes Unicode: the document is 16x16 GNU-Unifont, so the machine needs more (virtual) RAM.
-MEMSIZE = 0x400000        # 4 MB
+MEMSIZE = 0x800000        # 8 MB — MUST be a power of two (memsize-1 is the address mask) so the 4 MB
+                          #        FONT16 table at 0x100000..0x500000 (64 B/glyph antialiased) is addressable
+PALMAP  = 0x000340        # 4-byte map: glyph level (1..3) -> palette index
 TBUF    = 0x040000        # writer document as 16-bit codepoints (LE), just above the framebuffer
 WTAB    = 0x080000        # advance width per codepoint (8 or 16), 1 byte x 0x10000
-FONT16  = 0x100000        # direct codepoint->glyph table, 32 bytes/glyph (16 rows x 2 bytes)
+FONT16  = 0x100000        # direct codepoint->glyph table, 64 bytes/glyph (16 rows x 4 bytes, 2-bit AA)
 CURSOR = [0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xE0, 0x40]
 
 # window + taskbar geometry
@@ -61,10 +64,11 @@ def load_unifont(m, path="unifont16.json"):
     # expand the 16x16 GNU-Unifont table into FONT16 (direct cp->glyph) + WTAB (per-cp advance width)
     import json, zlib, base64, struct
     d = json.load(open(path)); blob = zlib.decompress(base64.b64decode(d["b64"]))
-    cps = struct.unpack("<%dH" % (len(base64.b64decode(d["cps_b64"])) // 2), base64.b64decode(d["cps_b64"]))
+    cps = struct.unpack("<%dH" % d["n"], base64.b64decode(d["cps_b64"]))
+    w = base64.b64decode(d["w_b64"])
     for i, cp in enumerate(cps):
-        g = blob[i*32:(i+1)*32]; m.M[FONT16 + cp*32: FONT16 + cp*32 + 32] = g
-        m.M[WTAB + cp] = 16 if any(g[r*2+1] for r in range(16)) else 8
+        m.M[FONT16 + cp*64: FONT16 + cp*64 + 64] = blob[i*64:(i+1)*64]   # 2-bit AA, 64 B/glyph
+        m.M[WTAB + cp] = w[i]                                            # proportional advance width
 
 def program():
     L = []; a = L.append
@@ -114,18 +118,20 @@ def program():
 
     # ---- blit16: draw the 16x16 GNU-Unifont glyph for codepoint UCP at (GX,GY) in black (Writer doc) ----
     a(("blit16:",))
-    a(("LDW", UCP)); shl(5); a(("STW", UGA))                # UGA = UCP*32 (offset into FONT16)
+    a(("LDW", UCP)); shl(6); a(("STW", UGA))                # UGA = UCP*64 (offset into FONT16, 64 B/glyph)
     a(("LDI", 0)); a(("STW", UROW))
     a(("b16_row:",)); a(("LDW", UROW)); a(("CMPI", 16)); a(("JC", "b16_done"))
     a(("LDW", GY)); a(("ADDW", UROW)); shl(9); a(("ADDW", GX)); a(("STW", T1))   # T1 = FB index of (GX, GY+UROW)
-    a(("LDW", UGA)); a(("ADDW", UROW)); a(("ADDW", UROW)); a(("TAX",))           # X = UGA + 2*UROW
-    a(("LDAX", FONT16)); a(("STW", T2)); a(("INX",)); a(("LDAX", FONT16)); a(("STW", T3))   # T2=byte0(cols0-7), T3=byte1(cols8-15)
-    for col in range(8):
-        a(("LDW", T2)); a(("ANDI", 0x80 >> col)); a(("JZ", f"b16a{col}"))
-        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDI", BLK)); a(("STAX", FB)); a((f"b16a{col}:",))
-    for col in range(8):
-        a(("LDW", T3)); a(("ANDI", 0x80 >> col)); a(("JZ", f"b16b{col}"))
-        a(("LDW", T1)); a(("ADDI", 8 + col)); a(("TAX",)); a(("LDI", BLK)); a(("STAX", FB)); a((f"b16b{col}:",))
+    a(("LDW", UROW)); a(("SHL",)); a(("SHL",)); a(("ADDW", UGA)); a(("TAX",))    # X = UGA + UROW*4 (4 bytes/row)
+    a(("LDAX", FONT16)); a(("STW", T2))                                          # assemble the 16x2-bit row into T2
+    a(("INX",)); a(("LDAX", FONT16)); shl(8);  a(("ADDW", T2)); a(("STW", T2))
+    a(("INX",)); a(("LDAX", FONT16)); shl(16); a(("ADDW", T2)); a(("STW", T2))
+    a(("INX",)); a(("LDAX", FONT16)); shl(24); a(("ADDW", T2)); a(("STW", T2))
+    for col in range(16):                                                        # consume px from the low end, 2 bits each
+        a(("LDW", T2)); a(("ANDI", 3)); a(("JZ", f"b16s{col}"))
+        a(("TAX",)); a(("LDAX", PALMAP)); a(("STW", T3))                         # T3 = palette index for this level
+        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
+        a((f"b16s{col}:",)); a(("LDW", T2)); a(("SHR",)); a(("SHR",)); a(("STW", T2))
     a(("LDW", UROW)); a(("ADDI", 1)); a(("STW", UROW)); a(("JMP", "b16_row"))
     a(("b16_done:",)); a(("RET",))
 
@@ -402,6 +408,7 @@ def program():
     # ============ boot + main ============
     a(("boot:",))
     for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP, TLEN, KEY, SELC, CWV, BDIRTY, PFRESH, DRAG): a(("LDI", 0)); a(("STW", v))
+    a(("LDI", TXL)); a(("STA", PALMAP+1)); a(("LDI", TXD)); a(("STA", PALMAP+2)); a(("LDI", BLK)); a(("STA", PALMAP+3))   # glyph level -> palette idx
     for i in range(12): a(("LDI", 0)); a(("STW", CELLS+i*CSTRIDE))   # clear sheet cells (zeros the full VS-byte slot on wide machines)
     a(("LDI", 1)); a(("STW", CFRESH)); a(("STW", DIRTY)); a(("LDI", RED)); a(("STW", PCOL))
     a(("LDI", WINX)); a(("STW", WVX)); a(("LDI", WINY)); a(("STW", WVY))    # window starts at the default position
