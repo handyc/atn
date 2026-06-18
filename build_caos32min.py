@@ -41,7 +41,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <script>
 "use strict";
 const OS=__OS__, FONT=__FONT__;
-/* faithful 32-bit CA-2 VM (mirrors ca1sys make_machine("CA-2"): 32-bit regs/ALU, flat 1 MB) */
+/* faithful 32-bit CA-2 VM (mirrors ca1sys make_machine("CA-2"): 32-bit regs/ALU, flat 8 MB) */
 function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
  const set=(v,c)=>{const w=v>>>0;Z=w===0?1:0;N=(w>>>31)&1;if(c!==undefined)C=c&1;return w;};
  const wrd=d=>{d&=NM;return (M[d]|(M[d+1]<<8)|(M[d+2]<<16)|(M[d+3]<<24))>>>0;};

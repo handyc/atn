@@ -3,7 +3,7 @@
 # (Writer/Sheet/Calc/Paint/About) on a 512x384 desktop, driven over the cut/restore-able encrypted
 # line + zero-trust mother server, with the live METRICS panel and the "How it works" tab + live CA
 # panels — the whole lab21 stack rebuilt on the 32-bit CA-2 machine. Input deltas are widened to carry
-# 9-bit coordinates (the bigger screen). VM is the faithful 32-bit CA-2 VM (flat 1 MB).
+# 9-bit coordinates (the bigger screen). VM is the faithful 32-bit CA-2 VM (flat 8 MB).
 #
 # Builds on lab20 (cut/restore + mother server). New in lab21:
 #   * METRICS — total bytes, bytes/sec, avg bytes/delta, mouse-vs-keystroke split, a bytes/sec sparkline,
@@ -292,7 +292,7 @@ function tap(p,comp,gen,n){const grid=gridsAt(p,gen)[comp];let out=new Uint8Arra
  while(pos<n){const hdr=new Uint8Array(12),dv=new DataView(hdr.buffer);dv.setUint32(0,comp,true);dv.setUint32(4,gen,true);dv.setUint32(8,ctr,true);
   const buf=new Uint8Array(DOMAIN.length+12+grid.length);buf.set(DOMAIN,0);buf.set(hdr,DOMAIN.length);buf.set(grid,DOMAIN.length+12);
   const h=sha256(buf);for(let i=0;i<32&&pos<n;i++)out[pos++]=h[i];ctr++;}return out;}
-/* faithful 32-bit CA-2 VM (flat 1 MB; mirrors ca1sys make_machine("CA-2")) */
+/* faithful 32-bit CA-2 VM (flat 8 MB; mirrors ca1sys make_machine("CA-2")) */
 function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
  const wrd=d=>{d&=NM;return (M[d]|(M[d+1]<<8)|(M[d+2]<<16)|(M[d+3]<<24))>>>0;};
  const set=(v,c)=>{const w=v>>>0;Z=w===0?1:0;N=(w>>>31)&1;if(c!==undefined)C=c&1;return w;};

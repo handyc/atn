@@ -2,7 +2,7 @@
 # caos_ca2.py — CA-OS/2: a native 32-bit operating system for the CA-2 machine, now with APPS.
 #
 # CA-2 (ca1sys make_machine("CA-2")) is the 32-bit member of the family: 32-bit registers/ALU
-# (the verified 32-bit CA adder — cacpu.verify_adder_ca), 1 MB FLAT memory, word load/store.
+# (the verified 32-bit CA adder — cacpu.verify_adder_ca), 8 MB FLAT memory, word load/store.
 # Written 32-bit-native: 512x384 framebuffer flat at 0x10000; pixels via a flat 32-bit indexed
 # store (STAX FB, X = y*512 + x); coordinate math in 32-bit words (LDW/STW/ADDW/SUBW/CMPW).
 #
@@ -198,7 +198,7 @@ def program():
     a(("draw_about:",))
     bx, by = 12, 26
     wputs(bx, by,     "CA-2  -  32-bit processor", BLK)
-    wputs(bx, by+16,  "RAM: 1 MB (flat)   Screen: 512x384", BLK)
+    wputs(bx, by+16,  "RAM: 8 MB (flat)   Screen: 512x384", BLK)
     wputs(bx, by+38,  "Datapath: genuine cellular automata", GRY)
     wputs(bx, by+50,  "(hex K=4 gliders): NAND + latch", GRY)
     wputs(bx, by+72,  "ALU: 32-bit CA adder, verified", BLU)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # build_lab22.py — glider-lab22.html: CA-OS/2 running in the browser on a faithful 32-bit CA-2 VM.
-# The JS VM implements the EXACT CA-2 semantics from ca1sys (32-bit registers/ALU, flat 1 MB
+# The JS VM implements the EXACT CA-2 semantics from ca1sys (32-bit registers/ALU, flat 8 MB
 # addressing, LDW/STW/ADDW/SUBW/CMPW word ops) — the same machine code that rendered the verified
 # reference frame in caos_ca2.py. The browser is a dumb terminal: blit the 512x384 framebuffer +
 # forward the mouse. Honest: CA-2's ALU is the genuine 8-bit CA NAND-gate adder tiled to 32 bits
@@ -40,7 +40,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 </style></head><body><div class="wrap">
  <h1>CA-OS/2 <small>— a 32-bit OS running on the CA-2 cellular-automaton computer</small></h1>
  <p>This is the <b>32-bit</b> member of the family. The same parameterized core that builds the 8-bit CA-1
- builds <b class="b">CA-2</b>: 32-bit registers and ALU, <b>1 MB of flat memory</b>, a 512×384 screen. Everything
+ builds <b class="b">CA-2</b>: 32-bit registers and ALU, <b>8 MB of flat memory</b>, a 512×384 screen. Everything
  you see — the window, the text, the cursor, the clock — is CA-2 machine code writing colour bytes into a
  framebuffer; the browser only blits it and forwards your mouse. <span id="selftest"></span></p>
  <canvas id="screen" width="512" height="384" tabindex="0"></canvas>
@@ -62,7 +62,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <script>
 "use strict";
 const OS=__OS__, FONT=__FONT__;
-/* faithful 32-bit CA-2 VM (mirrors ca1sys make_machine("CA-2"): 32-bit regs/ALU, flat 1 MB) */
+/* faithful 32-bit CA-2 VM (mirrors ca1sys make_machine("CA-2"): 32-bit regs/ALU, flat 8 MB) */
 function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
  const set=(v,c)=>{const w=v>>>0;Z=w===0?1:0;N=(w>>>31)&1;if(c!==undefined)C=c&1;return w;};
  const wrd=d=>{d&=NM;return (M[d]|(M[d+1]<<8)|(M[d+2]<<16)|(M[d+3]<<24))>>>0;};
