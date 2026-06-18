@@ -9,7 +9,7 @@
 #   0x010000  framebuffer 512x384 (1 byte/pixel)  .. 0x040000
 #   0x040000  UBUF: typed text as 16-bit codepoints (little-endian), up to ~8000 chars
 #   0x080000  WTAB: advance width per codepoint (8 or 16), 1 byte x 0x10000
-#   0x100000  FONT16: direct codepoint->glyph table, 32 bytes/glyph (16 rows x 2 bytes)
+#   0x100000  FONT16: direct codepoint->glyph table, 128 bytes/glyph (16 rows x 8 bytes, 4-bit AA)
 from ca1sys import asm, make_machine
 
 W, H   = 512, 384
@@ -17,11 +17,14 @@ FB     = 0x010000
 UBUF   = 0x040000
 WTAB   = 0x080000
 FONT16 = 0x100000
-MEMSIZE = 0x800000        # 8 MB (power of two; the 64 B/glyph antialiased table at 0x100000 is 4 MB)
-PALMAP  = 0x000340        # glyph level (1..3) -> palette index
-PAL = ["#000000","#008080","#c0c0c0","#808080","#ffffff","#000080","#dfdfdf","#1084d0","#b00000","#107010","#aaaaaa","#555555"]
+MEMSIZE = 0x1000000       # 16 MB (power of two; the 128 B/glyph antialiased table at 0x100000 is 8 MB)
+PALMAP  = 0x000340        # glyph level (1..15) -> palette index
+_BASEPAL = ["#000000","#008080","#c0c0c0","#808080","#ffffff","#000080","#dfdfdf","#1084d0","#b00000","#107010"]
+# Book-quality text needs a real alpha ramp: a 15-step white->ink grey ramp (level 0 = transparent).
+TXN = 15                  # grey levels (4-bit minus the transparent 0)
+TX0 = len(_BASEPAL)       # palette index of glyph level 1
+PAL = _BASEPAL + ["#%02x%02x%02x" % ((round(255*(1 - L/TXN)),)*3) for L in range(1, TXN+1)]
 BLK, TEAL, SIL, GRY, WHT, NAV, LSV, BLU, RED, GRN = range(10)
-TXL, TXD = 10, 11         # antialias greys: light / dark (full ink = BLK)
 
 VS = 16
 _V = ("AX AY AW AH ACOL PX PY CP GA ROW T0 T1 T2 T3 MX MY MB MBP KEY ULEN DIRTY CW WI").split()
@@ -35,10 +38,22 @@ RIGHTX       = W - 18         # wrap margin
 def make():
     return make_machine("CA-2", fb_addr=FB, fb_w=W, fb_h=H, memsize=MEMSIZE)
 
+def load_unifont(m, path="unifont16.json"):
+    # expand the antialiased 16x16 font into FONT16 (direct cp->glyph, 128 B) + WTAB (advance width)
+    import json, zlib, base64, struct
+    d = json.load(open(path)); blob = zlib.decompress(base64.b64decode(d["b64"]))
+    cps = struct.unpack("<%dH" % d["n"], base64.b64decode(d["cps_b64"]))
+    w = base64.b64decode(d["w_b64"])
+    for i, cp in enumerate(cps):
+        m.M[FONT16 + cp*128: FONT16 + cp*128 + 128] = blob[i*128:(i+1)*128]   # 4-bit AA, 128 B/glyph
+        m.M[WTAB + cp] = w[i]
+
 def program():
     L = []; a = L.append
     def shl(n):
         for _ in range(n): a(("SHL",))
+    def shr(n):
+        for _ in range(n): a(("SHR",))
     def rect(x, y, w, h, col):
         a(("LDI", x)); a(("STW", AX)); a(("LDI", y)); a(("STW", AY)); a(("LDI", w)); a(("STW", AW)); a(("LDI", h)); a(("STW", AH)); a(("LDI", col)); a(("STW", ACOL)); a(("CALL", "fillrect"))
     a(("JMP", "boot"))
@@ -55,22 +70,25 @@ def program():
     a(("fr_nrow:",)); a(("LDW", T0)); a(("ADDI", W)); a(("STW", T0)); a(("LDW", T1)); a(("SUBI", 1)); a(("STW", T1)); a(("JMP", "fr_row"))
     a(("fr_done:",)); a(("RET",))
 
-    # ---- blit16: draw the 16x16 glyph for codepoint CP at (PX,PY) in black ----
+    # ---- blit16: draw the 16x16 antialiased glyph for codepoint CP at (PX,PY) on the white page.
+    #      128 B/glyph: 16 rows x 8 bytes, 2 px/byte (low nibble = left px); level 0 transparent,
+    #      level 1..15 -> grey-ramp palette index via PALMAP. ----
     a(("blit16:",))
-    a(("LDW", CP)); shl(6); a(("STW", GA))                 # GA = CP*64  (offset into FONT16, 64 B/glyph)
+    a(("LDW", CP)); shl(7); a(("STW", GA))                 # GA = CP*128 (offset into FONT16, 128 B/glyph)
     a(("LDI", 0)); a(("STW", ROW))
     a(("b16_row:",)); a(("LDW", ROW)); a(("CMPI", 16)); a(("JC", "b16_done"))
     a(("LDW", PY)); a(("ADDW", ROW)); shl(9); a(("ADDW", PX)); a(("STW", T1))   # T1 = FB index of (PX, PY+ROW)
-    a(("LDW", ROW)); a(("SHL",)); a(("SHL",)); a(("ADDW", GA)); a(("TAX",))     # X = GA + ROW*4 (4 bytes/row)
-    a(("LDAX", FONT16)); a(("STW", T2))                                         # assemble the 16x2-bit row into T2
-    a(("INX",)); a(("LDAX", FONT16)); shl(8);  a(("ADDW", T2)); a(("STW", T2))
-    a(("INX",)); a(("LDAX", FONT16)); shl(16); a(("ADDW", T2)); a(("STW", T2))
-    a(("INX",)); a(("LDAX", FONT16)); shl(24); a(("ADDW", T2)); a(("STW", T2))
-    for col in range(16):                                                       # consume px low-end, 2 bits each
-        a(("LDW", T2)); a(("ANDI", 3)); a(("JZ", f"b16s{col}"))
+    a(("LDW", ROW)); shl(3); a(("ADDW", GA)); a(("STW", T0))                    # T0 = GA + ROW*8 (8 bytes/row)
+    for b in range(8):                                                         # 8 bytes -> 16 px (2 px/byte)
+        a(("LDW", T0)); a(("ADDI", b)); a(("TAX",)); a(("LDAX", FONT16)); a(("STW", T2))
+        a(("LDW", T2)); a(("ANDI", 0xF)); a(("JZ", f"b16lo{b}"))                # left px = low nibble
         a(("TAX",)); a(("LDAX", PALMAP)); a(("STW", T3))
-        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
-        a((f"b16s{col}:",)); a(("LDW", T2)); a(("SHR",)); a(("SHR",)); a(("STW", T2))
+        a(("LDW", T1)); a(("ADDI", b*2)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
+        a((f"b16lo{b}:",))
+        a(("LDW", T2)); shr(4); a(("ANDI", 0xF)); a(("JZ", f"b16hi{b}"))        # right px = high nibble
+        a(("TAX",)); a(("LDAX", PALMAP)); a(("STW", T3))
+        a(("LDW", T1)); a(("ADDI", b*2+1)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
+        a((f"b16hi{b}:",))
     a(("LDW", ROW)); a(("ADDI", 1)); a(("STW", ROW)); a(("JMP", "b16_row"))
     a(("b16_done:",)); a(("RET",))
 
@@ -110,7 +128,7 @@ def program():
     # ---- boot + main ----
     a(("boot:",))
     for v in (ULEN, KEY, MB, MBP): a(("LDI", 0)); a(("STW", v))
-    a(("LDI", TXL)); a(("STA", PALMAP+1)); a(("LDI", TXD)); a(("STA", PALMAP+2)); a(("LDI", BLK)); a(("STA", PALMAP+3))
+    for lvl in range(1, TXN+1): a(("LDI", TX0 + (lvl-1))); a(("STA", PALMAP + lvl))   # glyph level (1..15) -> grey-ramp idx
     a(("LDI", 1)); a(("STW", DIRTY))
     a(("main:",))
     a(("LDW", KEY)); a(("JZ", "nokey")); a(("CALL", "keyin")); a(("LDI", 0)); a(("STW", KEY)); a(("nokey:",))
@@ -120,5 +138,5 @@ def program():
 
 
 if __name__ == "__main__":
-    m = make(); m.run(program(), max_i=5_000_000, frame_on=lambda mm: True)
+    m = make(); load_unifont(m); m.run(program(), max_i=5_000_000, frame_on=lambda mm: True)
     print("caos_uni boots; memsize", hex(m.memsize), "FONT16", hex(FONT16))

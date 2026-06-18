@@ -94,3 +94,7 @@ pactbundle.html
 pactbundle.html.z
 pactbundle.html.gz
 /notesync_ut
+
+# dual-screen pact (regenerate with build_pactbundle_duo.py)
+pactbundle_duo.html
+pactbundle_duo.html.z

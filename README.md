@@ -615,8 +615,9 @@ each is generated locally by a `build_*.py` script. The arc:
   256/512-bit on an HPC run.
 - **An OS.** `caos_ca2.py` is **CA-OS/2**, a 32-bit desktop (Writer/Sheet/Calc/Paint) where the CA draws
   every pixel and the browser is a dumb terminal: draggable windows, a **multilingual antialiased Writer**
-  (16×16 GNU-Unifont / WenQuanYi held in the CA's own memory — Latin/Greek/Cyrillic/CJK/Hangul/kana),
-  full-keyboard Unicode input, file save/load. The *same* OS source boots on 32/64/128-bit (width-clean).
+  with book-quality type — 16×16 glyphs at a real **16-level grey ramp** (4-bit), screen-hinted DejaVu Sans
+  for Latin/Greek/Cyrillic, WenQuanYi for CJK/Hangul/kana, GNU-Unifont fallback, all held in the CA's own
+  memory — full-keyboard Unicode input, file save/load. The *same* OS source boots on 32/64/128-bit (width-clean).
 - **The pact.** Two nodes share a seed, run **identical** CAs (no data crosses — shared randomness), and
   communicate only by **AES-256-GCM-sealed input deltas** keyed by the CA state (`SHA-256(domain‖seq‖CA
   state)`); the receiver brute-forces a small generation window. lab24 shares a live desktop over this

@@ -7,7 +7,7 @@ import json
 import caos_ca2 as o
 from ca1sys import make_machine
 
-m = o.make(); o.load_memory(m)
+m = o.make()
 prog, _ = o.program()
 OS = dict(
     prog=[[op, (arg if arg is not None else 0)] for op, arg in prog],
@@ -23,13 +23,13 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <style>
  *{box-sizing:border-box}body{margin:0;background:#0a0c10;color:#cfd8e3;font:13px system-ui,Segoe UI,Roboto,sans-serif;
   display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px}
- #screen{image-rendering:pixelated;width:768px;max-width:100%;border:3px solid #2a3340;border-radius:4px;background:#000;cursor:none;display:block}
+ #screen{width:768px;max-width:100%;border:3px solid #2a3340;border-radius:4px;background:#000;cursor:none;display:block}
  .tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center}
  .tools button{background:#222b36;color:#cfd8e3;border:1px solid #2a3340;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px}
  .tools button:hover{border-color:#ffd27f} .tools .grp{color:#9aa7b4;font-size:11px;margin-left:6px}
  #ime{width:768px;max-width:100%;background:#0b0e13;color:#cfd8e3;border:1px solid #2a3340;border-radius:6px;padding:6px 8px;font:14px system-ui;resize:vertical}
 </style></head><body>
-<canvas id="screen" width="512" height="384" tabindex="0"></canvas>
+<canvas id="screen" width="1024" height="768" tabindex="0"></canvas>
 <div class="tools">
  <span class="grp">Writer</span><button id="wsave">Save .txt</button><button id="wload">Open .txt</button>
  <span class="grp">Sheet</span><button id="csave">Export CSV</button><button id="cload">Import CSV</button>
@@ -41,7 +41,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <script>
 "use strict";
 const OS=__OS__, FONT=__FONT__;
-/* faithful 32-bit CA-2 VM (mirrors ca1sys make_machine("CA-2"): 32-bit regs/ALU, flat 8 MB) */
+/* faithful 32-bit CA-2 VM (mirrors ca1sys make_machine("CA-2"): 32-bit regs/ALU, flat 16 MB) */
 function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
  const set=(v,c)=>{const w=v>>>0;Z=w===0?1:0;N=(w>>>31)&1;if(c!==undefined)C=c&1;return w;};
  const wrd=d=>{d&=NM;return (M[d]|(M[d+1]<<8)|(M[d+2]<<16)|(M[d+3]<<24))>>>0;};
@@ -67,7 +67,8 @@ function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7
  return {M,run};}
 const vm=makeVM(OS.MEM,OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];
 const W=OS.W,H=OS.H,FB=OS.FB;
-const sc=document.getElementById("screen"),sx=sc.getContext("2d"),im=sx.createImageData(W,H);
+const sc=document.getElementById("screen"),sx=sc.getContext("2d");
+const oc=document.createElement("canvas");oc.width=W;oc.height=H;const oct=oc.getContext("2d"),im=oct.createImageData(W,H);sx.imageSmoothingEnabled=false;  // 2x backing + smooth CSS downscale = crisp text at any size
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
 let mx=W>>1,my=H>>1,mb=0,keyq=[],ready=false;
 function rel(e){const r=sc.getBoundingClientRect(),cs=getComputedStyle(sc),
@@ -89,8 +90,8 @@ ime.addEventListener("keydown",e=>{if(e.key==="Backspace"){e.preventDefault();ke
 /* inflate the 16x16 GNU-Unifont into the CA's RAM (FONT16 direct table + WTAB widths) */
 const b2u=x=>{const b=atob(x),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
 async function loadFont(){const blob=new Uint8Array(await new Response(new Blob([b2u(FONT.b64)]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
- const cpb=b2u(FONT.cps_b64),wv=b2u(FONT.w_b64),M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F+cp*64;
-  for(let b=0;b<64;b++)M[off+b]=blob[i*64+b];M[WT+cp]=wv[i];}
+ const cpb=b2u(FONT.cps_b64),wv=b2u(FONT.w_b64),M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F+cp*128;
+  for(let b=0;b<128;b++)M[off+b]=blob[i*128+b];M[WT+cp]=wv[i];}
  ready=true;document.getElementById("stat").textContent="font loaded ("+FONT.n.toLocaleString()+" Unicode glyphs in the CA) — Writer is multilingual.";}
 /* ---- save / load: poke the CA-2 memory directly; the OS just redraws ---- */
 function rd32(a){return (vm.M[a]|(vm.M[a+1]<<8)|(vm.M[a+2]<<16)|(vm.M[a+3]<<24))>>>0;}
@@ -127,7 +128,7 @@ function frame(){if(!ready){requestAnimationFrame(frame);return;}
  if(keyq.length&&vm.M[OS.KEY]===0)wr32(OS.KEY,keyq.shift());
  vm.run(OS.prog);
  for(let i=0;i<W*H;i++){const v=vm.M[FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}
- sx.putImageData(im,0,0);requestAnimationFrame(frame);}
+ oct.putImageData(im,0,0);sx.drawImage(oc,0,0,W,H,0,0,W*2,H*2);requestAnimationFrame(frame);}
 loadFont();requestAnimationFrame(frame);
 </script></body></html>'''
 HTML = HTML.replace("__OS__", OSJSON).replace("__FONT__", FONTJSON)

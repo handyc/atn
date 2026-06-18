@@ -3,7 +3,7 @@
 # (Writer/Sheet/Calc/Paint/About) on a 512x384 desktop, driven over the cut/restore-able encrypted
 # line + zero-trust mother server, with the live METRICS panel and the "How it works" tab + live CA
 # panels — the whole lab21 stack rebuilt on the 32-bit CA-2 machine. Input deltas are widened to carry
-# 9-bit coordinates (the bigger screen). VM is the faithful 32-bit CA-2 VM (flat 8 MB).
+# 9-bit coordinates (the bigger screen). VM is the faithful 32-bit CA-2 VM (flat 16 MB).
 #
 # Builds on lab20 (cut/restore + mother server). New in lab21:
 #   * METRICS — total bytes, bytes/sec, avg bytes/delta, mouse-vs-keystroke split, a bytes/sec sparkline,
@@ -23,7 +23,7 @@
 import json
 import caos_ca2 as o2
 from ca1sys import make_machine
-_m = o2.make(); o2.load_memory(_m)
+_m = o2.make()
 _prog, _ = o2.program()
 OS = dict(prog=[[op, (arg if arg is not None else 0)] for op, arg in _prog],
           mem={str(a): _m.M[a] for a in range(0x10000) if _m.M[a]},   # initial mem (font/data); FB drawn at runtime
@@ -49,7 +49,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  .card{background:#161b22;border:1px solid #2a3340;border-radius:10px;padding:10px}
  .card.alice{border-color:#5a4a2a}.card.bob{border-color:#2a4a5a}
  .card h2{margin:0 0 6px;font-size:15px}.alice h2{color:var(--a)}.bob h2{color:var(--b)}
- canvas.screen{image-rendering:pixelated;width:100%;border:2px solid #2a3340;border-radius:4px;background:#000;display:block}
+ canvas.screen{width:100%;border:2px solid #2a3340;border-radius:4px;background:#000;display:block}
  .alice canvas.screen{cursor:none}
  .line{background:#13101c;border:1px solid #3a2a55;border-radius:8px;padding:10px;margin-top:10px}
  .line h3{margin:0 0 4px;color:var(--pa);font-size:13px}
@@ -115,8 +115,8 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
   <span class="pill up" id="linep">line up</span>
   <span class="stat">click Alice's desktop to focus (for typing)</span></div>
  <div class="cols">
-   <div class="card alice"><h2>👩 Alice — you drive (mouse + keyboard)</h2><canvas class="screen" id="sa" width="512" height="384" tabindex="0"></canvas></div>
-   <div class="card bob"><h2>🧑 Bob — mirror (replays deltas in seq order)</h2><canvas class="screen" id="sb" width="512" height="384"></canvas></div>
+   <div class="card alice"><h2>👩 Alice — you drive (mouse + keyboard)</h2><canvas class="screen" id="sa" width="1024" height="768" tabindex="0"></canvas></div>
+   <div class="card bob"><h2>🧑 Bob — mirror (replays deltas in seq order)</h2><canvas class="screen" id="sb" width="1024" height="768"></canvas></div>
  </div>
  <div class="seedbar" style="margin-top:8px">
   <span class="grp" style="color:var(--mut);font-size:11px">files (apply to both panes):</span>
@@ -292,7 +292,7 @@ function tap(p,comp,gen,n){const grid=gridsAt(p,gen)[comp];let out=new Uint8Arra
  while(pos<n){const hdr=new Uint8Array(12),dv=new DataView(hdr.buffer);dv.setUint32(0,comp,true);dv.setUint32(4,gen,true);dv.setUint32(8,ctr,true);
   const buf=new Uint8Array(DOMAIN.length+12+grid.length);buf.set(DOMAIN,0);buf.set(hdr,DOMAIN.length);buf.set(grid,DOMAIN.length+12);
   const h=sha256(buf);for(let i=0;i<32&&pos<n;i++)out[pos++]=h[i];ctr++;}return out;}
-/* faithful 32-bit CA-2 VM (flat 8 MB; mirrors ca1sys make_machine("CA-2")) */
+/* faithful 32-bit CA-2 VM (flat 16 MB; mirrors ca1sys make_machine("CA-2")) */
 function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7FFF,PC=0,Z=1,C=0,N=0;
  const wrd=d=>{d&=NM;return (M[d]|(M[d+1]<<8)|(M[d+2]<<16)|(M[d+3]<<24))>>>0;};
  const set=(v,c)=>{const w=v>>>0;Z=w===0?1:0;N=(w>>>31)&1;if(c!==undefined)C=c&1;return w;};
@@ -318,9 +318,12 @@ let bobInbox=[],aliceQueue=[],server=[],srvBytes=0,bobSeq=-1;
 let bytesMouse=0,bytesKey=0,nMouse=0,nKey=0,t0=0,lastSent=0,spark=[];   // metrics
 let ipfTotal=0,aboutVisible=false;   // live CA-2 instruction counter + tab state
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
-const ctxA=$("sa").getContext("2d"),ctxB=$("sb").getContext("2d");
-const imA=ctxA.createImageData(OS.W,OS.H),imB=ctxB.createImageData(OS.W,OS.H);
-function blit(ctx,im,vm){for(let i=0;i<OS.W*OS.H;i++){const v=vm.M[OS.FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}ctx.putImageData(im,0,0);}
+const ctxA=$("sa").getContext("2d"),ctxB=$("sb").getContext("2d");ctxA.imageSmoothingEnabled=false;ctxB.imageSmoothingEnabled=false;
+// supersample: 1x offscreen -> 2x canvas (nearest) -> CSS downscales smoothly = crisp text at any size
+function mkoff(){const c=document.createElement("canvas");c.width=OS.W;c.height=OS.H;return c;}
+const ocA=mkoff(),octA=ocA.getContext("2d"),imA=octA.createImageData(OS.W,OS.H);
+const ocB=mkoff(),octB=ocB.getContext("2d"),imB=octB.createImageData(OS.W,OS.H);
+function blit(ctx,im,oct,oc,vm){for(let i=0;i<OS.W*OS.H;i++){const v=vm.M[OS.FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}oct.putImageData(im,0,0);ctx.drawImage(oc,0,0,OS.W,OS.H,0,0,OS.W*2,OS.H*2);}
 function bootVM(){const vm=makeVM(OS.MEM,OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];expandFont(vm);return vm;}
 const gc=[];for(let c=0;c<NCOMP;c++){const cv=document.createElement("canvas");cv.className="ca";cv.width=SIDE;cv.height=SIDE;$("grids").appendChild(cv);gc.push(cv.getContext("2d"));}
 const CPAL=[[10,12,20],[60,110,165],[255,210,127],[200,90,70]];
@@ -371,8 +374,8 @@ ime.addEventListener("compositionend",()=>{composing=false;flush();});
 ime.addEventListener("input",()=>{if(!composing)flush();});
 ime.addEventListener("keydown",e=>{if(e.key==="Backspace"){e.preventDefault();keyq.push(8);}else if(e.key==="Enter"){e.preventDefault();keyq.push(10);}});
 const b2u=x=>{const b=atob(x),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
-function expandFont(vm){if(!fontBlob)return;const M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=fontCps[i*2]|(fontCps[i*2+1]<<8),off=F+cp*64;
-  for(let b=0;b<64;b++)M[off+b]=fontBlob[i*64+b];M[WT+cp]=fontW[i];}}
+function expandFont(vm){if(!fontBlob)return;const M=vm.M,F=OS.FONT16,WT=OS.WTAB;for(let i=0;i<FONT.n;i++){const cp=fontCps[i*2]|(fontCps[i*2+1]<<8),off=F+cp*128;
+  for(let b=0;b<128;b++)M[off+b]=fontBlob[i*128+b];M[WT+cp]=fontW[i];}}
 async function loadFont(){fontBlob=new Uint8Array(await new Response(new Blob([b2u(FONT.b64)]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
  fontCps=b2u(FONT.cps_b64);fontW=b2u(FONT.w_b64);if(aliceVM)expandFont(aliceVM);if(bobVM)expandFont(bobVM);ready=true;
  const st=document.getElementById("stat");if(st)st.textContent="font loaded ("+FONT.n.toLocaleString()+" Unicode glyphs) — Writer is multilingual on both panes.";}
@@ -386,7 +389,7 @@ let fc=0;
 function tick(){
  if(pendKey===0&&keyq.length)pendKey=keyq.shift();   // feed one queued key per frame (lossless typing)
  // ALICE: drive locally (always — a cut line never stops her own machine)
- wr32(aliceVM,OS.MX,mx);wr32(aliceVM,OS.MY,my);wr32(aliceVM,OS.MB,mb);wr32(aliceVM,OS.KEY,pendKey);const ipf=aliceVM.run(OS.prog);ipfTotal+=ipf;blit(ctxA,imA,aliceVM);
+ wr32(aliceVM,OS.MX,mx);wr32(aliceVM,OS.MY,my);wr32(aliceVM,OS.MB,mb);wr32(aliceVM,OS.KEY,pendKey);const ipf=aliceVM.run(OS.prog);ipfTotal+=ipf;blit(ctxA,imA,octA,ocA,aliceVM);
  const mouseChanged=!lastMouse||mx!==lastMouse[0]||my!==lastMouse[1]||mb!==lastMouse[2];
  if(mouseChanged||pendKey!==0){
    const s=seq++,isKey=pendKey!==0;
@@ -397,7 +400,7 @@ function tick(){
  bobInbox=bobInbox.filter(d=>d.seq>bobSeq);
  if(!bobBusy){const ni=bobInbox.findIndex(d=>d.seq===bobSeq+1);if(ni>=0){bobBusy=true;applyBobAsync(bobInbox.splice(ni,1)[0]);}}
  let bobKey=pendingBobKey;pendingBobKey=0;
- wr32(bobVM,OS.MX,bobIn[0]);wr32(bobVM,OS.MY,bobIn[1]);wr32(bobVM,OS.MB,bobIn[2]);wr32(bobVM,OS.KEY,bobKey);bobVM.run(OS.prog);blit(ctxB,imB,bobVM);
+ wr32(bobVM,OS.MX,bobIn[0]);wr32(bobVM,OS.MY,bobIn[1]);wr32(bobVM,OS.MB,bobIn[2]);wr32(bobVM,OS.KEY,bobKey);bobVM.run(OS.prog);blit(ctxB,imB,octB,ocB,bobVM);
  pendKey=0;
  if((++fc%12)===0){syncCheck();stats();if(aboutVisible){$("ipf").textContent=ipf.toLocaleString();$("ipfTot").textContent=ipfTotal.toLocaleString();}}
  if((fc%60)===0)renderMetrics();

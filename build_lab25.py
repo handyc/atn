@@ -24,7 +24,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  .wrap{max-width:900px;margin:0 auto;padding:16px}
  h1{font-size:21px;margin:0 0 2px}h1 small{color:var(--mut);font-weight:400;font-size:13px}
  p{color:var(--mut);max-width:820px}
- #screen{image-rendering:pixelated;width:768px;max-width:100%;border:3px solid #2a3340;border-radius:4px;background:#000;display:block;margin-top:8px}
+ #screen{width:768px;max-width:100%;border:3px solid #2a3340;border-radius:4px;background:#000;display:block;margin-top:8px}
  #ime{width:768px;max-width:100%;margin-top:8px;background:#0b0e13;color:var(--ink);border:1px solid #2a3340;border-radius:6px;padding:8px 10px;font:15px system-ui;resize:vertical}
  .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
  .row button{background:#222b36;color:var(--ink);border:1px solid #2a3340;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:13px}
@@ -37,7 +37,7 @@ HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8">
  Unicode Basic Multilingual Plane (Latin, Greek, Cyrillic, Hiragana/Katakana, Hangul, and ~27,000 CJK
  ideographs) — in its <i>own</i> memory, and blits every glyph itself. Type below (your IME and paste work),
  or pick a sample. <span id="stat">loading font…</span></p>
- <canvas id="screen" width="512" height="384"></canvas>
+ <canvas id="screen" width="1024" height="768"></canvas>
  <textarea id="ime" rows="3" placeholder="type here — any language (Enter for new line; IME &amp; paste supported)" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
  <div class="row" id="samples"></div>
  <p class="note"><b>Honest scope:</b> the glyphs are <b>GNU Unifont</b> (16×16 bitmaps), inflated in the browser
@@ -74,7 +74,8 @@ function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7
  return {M,run};}
 const vm=makeVM(OS.MEM,OS.SP);
 const W=OS.W,H=OS.H,FB=OS.FB;
-const sc=document.getElementById("screen"),sx=sc.getContext("2d"),im=sx.createImageData(W,H);
+const sc=document.getElementById("screen"),sx=sc.getContext("2d");
+const oc=document.createElement("canvas");oc.width=W;oc.height=H;const oct=oc.getContext("2d"),im=oct.createImageData(W,H);sx.imageSmoothingEnabled=false;  // 2x backing + smooth CSS downscale = crisp text at any size
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
 let keyq=[],ready=false;
 function wr32(addr,v){vm.M[addr]=v&0xFF;vm.M[addr+1]=(v>>>8)&0xFF;vm.M[addr+2]=(v>>>16)&0xFF;vm.M[addr+3]=(v>>>24)&0xFF;}
@@ -83,8 +84,8 @@ async function loadFont(){
  const comp=b2u(FONT.b64);
  const blob=new Uint8Array(await new Response(new Blob([comp]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
  const cpb=b2u(FONT.cps_b64),wv=b2u(FONT.w_b64),n=FONT.n,M=vm.M,F16=OS.FONT16,WT=OS.WTAB;
- for(let i=0;i<n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F16+cp*64,src=i*64;
-   for(let b=0;b<64;b++)M[off+b]=blob[src+b];
+ for(let i=0;i<n;i++){const cp=cpb[i*2]|(cpb[i*2+1]<<8),off=F16+cp*128,src=i*128;
+   for(let b=0;b<128;b++)M[off+b]=blob[src+b];
    M[WT+cp]=wv[i];}
  ready=true;document.getElementById("stat").textContent="font loaded ("+n.toLocaleString()+" glyphs in the CA's memory) — type away.";
 }
@@ -101,7 +102,7 @@ for(const [lab,txt] of SAMPLES){const b=document.createElement("button");b.textC
  b.onclick=()=>{ime.value=(ime.value?ime.value+"  ":"")+txt;ime.focus();syncIME();};sdiv.appendChild(b);}
 function frame(){if(ready){if(keyq.length&&vm.M[OS.KEY]===0)wr32(OS.KEY,keyq.shift());vm.run(OS.prog);
   for(let i=0;i<W*H;i++){const v=vm.M[FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}
-  sx.putImageData(im,0,0);}requestAnimationFrame(frame);}
+  oct.putImageData(im,0,0);sx.drawImage(oc,0,0,W,H,0,0,W*2,H*2);}requestAnimationFrame(frame);}
 loadFont();requestAnimationFrame(frame);ime.focus();
 </script></body></html>'''
 HTML = HTML.replace("__OS__", OSJSON).replace("__FONT__", FONTJSON)

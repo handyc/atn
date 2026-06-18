@@ -8,20 +8,23 @@
 import json, base64, zlib, struct
 import caos_ca2 as o
 
-m = o.make(); o.load_memory(m)
+m = o.make()
 prog, _ = o.program()
 
-# ---- ASCII-only 16x16 font (printable 0x20..0x7E), packed from unifont16.json (1-bit, 32 B/glyph) ----
+# ---- ASCII-only 16x16 font (printable 0x20..0x7E), packed from unifont16.json (4-bit AA, 128 B/glyph) ----
 _f = json.load(open("unifont16.json"))
 _blob = zlib.decompress(base64.b64decode(_f["b64"]))
 _cps = struct.unpack("<%dH" % (_f["n"]), base64.b64decode(_f["cps_b64"]))
 _w = base64.b64decode(_f["w_b64"])
 _idx = {cp: i for i, cp in enumerate(_cps)}
 ascii_glyphs = {}
-for cp in range(0x20, 0x7F):
+# printable ASCII + the few typographic codepoints CA-OS/2's chrome uses (— · … ×) so titles/About
+# render fully even on the ASCII-subset bundle the pact ELF serves.
+EXTRA = (0x00B7, 0x00D7, 0x2014, 0x2026)
+for cp in list(range(0x20, 0x7F)) + list(EXTRA):
     if cp in _idx:
         i = _idx[cp]
-        ascii_glyphs[cp] = [base64.b64encode(_blob[i*64:i*64+64]).decode(), _w[i]]   # [b64(64 B, 2-bit AA), advance]
+        ascii_glyphs[cp] = [base64.b64encode(_blob[i*128:i*128+128]).decode(), _w[i]]   # [b64(128 B, 4-bit AA), advance]
 FONTASCII = ascii_glyphs
 
 OS = dict(prog=[[op, (a if a is not None else 0)] for op, a in prog],
@@ -34,9 +37,9 @@ OSJSON = json.dumps(OS, separators=(",", ":"))
 
 HTML = r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><title>node</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#0a0c10;color:#cfd8e3;font:13px system-ui;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px}
-#screen{image-rendering:pixelated;width:768px;max-width:100%;border:3px solid #2a3340;border-radius:4px;background:#000;cursor:none;display:block}
+#screen{width:768px;max-width:100%;border:3px solid #2a3340;border-radius:4px;background:#000;cursor:none;display:block}
 #bar{font:12px ui-monospace,monospace;color:#9aa7b4}#bar b{color:#ffd27f}</style></head><body>
-<canvas id="screen" width="512" height="384" tabindex="0"></canvas>
+<canvas id="screen" width="1024" height="768" tabindex="0"></canvas>
 <div id="bar">CA-OS regenerated from the pact · <span id="st">solo</span></div>
 <script>
 "use strict";
@@ -63,8 +66,13 @@ function makeVM(sz,sp){const M=new Uint8Array(sz),NM=sz-1;let A=0,X=0,SP=sp||0x7
 const vm=makeVM(OS.MEM,OS.SP);for(const k in OS.mem)vm.M[+k]=OS.mem[k];
 // regenerate the ASCII font into the CA's RAM (FONT16 table + WTAB widths)
 {const b2u=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
- for(const cp in OS.FONT){const e=OS.FONT[cp],g=b2u(e[0]),off=OS.FONT16+(+cp)*64;for(let i=0;i<64;i++)vm.M[off+i]=g[i];vm.M[OS.WTAB+ +cp]=e[1];}}
-const W=OS.W,H=OS.H,FB=OS.FB,sc=document.getElementById("screen"),sx=sc.getContext("2d"),im=sx.createImageData(W,H);
+ for(const cp in OS.FONT){const e=OS.FONT[cp],g=b2u(e[0]),off=OS.FONT16+(+cp)*128;for(let i=0;i<128;i++)vm.M[off+i]=g[i];vm.M[OS.WTAB+ +cp]=e[1];}}
+const W=OS.W,H=OS.H,FB=OS.FB,sc=document.getElementById("screen"),sx=sc.getContext("2d");
+// supersample: paint the framebuffer to an offscreen at 1x, blit it to the 2x canvas with nearest-neighbour,
+// then let CSS downscale smoothly — crisp at ANY display size (a fractional CSS scale of a 1x canvas is what
+// made the text look ragged).
+const oc=document.createElement("canvas");oc.width=W;oc.height=H;const oct=oc.getContext("2d"),im=oct.createImageData(W,H);
+sx.imageSmoothingEnabled=false;
 const PAL=OS.PAL.map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
 let mx=W>>1,my=H>>1,mb=0,keyq=[];
 function rel(e){const r=sc.getBoundingClientRect(),cs=getComputedStyle(sc),bl=parseFloat(cs.borderLeftWidth)||0,bt=parseFloat(cs.borderTopWidth)||0;
@@ -125,7 +133,7 @@ function frame(){
    wr32(OS.MX,mx);wr32(OS.MY,my);wr32(OS.MB,mb); if(k)wr32(OS.KEY,keyq.shift()); }
  vm.run(OS.prog);
  for(let i=0;i<W*H;i++){const v=vm.M[FB+i],p=PAL[v]||PAL[0];im.data[i*4]=p[0];im.data[i*4+1]=p[1];im.data[i*4+2]=p[2];im.data[i*4+3]=255;}
- sx.putImageData(im,0,0);requestAnimationFrame(frame);}
+ oct.putImageData(im,0,0);sx.drawImage(oc,0,0,W,H,0,0,W*2,H*2);requestAnimationFrame(frame);}
 requestAnimationFrame(frame);
 </script></body></html>'''
 HTML = HTML.replace("__OS__", OSJSON)

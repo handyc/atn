@@ -1818,3 +1818,89 @@ two machine (same fix). build_lab25.py loader -> 64 B/glyph + advances. build_pa
 subset now 2-bit (64 B/glyph + advance), MEM 8 MB (auto from caos_ca2). Verified: caos_uni renders
 "AA smooth 中文 日本語 한국어 g" (Python); the pact bundle renders "Pact AA: Hello gjpqy 42" antialiased
 (file://). ELF still 34.2 KB. ALL consumers now use the antialiased font; nothing left on 1-bit.
+
+## Book-quality type: 16-level antialiasing + hinted DejaVu + true baselines (2026-06-18)
+User: the interface still "looks like a broken toy"; what sold the first Apple wasn't RAM, it was clear
+glyphs "as good as the ones printed in a book." Rebuilt the whole text path for that.
+THREE root causes, all fixed:
+- **Only 3 inks.** The old "antialiased" font quantised PIL's 256-level coverage down to 4 levels (2-bit:
+  light 0xAA / dark 0x55 / black / transparent), so curved stems came out as grey mush. Now a REAL alpha
+  ramp: 4-bit glyphs (16 levels), and the OS palette carries a 15-step white->ink grey ramp (level 0
+  transparent so the white page shows through). This is the single biggest win.
+- **Wrong face.** WenQuanYi's Latin is mediocre at 16 px. font_gen now sets Latin/Greek/Cyrillic/symbols
+  in **DejaVu Sans** (grid-fitted by FreeType at the exact target size, so verticals land on whole pixels),
+  keeps WenQuanYi only for the CJK/kana/Hangul it was designed for, and GNU-Unifont as the BMP fallback.
+- **No baseline.** The old code floated each face with a fixed dy fudge. Now every glyph is set on ONE
+  baseline via FreeType's "ls" anchor (+ a coverage gamma so thin stems keep their weight).
+Format: 128 B/glyph (16 rows x 8 bytes, 2 px/byte, low nibble = left px). 57,150 glyphs, 6.98 MB raw ->
+2.66 MB zlib. blit16 rewritten to read nibbles + map level 1..15 through PALMAP to the grey ramp. The
+direct cp->glyph table is now 8 MB (128 B x 65536), so MACHINE RAM -> **16 MB** (still a power of two:
+0x1000000, clean address mask; FONT16 spans 0x100000..0x900000). Honesty strings (header, About, lab
+prose, README) updated 8 MB -> 16 MB.
+Propagated everywhere: caos_ca2 (CA-OS/2) + caos_uni (standalone Writer) Python renderers; the browser
+labs (lab22/24/25, caos-32-min) auto-inherit MEM + the grey-ramp palette from the Python module and run
+the same OS bytecode — only their JS loadFont stride needed 64 -> 128. pactbundle packs the ASCII subset
+at 128 B/glyph; pactelf still 34.2 KB (<= 64 KB). VERIFIED: rendered the ACTUAL CA framebuffer (caos_uni
+machine code, real palette) to PNG — "The quick brown fox… 中文 日本語 한국어 Привет Ελληνικά" comes out
+crisp, baseline-aligned, fully multilingual. Night and day vs. the old grey mush.
+
+## Whole-desktop antialiasing: chrome moved off the 5x7 bitmap font (2026-06-18)
+Follow-up to the book-quality font: the Writer page looked printed but the CHROME (titles, taskbar,
+About, Calc, Sheet) still used the blocky 5x7 bitmap — incohesive. Migrated all chrome to the same
+antialiased 16x16 font. The hard part: antialiasing only looks right when the ramp blends the actual
+ink over the actual paper, so a single white->ink ramp can't serve white-on-navy titles AND black-on-
+silver labels. Solution: a **named-ramp palette** — `_addramp(name, ink, paper)` precomputes a 15-step
+ramp per (ink,paper) pair (inkw/wnav/ksil/gsil/bsil/nsil), and a new `GRAMP` register holds the current
+ramp base; blit16 now indexes `GRAMP+level` (dropped the PALMAP table). New build-time helpers:
+`puts16`/`wputs16`/`wctr16` lay glyphs out proportionally (advance widths baked from unifont16.json at
+compile time) and `dnum16` renders decimals through blit16 (Calc display, clock, Sheet cells/total).
+Geometry grew to fit 16px text: title bar 14->18 px (grab hit-test follows), taskbar 18->22 px, launcher
+buttons 12->16 px (click rect follows). Active launcher button = navy fill + white label (runtime ramp
+pick). Hit-testing is rect-based, so it was unaffected by the text-rendering change. Titles/About now use
+real typography (— · … ×). The 5x7 path (puts/wputs/blitglyph/dnum) is retained but now dead.
+VERIFIED in a REAL browser (headless Chromium screenshot of pactbundle.html): the desktop boots straight
+to a fully antialiased About panel + taskbar, with —/×/…/· all rendering. Rendered the actual CA
+framebuffer for About/Calc/Sheet too — every label, digit and title is crisp. Rebuilt all consumers:
+lab22/24/min auto-inherit the bigger palette + same bytecode; pactbundle adds the 4 typographic glyphs
+to its ASCII subset (95->99 glyphs); pact ELF 38.2 KB (<= 64 KB). The whole desktop is now one coherent
+typeface.
+
+## Removed the dead 5x7 chrome font (2026-06-18)
+With all chrome on the antialiased font, the old 5x7 bitmap path was dead. Deleted from caos_ca2:
+`puts`/`wputs`, the `blitglyph` routine, the `dnum` routine (kept its `powers` list for dnum16), the
+`load_memory` font loader, the `FONT` constant and the `gi` alias — plus the `load_memory(m)` calls in
+build_lab22/24/min/pactbundle and __main__. (GCH/GCOL left as unused slots in _VARS: removing them would
+shift every later register's offset for zero benefit — the slots are zero and never reach the bundle.)
+Boot is byte-identical (115,816 non-bg px, same as before). Net size win — the dead code + its font data
+were ~4 KB of bytecode: **pact ELF 38.2 KB -> 34.2 KB** (back to its pre-chrome size — the whole
+antialiased-chrome upgrade ended up free), pactbundle.html 134 KB -> 126 KB, each big lab ~8 KB smaller.
+
+## Alice & Bob dual-screen pact, in one page (2026-06-18)
+build_pactbundle_duo.py -> pactbundle_duo.html: the lab24 "Alice & Bob over an encrypted line" idea,
+rebuilt at pactbundle scale. ONE self-contained page runs TWO faithful 32-bit CA-2 VMs side by side,
+both full CA-OS/2 desktops regenerated from the same embedded program. You drive ALICE; every input
+delta (x,y,button,key) is AES-256-GCM-sealed with a key = SHA-256(domain ‖ hex-K4 CA state at gen=seq)
+and handed to BOB in-page (no socket — it's the visualisation, not the relay ELF). Bob opens the deltas
+in seq order and reconverges. CUT THE LINE -> Alice's sealed deltas queue (outbox); RESTORE -> they
+replay in order and Bob catches up. Live HUD: bytes sent · deltas · Alice queued · Bob seq · in-sync.
+Same crypto/VM as build_pactbundle.py (reused verbatim). Unlike the ELF bundle (ASCII subset to fit
+64 KB), the duo is standalone so it carries the FULL 57,150-glyph antialiased font (loadFont/expandFont
+exactly like lab24/lab25) — both Writers do real multilingual text. VERIFIED in a real browser
+(headless Chromium): both desktops boot side by side; the wire shows a sealed 39-byte delta; poking
+Alice's Writer renders "中文 日本語 한국어 Привет Ελληνικά" fully antialiased. ~4 MB (full font), .z ~2.9 MB.
+Note: headless rAF stalls after the first frame, so the live Alice->Bob mirror can't be screenshotted
+here, but the transport is plain deterministic JS over the proven seal/open path.
+
+## The real font problem was DISPLAY SCALE, not the glyphs (2026-06-18)
+User: "the fonts still don't look good." Diagnosed by rendering the same line at 1x/1.5x/2x: at integer
+scales the antialiased type is crisp; at **1.5x it's ragged** (uneven stem widths). Cause: every canvas
+was a 512x384 backing shown at CSS width:768 (=1.5x) with image-rendering:pixelated — a non-integer
+nearest-neighbour upscale maps some source pixels to 1 screen pixel and others to 2, so vertical stems
+alternate thick/thin. My PNG proofs used integer NEAREST scaling, so I never saw it.
+Fix (all consumers): render the framebuffer to a 1x OFFSCREEN canvas, blit it to a 2x (1024x768) visible
+canvas with nearest-neighbour, then let CSS downscale that smoothly (image-rendering:auto). The 2x backing
+is supersampled down to whatever the display size is -> crisp, even text at ANY width (no fractional
+nearest-upscale of 1x pixels). Applied to pactbundle, pactbundle_duo, lab22/24/25, caos-32-min. The font
+itself (DejaVu 15, 16-level ramp) was fine all along. Also reverted pactbundle_duo to a compact subset:
+printable ASCII + Latin-1 Supplement (accented Latin) + (— …) = 193 glyphs, 148 KB (the full-CJK duo was
+4 MB; CJK is inherently ~2.7 MB of glyphs, no way to keep both small and CJK).

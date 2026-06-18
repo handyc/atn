@@ -2,7 +2,7 @@
 # caos_ca2.py — CA-OS/2: a native 32-bit operating system for the CA-2 machine, now with APPS.
 #
 # CA-2 (ca1sys make_machine("CA-2")) is the 32-bit member of the family: 32-bit registers/ALU
-# (the verified 32-bit CA adder — cacpu.verify_adder_ca), 8 MB FLAT memory, word load/store.
+# (the verified 32-bit CA adder — cacpu.verify_adder_ca), 16 MB FLAT memory, word load/store.
 # Written 32-bit-native: 512x384 framebuffer flat at 0x10000; pixels via a flat 32-bit indexed
 # store (STAX FB, X = y*512 + x); coordinate math in 32-bit words (LDW/STW/ADDW/SUBW/CMPW).
 #
@@ -16,10 +16,33 @@ from ca1sys import asm, make_machine
 
 W, H = 512, 384
 FB = 0x10000
-PAL = list(c1.PAL) + ["#aaaaaa", "#555555"]    # +2 text-antialias greys: idx10 light, idx11 dark
 BLK, TEAL, SIL, GRY, WHT, NAV, LSV, BLU, RED, GRN = range(10)
-TXL, TXD = 10, 11                               # 16x16 glyph antialias levels: light / dark (full ink = BLK)
-gi = c1.gi
+# Book-quality 16x16 text needs a REAL alpha ramp, not 3 inks. And antialiasing only looks right when
+# the ramp blends the actual INK over the actual PAPER — so every (ink, paper) pair the desktop uses
+# gets its own 15-step ramp in the palette. A glyph carries a level 0..15 per pixel: level 0 stays
+# transparent (the paper shows through); level L (1..15) -> palette index GRAMP+L, where GRAMP is the
+# ramp base the current text is drawn with.  This is what makes both the page AND the chrome read as
+# printed rather than as grey mush.
+TXN = 15                                         # grey levels (4-bit minus the transparent 0)
+def _hex(ci): return tuple(int(c1.PAL[ci][k:k+2], 16) for k in (1, 3, 5))
+def _ramp(ink, paper, n=TXN):
+    fi, bg = _hex(ink), _hex(paper)
+    return ["#%02x%02x%02x" % tuple(round(bg[k]*(1-L/n) + fi[k]*L/n) for k in range(3)) for L in range(1, n+1)]
+_PAL = list(c1.PAL); RAMP = {}
+def _addramp(name, ink, paper): RAMP[name] = len(_PAL); _PAL.extend(_ramp(ink, paper))
+_addramp("inkw", BLK, WHT)    # black on white  — Writer page / Calc display / anything on the page
+_addramp("wnav", WHT, NAV)    # white on navy   — window titles, active launcher button
+_addramp("ksil", BLK, SIL)    # black on silver — window-body labels, launcher, keypad, clock digits
+_addramp("gsil", GRY, SIL)    # grey on silver  — secondary labels
+_addramp("bsil", BLU, SIL)    # blue on silver  — accents
+_addramp("nsil", NAV, SIL)    # navy on silver  — the Sheet total
+PAL = _PAL
+# advance widths (proportional) per codepoint, read at build time so chrome text lays out at compile time
+def _load_adv(path="unifont16.json"):
+    import json, base64, struct
+    d = json.load(open(path)); cps = struct.unpack("<%dH" % d["n"], base64.b64decode(d["cps_b64"]))
+    w = base64.b64decode(d["w_b64"]); return {cp: w[i] for i, cp in enumerate(cps)}
+ADV = _load_adv()
 
 # ---- OS variables, each given a slot of VS bytes so the SAME program runs on ANY word width up to
 #      VS*8 bits: CA-2 (32-bit) uses 4 bytes of each slot, CA-3 (128-bit) uses all 16 — STW never
@@ -31,31 +54,25 @@ _VARS = ("AX AY AW AH ACOL GX GY GCH GCOL T0 T1 T2 T3 MX MY MB MBP "
          "CX CY OCX OCY HAVES CLKF CSEC DNV DH DT APP DIRTY PCOL "
          "CACC CCUR COP CFRESH TLEN KEY SELC CWV BDIRTY WI PFRESH "
          "WVX WVY DRAG DGX DGY MRX MRY "
-         "UCP UGA UROW UCW").split()              # + window/drag state + 16x16-glyph blitter registers
+         "UCP UGA UROW UCW GRAMP").split()        # + window/drag state + 16x16-glyph blitter registers (GRAMP = current text ramp base-1)
 for _i, _n in enumerate(_VARS): globals()[_n] = _i * VS   # AX=0, AY=VS, ... laid out contiguously
 CURBUF  = 0x0380          # cursor 8x8 save-under (byte-addressed -> width-independent)
-FONT    = 0x0400          # 5x7 glyphs for UI chrome (byte-addressed)
 CELLS   = 0x0F00          # sheet cells (12 x VS-byte words)
 CSTRIDE = VS              # spacing between sheet cells (>= bytes-per-word on any supported machine)
 # Writer goes Unicode: the document is 16x16 GNU-Unifont, so the machine needs more (virtual) RAM.
-MEMSIZE = 0x800000        # 8 MB — MUST be a power of two (memsize-1 is the address mask) so the 4 MB
-                          #        FONT16 table at 0x100000..0x500000 (64 B/glyph antialiased) is addressable
-PALMAP  = 0x000340        # 4-byte map: glyph level (1..3) -> palette index
+MEMSIZE = 0x1000000       # 16 MB — MUST be a power of two (memsize-1 is the address mask) so the 8 MB
+                          #         FONT16 table at 0x100000..0x900000 (128 B/glyph antialiased) is addressable
 TBUF    = 0x040000        # writer document as 16-bit codepoints (LE), just above the framebuffer
 WTAB    = 0x080000        # advance width per codepoint (8 or 16), 1 byte x 0x10000
-FONT16  = 0x100000        # direct codepoint->glyph table, 64 bytes/glyph (16 rows x 4 bytes, 2-bit AA)
+FONT16  = 0x100000        # direct codepoint->glyph table, 128 bytes/glyph (16 rows x 8 bytes, 4-bit AA)
 CURSOR = [0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xE0, 0x40]
 
 # window + taskbar geometry
 WINX, WINY, WW, WH = 86, 38, 340, 306
-TBY = H - 18                                # taskbar top
+TBY = H - 22                                # taskbar top (taller, to fit antialiased labels)
 PSWATCH = [BLK, GRY, WHT, RED, GRN, BLU, NAV, TEAL]                # 8 paint colours
 # calc keypad: (label, kind, value) ; kind: d=digit o=op(0+,1-,2x) e== c=clear
 CALC_KEYS = [['7','8','9','x'], ['4','5','6','-'], ['1','2','3','+'], ['C','0','=','']]
-
-def load_memory(m):
-    for ch, idx in c1.GIDX.items():
-        for r, b in enumerate(c1.enc_rows(c1.GART[ch])): m.M[FONT + idx*7 + r] = b
 
 def make():
     return make_machine("CA-2", fb_addr=FB, fb_w=W, fb_h=H, memsize=MEMSIZE)
@@ -67,27 +84,40 @@ def load_unifont(m, path="unifont16.json"):
     cps = struct.unpack("<%dH" % d["n"], base64.b64decode(d["cps_b64"]))
     w = base64.b64decode(d["w_b64"])
     for i, cp in enumerate(cps):
-        m.M[FONT16 + cp*64: FONT16 + cp*64 + 64] = blob[i*64:(i+1)*64]   # 2-bit AA, 64 B/glyph
+        m.M[FONT16 + cp*128: FONT16 + cp*128 + 128] = blob[i*128:(i+1)*128]   # 4-bit AA, 128 B/glyph
         m.M[WTAB + cp] = w[i]                                            # proportional advance width
 
 def program():
     L = []; a = L.append
     def shl(n):
         for _ in range(n): a(("SHL",))
-    def puts(x, y, text, col):
-        for i, ch in enumerate(text):
-            a(("LDI", x + i*6)); a(("STW", GX)); a(("LDI", y)); a(("STW", GY))
-            a(("LDI", gi(ch))); a(("STW", GCH)); a(("LDI", col)); a(("STW", GCOL)); a(("CALL", "blitglyph"))
+    def shr(n):
+        for _ in range(n): a(("SHR",))
     def rect(x, y, w, h, col):
         a(("LDI", x)); a(("STW", AX)); a(("LDI", y)); a(("STW", AY)); a(("LDI", w)); a(("STW", AW)); a(("LDI", h)); a(("STW", AH)); a(("LDI", col)); a(("STW", ACOL)); a(("CALL", "fillrect"))
     # window-relative draw: coords are relative to the (draggable) window origin WVX/WVY
     def wrect(x, y, w, h, col):
         a(("LDW", WVX)); a(("ADDI", x)); a(("STW", AX)); a(("LDW", WVY)); a(("ADDI", y)); a(("STW", AY))
         a(("LDI", w)); a(("STW", AW)); a(("LDI", h)); a(("STW", AH)); a(("LDI", col)); a(("STW", ACOL)); a(("CALL", "fillrect"))
-    def wputs(x, y, text, col):
-        for i, ch in enumerate(text):
-            a(("LDW", WVX)); a(("ADDI", x + i*6)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", y)); a(("STW", GY))
-            a(("LDI", gi(ch))); a(("STW", GCH)); a(("LDI", col)); a(("STW", GCOL)); a(("CALL", "blitglyph"))
+    # ---- antialiased chrome text: lay glyphs out proportionally (widths baked at build time) and draw
+    #      them through the named ramp via blit16.  rel=True positions relative to the window origin. ----
+    def textw(text):                                            # pixel width of a string in the AA font
+        return sum(ADV.get(ord(ch), 8) for ch in text)
+    def puts16(x, y, text, ramp=None, rel=False):
+        if ramp is not None:                                    # ramp=None -> draw in whatever GRAMP the caller set
+            a(("LDI", RAMP[ramp] - 1)); a(("STW", GRAMP))       # GRAMP = ramp base-1  (palette idx = GRAMP+level)
+        cx = x
+        for ch in text:
+            cp = ord(ch)
+            if rel:
+                a(("LDW", WVX)); a(("ADDI", cx)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", y)); a(("STW", GY))
+            else:
+                a(("LDI", cx)); a(("STW", GX)); a(("LDI", y)); a(("STW", GY))
+            a(("LDI", cp)); a(("STW", UCP)); a(("CALL", "blit16"))
+            cx += ADV.get(cp, 8)
+    def wputs16(x, y, text, ramp): puts16(x, y, text, ramp, rel=True)
+    def wctr16(cx, y, text, ramp):                              # window-relative, horizontally centred on cx
+        wputs16(cx - textw(text)//2, y, text, ramp)
     a(("JMP", "boot"))
 
     # ---- fillrect ----
@@ -102,51 +132,41 @@ def program():
     a(("fr_nrow:",)); a(("LDW", T0)); a(("ADDI", W)); a(("STW", T0)); a(("LDW", T1)); a(("SUBI", 1)); a(("STW", T1)); a(("JMP", "fr_row"))
     a(("fr_done:",)); a(("RET",))
 
-    # ---- blitglyph ----
-    a(("blitglyph:",))
-    a(("LDW", GCH)); shl(3); a(("SUBW", GCH)); a(("STW", T0))
-    a(("LDI", 0)); a(("STW", T2))
-    a(("bg_row:",)); a(("LDW", T2)); a(("CMPI", 7)); a(("JC", "bg_done"))
-    a(("LDW", T0)); a(("ADDW", T2)); a(("TAX",)); a(("LDAX", FONT)); a(("STW", T3))
-    a(("LDW", GY)); a(("ADDW", T2)); shl(9); a(("ADDW", GX)); a(("STW", T1))
-    for col in range(5):
-        a(("LDW", T3)); a(("ANDI", 0x10 >> col)); a(("JZ", f"bg_s{col}"))
-        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDA", GCOL)); a(("STAX", FB))
-        a((f"bg_s{col}:",))
-    a(("LDW", T2)); a(("ADDI", 1)); a(("STW", T2)); a(("JMP", "bg_row"))
-    a(("bg_done:",)); a(("RET",))
-
-    # ---- blit16: draw the 16x16 GNU-Unifont glyph for codepoint UCP at (GX,GY) in black (Writer doc) ----
+    # ---- blit16: draw the 16x16 antialiased glyph for codepoint UCP at (GX,GY) in the current ramp.
+    #      128 B/glyph: 16 rows x 8 bytes, 2 px/byte (low nibble = left px); level 0 transparent,
+    #      level 1..15 -> palette index GRAMP+level (GRAMP = ramp base-1, set by the caller). ----
     a(("blit16:",))
-    a(("LDW", UCP)); shl(6); a(("STW", UGA))                # UGA = UCP*64 (offset into FONT16, 64 B/glyph)
+    a(("LDW", UCP)); shl(7); a(("STW", UGA))                # UGA = UCP*128 (offset into FONT16, 128 B/glyph)
     a(("LDI", 0)); a(("STW", UROW))
     a(("b16_row:",)); a(("LDW", UROW)); a(("CMPI", 16)); a(("JC", "b16_done"))
     a(("LDW", GY)); a(("ADDW", UROW)); shl(9); a(("ADDW", GX)); a(("STW", T1))   # T1 = FB index of (GX, GY+UROW)
-    a(("LDW", UROW)); a(("SHL",)); a(("SHL",)); a(("ADDW", UGA)); a(("TAX",))    # X = UGA + UROW*4 (4 bytes/row)
-    a(("LDAX", FONT16)); a(("STW", T2))                                          # assemble the 16x2-bit row into T2
-    a(("INX",)); a(("LDAX", FONT16)); shl(8);  a(("ADDW", T2)); a(("STW", T2))
-    a(("INX",)); a(("LDAX", FONT16)); shl(16); a(("ADDW", T2)); a(("STW", T2))
-    a(("INX",)); a(("LDAX", FONT16)); shl(24); a(("ADDW", T2)); a(("STW", T2))
-    for col in range(16):                                                        # consume px from the low end, 2 bits each
-        a(("LDW", T2)); a(("ANDI", 3)); a(("JZ", f"b16s{col}"))
-        a(("TAX",)); a(("LDAX", PALMAP)); a(("STW", T3))                         # T3 = palette index for this level
-        a(("LDW", T1)); a(("ADDI", col)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
-        a((f"b16s{col}:",)); a(("LDW", T2)); a(("SHR",)); a(("SHR",)); a(("STW", T2))
+    a(("LDW", UROW)); shl(3); a(("ADDW", UGA)); a(("STW", T0))                   # T0 = UGA + UROW*8 (8 bytes/row)
+    for b in range(8):                                                          # 8 bytes -> 16 px (2 px/byte)
+        a(("LDW", T0)); a(("ADDI", b)); a(("TAX",)); a(("LDAX", FONT16)); a(("STW", T2))
+        a(("LDW", T2)); a(("ANDI", 0xF)); a(("JZ", f"b16lo{b}"))                 # left px = low nibble
+        a(("ADDW", GRAMP)); a(("STW", T3))                                       # palette idx = GRAMP + level
+        a(("LDW", T1)); a(("ADDI", b*2)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
+        a((f"b16lo{b}:",))
+        a(("LDW", T2)); shr(4); a(("ANDI", 0xF)); a(("JZ", f"b16hi{b}"))         # right px = high nibble
+        a(("ADDW", GRAMP)); a(("STW", T3))
+        a(("LDW", T1)); a(("ADDI", b*2+1)); a(("TAX",)); a(("LDW", T3)); a(("STAX", FB))
+        a((f"b16hi{b}:",))
     a(("LDW", UROW)); a(("ADDI", 1)); a(("STW", UROW)); a(("JMP", "b16_row"))
     a(("b16_done:",)); a(("RET",))
 
-    # ---- dnum: draw DNV as decimal at (GX,GY) in GCOL, leading zeros suppressed (efficient: powers of 10) ----
-    a(("dnum:",)); a(("LDI", 0)); a(("STW", DT))
     powers = [1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1]
+    # ---- dnum16: draw DNV as decimal at (GX,GY) in the current ramp via blit16 (leading zeros suppressed) ----
+    dw = ADV.get(ord("0"), 9)                                   # tabular digit advance
+    a(("dnum16:",)); a(("LDI", 0)); a(("STW", DT))
     for ip, p in enumerate(powers):
         a(("LDI", 0)); a(("STW", DH))
-        a((f"dn{ip}:",)); a(("LDW", DNV)); a(("CMPI", p)); a(("JNC", f"dnd{ip}")); a(("SUBI", p)); a(("STW", DNV)); a(("LDW", DH)); a(("ADDI", 1)); a(("STW", DH)); a(("JMP", f"dn{ip}"))
-        a((f"dnd{ip}:",))
-        a(("LDW", DH)); a(("JNZ", f"dnshow{ip}")); a(("LDW", DT)); a(("JNZ", f"dnshow{ip}"))
-        a(("JMP", (f"dnshow{ip}" if p == 1 else f"dnskip{ip}")))
-        a((f"dnshow{ip}:",)); a(("LDI", 1)); a(("STW", DT))
-        a(("LDW", DH)); a(("STW", GCH)); a(("CALL", "blitglyph")); a(("LDW", GX)); a(("ADDI", 6)); a(("STW", GX))
-        a((f"dnskip{ip}:",))
+        a((f"d16n{ip}:",)); a(("LDW", DNV)); a(("CMPI", p)); a(("JNC", f"d16d{ip}")); a(("SUBI", p)); a(("STW", DNV)); a(("LDW", DH)); a(("ADDI", 1)); a(("STW", DH)); a(("JMP", f"d16n{ip}"))
+        a((f"d16d{ip}:",))
+        a(("LDW", DH)); a(("JNZ", f"d16s{ip}")); a(("LDW", DT)); a(("JNZ", f"d16s{ip}"))
+        a(("JMP", (f"d16s{ip}" if p == 1 else f"d16k{ip}")))
+        a((f"d16s{ip}:",)); a(("LDI", 1)); a(("STW", DT))
+        a(("LDW", DH)); a(("ADDI", 48)); a(("STW", UCP)); a(("CALL", "blit16")); a(("LDW", GX)); a(("ADDI", dw)); a(("STW", GX))   # digit '0'+DH
+        a((f"d16k{ip}:",))
     a(("RET",))
 
     # ---- 32-bit multiply (shift-add): CACC = CACC * CCUR ----
@@ -159,23 +179,25 @@ def program():
     # ============ DESKTOP + WINDOW + APPS ============
     a(("draw:",))
     rect(0, 0, W, H, TEAL)                                   # background
-    rect(0, TBY, W, 18, SIL); rect(0, TBY-1, W, 1, WHT)      # taskbar
-    # launcher buttons (index == APP id)
+    rect(0, TBY, W, 22, SIL); rect(0, TBY-1, W, 1, WHT)      # taskbar
+    # launcher buttons (index == APP id); active button -> navy fill + white label
     for i, name in enumerate(["About", "Paint", "Calc", "Writer", "Sheet"]):
         bx = 4 + i*54
-        rect(bx, TBY+3, 50, 12, SIL)
-        a(("LDI", bx)); a(("STW", AX)); a(("LDI", TBY+3)); a(("STW", AY)); a(("LDI", 50)); a(("STW", AW)); a(("LDI", 12)); a(("STW", AH))
+        rect(bx, TBY+3, 50, 16, SIL)
+        a(("LDI", bx)); a(("STW", AX)); a(("LDI", TBY+3)); a(("STW", AY)); a(("LDI", 50)); a(("STW", AW)); a(("LDI", 16)); a(("STW", AH))
         a(("LDW", APP)); a(("CMPI", i)); a(("JNZ", f"lb{i}")); a(("LDI", NAV)); a(("STW", ACOL)); a(("CALL", "fillrect")); a((f"lb{i}:",))
-        puts(bx+6, TBY+5, name, BLK)
+        a(("LDI", RAMP["ksil"] - 1)); a(("STW", GRAMP))                                                                  # inactive: black on silver
+        a(("LDW", APP)); a(("CMPI", i)); a(("JNZ", f"lg{i}")); a(("LDI", RAMP["wnav"] - 1)); a(("STW", GRAMP)); a((f"lg{i}:",))   # active: white on navy
+        puts16(bx + (50 - textw(name))//2, TBY+3, name, rel=False)
     # window frame + title
     wrect(0, 0, WW, WH, SIL)
-    wrect(0, 0, WW, 14, NAV)
+    wrect(0, 0, WW, 18, NAV)
     a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "ti_p")); a(("CMPI", 2)); a(("JZ", "ti_c")); a(("CMPI", 3)); a(("JZ", "ti_w")); a(("CMPI", 4)); a(("JZ", "ti_s"))
-    wputs(6, 4, "About CA-OS/2", WHT); a(("JMP", "ti_d"))
-    a(("ti_p:",)); wputs(6, 4, "Paint", WHT); a(("JMP", "ti_d"))
-    a(("ti_c:",)); wputs(6, 4, "Calc  (32-bit)", WHT); a(("JMP", "ti_d"))
-    a(("ti_w:",)); wputs(6, 4, "Writer", WHT); a(("JMP", "ti_d"))
-    a(("ti_s:",)); wputs(6, 4, "Sheet  (32-bit cells)", WHT)
+    wputs16(8, 1, "About CA-OS/2", "wnav"); a(("JMP", "ti_d"))
+    a(("ti_p:",)); wputs16(8, 1, "Paint", "wnav"); a(("JMP", "ti_d"))
+    a(("ti_c:",)); wputs16(8, 1, "Calc — 32-bit", "wnav"); a(("JMP", "ti_d"))
+    a(("ti_w:",)); wputs16(8, 1, "Writer", "wnav"); a(("JMP", "ti_d"))
+    a(("ti_s:",)); wputs16(8, 1, "Sheet — 32-bit cells", "wnav")
     a(("ti_d:",))
     # body by app
     a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "body_p")); a(("CMPI", 2)); a(("JZ", "body_c")); a(("CMPI", 3)); a(("JZ", "body_w")); a(("CMPI", 4)); a(("JZ", "body_s"))
@@ -196,16 +218,16 @@ def program():
 
     # ---- About app ----
     a(("draw_about:",))
-    bx, by = 12, 26
-    wputs(bx, by,     "CA-2  -  32-bit processor", BLK)
-    wputs(bx, by+16,  "RAM: 8 MB (flat)   Screen: 512x384", BLK)
-    wputs(bx, by+38,  "Datapath: genuine cellular automata", GRY)
-    wputs(bx, by+50,  "(hex K=4 gliders): NAND + latch", GRY)
-    wputs(bx, by+72,  "ALU: 32-bit CA adder, verified", BLU)
-    wputs(bx, by+94,  "One core builds the whole family:", BLK)
-    wputs(bx, by+106, "CA-1 (8-bit) ... CA-2 (32-bit) ...", BLK)
-    wputs(bx, by+132, "Apps: Paint Calc Writer Sheet --", BLK)
-    wputs(bx, by+144, "use the launcher in the taskbar.", BLK)
+    bx, by, ph = 14, 26, 19
+    wputs16(bx, by+0*ph, "CA-2 — a 32-bit processor", "ksil")
+    wputs16(bx, by+1*ph, "RAM: 16 MB (flat)   Screen: 512×384", "ksil")
+    wputs16(bx, by+2*ph, "Datapath: genuine cellular automata", "gsil")
+    wputs16(bx, by+3*ph, "(hex K=4 gliders) — NAND + latch", "gsil")
+    wputs16(bx, by+4*ph, "ALU: 32-bit CA adder, verified", "bsil")
+    wputs16(bx, by+5*ph, "One core builds the whole family:", "ksil")
+    wputs16(bx, by+6*ph, "CA-1 (8-bit) … CA-2 (32-bit) …", "ksil")
+    wputs16(bx, by+7*ph, "Apps: Paint · Calc · Writer · Sheet", "ksil")
+    wputs16(bx, by+8*ph, "— use the launcher in the taskbar.", "gsil")
     a(("RET",))
 
     # ---- Paint app: palette strip + canvas ----
@@ -222,8 +244,9 @@ def program():
 
     # ---- Calc app: 32-bit display + keypad ----
     a(("draw_calc:",))
-    wrect(12, 22, WW-24, 26, WHT)                  # display
-    a(("LDW", CCUR)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", 18)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 30)); a(("STW", GY)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "dnum"))
+    wrect(12, 22, WW-24, 28, WHT)                  # display
+    a(("LDI", RAMP["inkw"] - 1)); a(("STW", GRAMP))
+    a(("LDW", CCUR)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", 18)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 28)); a(("STW", GY)); a(("CALL", "dnum16"))
     for r in range(4):
         for c in range(4):
             lab = CALC_KEYS[r][c]
@@ -232,15 +255,16 @@ def program():
             wrect(bx, by, 70, 44, SIL)
             wrect(bx, by, 70, 1, WHT); wrect(bx, by, 1, 44, WHT)            # raised highlight (top/left)
             wrect(bx, by+43, 70, 1, GRY); wrect(bx+69, by, 1, 44, GRY)     # shadow (bottom/right)
-            wputs(bx+31, by+18, lab, BLK)
+            wctr16(bx+35, by+14, lab, "ksil")
     a(("RET",))
 
-    # ---- clock (taskbar, right) ----
+    # ---- clock (taskbar, right): "up <seconds> s" ----
     a(("drawclock:",))
-    rect(W-58, TBY+3, 54, 12, SIL)
-    puts(W-54, TBY+5, "up", GRY)
-    a(("LDW", CSEC)); a(("STW", DNV)); a(("LDI", W-40)); a(("STW", GX)); a(("LDI", TBY+5)); a(("STW", GY)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "dnum"))
-    puts(W-16, TBY+5, "s", GRY)
+    rect(W-80, TBY+3, 76, 16, SIL)
+    puts16(W-78, TBY+3, "up", "gsil")
+    a(("LDI", RAMP["ksil"] - 1)); a(("STW", GRAMP))
+    a(("LDW", CSEC)); a(("STW", DNV)); a(("LDI", W-56)); a(("STW", GX)); a(("LDI", TBY+3)); a(("STW", GY)); a(("CALL", "dnum16"))
+    puts16(W-20, TBY+3, "s", "gsil")
     a(("RET",))
 
     # ---- cursor (8x8 save-under + arrow) ----
@@ -289,12 +313,12 @@ def program():
     for i in range(5):
         bx = 4 + i*54
         a(("LDW", MX)); a(("CMPI", bx)); a(("JNC", f"nl{i}")); a(("CMPI", bx+50)); a(("JC", f"nl{i}"))
-        a(("LDW", MY)); a(("CMPI", TBY+3)); a(("JNC", f"nl{i}")); a(("CMPI", TBY+15)); a(("JC", f"nl{i}"))
+        a(("LDW", MY)); a(("CMPI", TBY+3)); a(("JNC", f"nl{i}")); a(("CMPI", TBY+19)); a(("JC", f"nl{i}"))
         a(("LDI", i)); a(("STW", APP)); a(("LDI", 1)); a(("STW", DIRTY))
         if i == 1: a(("LDI", 1)); a(("STW", PFRESH))          # opening Paint -> fresh white canvas
         a(("RET",)); a((f"nl{i}:",))
-    # title bar grab -> start dragging (MRX in [0,WW), MRY in [0,14); underflow wraps high -> skipped)
-    a(("LDW", MRY)); a(("CMPI", 14)); a(("JC", "no_grab")); a(("LDW", MRX)); a(("CMPI", WW)); a(("JC", "no_grab"))
+    # title bar grab -> start dragging (MRX in [0,WW), MRY in [0,18); underflow wraps high -> skipped)
+    a(("LDW", MRY)); a(("CMPI", 18)); a(("JC", "no_grab")); a(("LDW", MRX)); a(("CMPI", WW)); a(("JC", "no_grab"))
     a(("LDI", 1)); a(("STW", DRAG)); a(("LDW", MRX)); a(("STW", DGX)); a(("LDW", MRY)); a(("STW", DGY)); a(("RET",))
     a(("no_grab:",))
     # in-app clicks
@@ -347,6 +371,7 @@ def program():
     # ---- Writer: a text editor (renders TBUF with wrap + caret) ----
     a(("draw_writer:",))               # 16x16 Unicode document: TBUF holds 16-bit codepoints
     wrect(10, 22, WW-20, WH-32, WHT)
+    a(("LDI", RAMP["inkw"] - 1)); a(("STW", GRAMP))    # black-on-white page ramp for the document text
     a(("LDI", 0)); a(("STW", WI)); a(("LDW", WVX)); a(("ADDI", 12)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 24)); a(("STW", GY))
     a(("dw_l:",)); a(("LDW", WI)); a(("CMPW", TLEN)); a(("JC", "dw_car"))
     a(("LDW", WI)); a(("SHL",)); a(("TAX",)); a(("LDAX", TBUF)); a(("STW", UCP))                                  # CP low byte
@@ -367,13 +392,13 @@ def program():
         a(("LDW", SELC)); a(("CMPI", idx)); a(("JNZ", f"shw{idx}"))
         wrect(cx+1, cy+1, 100, 34, LSV); a(("JMP", f"shv{idx}"))
         a((f"shw{idx}:",)); wrect(cx+1, cy+1, 100, 34, WHT); a((f"shv{idx}:",))
-        a(("LDW", CELLS+idx*CSTRIDE)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", cx+6)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", cy+12)); a(("STW", GY)); a(("LDI", BLK)); a(("STW", GCOL)); a(("CALL", "dnum"))
+        a(("LDI", RAMP["inkw"] - 1)); a(("STW", GRAMP)); a(("LDW", CELLS+idx*CSTRIDE)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", cx+8)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", cy+10)); a(("STW", GY)); a(("CALL", "dnum16"))
     a(("LDW", CELLS))
     for i in range(1, 12): a(("ADDW", CELLS+i*CSTRIDE))
     a(("STW", DNV))
-    wrect(12, 202, 160, 11, SIL)                   # clear the total line (it redraws on every keystroke)
-    wputs(12, 204, "Total =", BLK)
-    a(("LDW", WVX)); a(("ADDI", 72)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 204)); a(("STW", GY)); a(("LDI", NAV)); a(("STW", GCOL)); a(("CALL", "dnum")); a(("RET",))
+    wrect(12, 200, 230, 18, SIL)                   # clear the total line (it redraws on every keystroke)
+    wputs16(12, 200, "Total =", "ksil")
+    a(("LDI", RAMP["nsil"] - 1)); a(("STW", GRAMP)); a(("LDW", WVX)); a(("ADDI", 12 + textw("Total = "))); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 200)); a(("STW", GY)); a(("CALL", "dnum16")); a(("RET",))
 
     # ---- keyboard input (Writer append/backspace ; Sheet digit -> selected cell) ----
     a(("keyin:",)); a(("LDW", APP)); a(("CMPI", 3)); a(("JZ", "ki_w")); a(("LDW", APP)); a(("CMPI", 4)); a(("JZ", "ki_s")); a(("RET",))
@@ -408,7 +433,6 @@ def program():
     # ============ boot + main ============
     a(("boot:",))
     for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP, TLEN, KEY, SELC, CWV, BDIRTY, PFRESH, DRAG): a(("LDI", 0)); a(("STW", v))
-    a(("LDI", TXL)); a(("STA", PALMAP+1)); a(("LDI", TXD)); a(("STA", PALMAP+2)); a(("LDI", BLK)); a(("STA", PALMAP+3))   # glyph level -> palette idx
     for i in range(12): a(("LDI", 0)); a(("STW", CELLS+i*CSTRIDE))   # clear sheet cells (zeros the full VS-byte slot on wide machines)
     a(("LDI", 1)); a(("STW", CFRESH)); a(("STW", DIRTY)); a(("LDI", RED)); a(("STW", PCOL))
     a(("LDI", WINX)); a(("STW", WVX)); a(("LDI", WINY)); a(("STW", WVY))    # window starts at the default position
@@ -455,7 +479,7 @@ def program():
 
 
 if __name__ == "__main__":
-    m = make(); load_memory(m); load_unifont(m)
+    m = make(); load_unifont(m)
     m.M[MX:MX+4] = (W//2).to_bytes(4, "little"); m.M[MY:MY+4] = (H//2).to_bytes(4, "little")
     m.run(program(), max_i=30_000_000, frame_on=lambda mm: True)
     print("CA-OS/2 booted:", sum(1 for v in m.M[FB:FB+W*H] if v != TEAL), "non-bg px; Writer is 16x16 Unicode")
