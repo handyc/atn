@@ -20,7 +20,7 @@ _idx = {cp: i for i, cp in enumerate(_cps)}
 ascii_glyphs = {}
 # printable ASCII + the few typographic codepoints CA-OS/2's chrome uses (— · … ×) so titles/About
 # render fully even on the ASCII-subset bundle the pact ELF serves.
-EXTRA = (0x00B7, 0x00D7, 0x2014, 0x2026)
+EXTRA = (0x00B7, 0x00D7, 0x2014, 0x2026, 0x00B1, 0x00F7, 0x00B2, 0x03C0, 0x221A)   # · × — …  ± ÷ ² π √ (calc keys)
 for cp in list(range(0x20, 0x7F)) + list(EXTRA):
     if cp in _idx:
         i = _idx[cp]

@@ -1945,3 +1945,14 @@ Gate proof: one mixed cos+sqrt+exp+ln call is 31,710 adds; 24/24 randomly sample
 recomputed on the genuine CA NAND gates are bit-exact. Everything is, literally, the verified adder.
 The CA-gate path is far too slow to run interactively (~minutes/op), so the OS scientific calculator
 will PORT these algorithms to CA-2 machine code — whose ALU is that same CA adder, just emulated fast.
+
+## Scientific Calc, Stage 1: Q16.16 floating-point on the CA-2 (2026-06-19, autonomous)
+The Calc app now does real decimal math on the integer CA-2, all in CA-2 machine code (= the CA adder).
+New assembly routines: fpmul (64-bit shift-add, (a·b)>>16), udiv32 (in-place 64-bit restoring division),
+fpdiv ((a<<16)/b), ccommit (exact decimal entry: CCUR = ±CMAN<<16 / 10^places — bit-exact for terminating
+decimals, e.g. 2.5 is exactly 2.5, not 2.50003), dnumfp (Q16.16 → decimal with trailing-zero trim). Keypad
+expanded to 4×5: 7 8 9 × ÷ / 4 5 6 − ± / 1 2 3 + π / C 0 = . CE. Bundle font subset gained ± ÷ ² π √.
+A nasty bug found+fixed: in udiv32 the `ADDW FCB` clobbered the carry flag before I'd captured DVH's
+shifted-out bit for REM — so capture the SHL carry BEFORE any add. VERIFIED via a keypad-driving harness
+(reads CCUR): 2.5, 0.25, 3.14159 entered exactly; 2.5×4=10, 12×12=144, 100−0.25=99.75, 1÷3=0.33333,
+22÷7=3.14285, 10÷4=2.5, π, ±5 — all correct to Q16.16. pact ELF still 38.2 KB.

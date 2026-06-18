@@ -54,7 +54,9 @@ _VARS = ("AX AY AW AH ACOL GX GY GCH GCOL T0 T1 T2 T3 MX MY MB MBP "
          "CX CY OCX OCY HAVES CLKF CSEC DNV DH DT APP DIRTY PCOL "
          "CACC CCUR COP CFRESH TLEN KEY SELC CWV BDIRTY WI PFRESH "
          "WVX WVY DRAG DGX DGY MRX MRY "
-         "UCP UGA UROW UCW GRAMP").split()        # + window/drag state + 16x16-glyph blitter registers (GRAMP = current text ramp base-1)
+         "UCP UGA UROW UCW GRAMP "
+         "M0 M1 M2 M3 M4 M5 MHI MLO MCH MCL MPL FCB FPLACE CDIG "
+         "CMAN CDOT CSGN DVH DVL DSR QUO REM FCNT").split()   # + glyph blitter regs + Q16.16 FPU scratch
 for _i, _n in enumerate(_VARS): globals()[_n] = _i * VS   # AX=0, AY=VS, ... laid out contiguously
 CURBUF  = 0x0380          # cursor 8x8 save-under (byte-addressed -> width-independent)
 CELLS   = 0x0F00          # sheet cells (12 x VS-byte words)
@@ -73,10 +75,15 @@ WINX, WINY, WW, WH = 86, 38, 340, 306
 SHX, SHY   = 22, 36     # grid origin: x after the row-number gutter, y after the column-header strip
 SHCW, SHCH = 39, 30     # cell width / height
 SHTOT      = SHY + 8*SHCH + 4    # y of the Total line (= 280)
+# Calc: Q16.16 fixed-point ("floating point" on an integer machine).  The scientific kernel (CORDIC,
+# shift-add mul, restoring div, series) is the verified cafpu.py spec, ported here to CA-2 machine code —
+# whose add/sub IS the CA NAND-gate adder, so the calculator computes on the cellular automaton.
+FXFRAC = 16; FXONE = 1 << FXFRAC
 TBY = H - 22                                # taskbar top (taller, to fit antialiased labels)
 PSWATCH = [BLK, GRY, WHT, RED, GRN, BLU, NAV, TEAL]                # 8 paint colours
 # calc keypad: (label, kind, value) ; kind: d=digit o=op(0+,1-,2x) e== c=clear
-CALC_KEYS = [['7','8','9','x'], ['4','5','6','-'], ['1','2','3','+'], ['C','0','=','']]
+CALC_KEYS = [['7','8','9','x','÷'], ['4','5','6','-','±'], ['1','2','3','+','π'], ['C','0','=','.','CE']]
+def calcrect(r, c): return (10 + c*65, 58 + r*52, 60, 44)   # keypad button rect (shared by draw + hit-test)
 
 def make():
     return make_machine("CA-2", fb_addr=FB, fb_w=W, fb_h=H, memsize=MEMSIZE)
@@ -180,6 +187,107 @@ def program():
     a(("mlno:",)); a(("LDW", T1)); a(("SHL",)); a(("STW", T1)); a(("LDW", T2)); a(("SHR",)); a(("STW", T2)); a(("JMP", "ml"))
     a(("mld:",)); a(("LDW", T0)); a(("STW", CACC)); a(("RET",))
 
+    # ---- fpmul: M0 = M0 * M1  (signed Q16.16) — 64-bit shift-add, result = (a*b)>>16 ----
+    a(("fpmul:",))
+    a(("LDI", 0)); a(("STW", M5))                                                  # sign accumulator
+    a(("LDW", M0)); a(("JN", "fpm_an")); a(("JMP", "fpm_ap"))
+    a(("fpm_an:",)); a(("LDI", 1)); a(("STW", M5)); a(("LDI", 0)); a(("SUBW", M0)); a(("STW", M0))   # |a|
+    a(("fpm_ap:",))
+    a(("LDW", M1)); a(("JN", "fpm_bn")); a(("JMP", "fpm_bp"))
+    a(("fpm_bn:",)); a(("LDW", M5)); a(("ADDI", 1)); a(("ANDI", 1)); a(("STW", M5)); a(("LDI", 0)); a(("SUBW", M1)); a(("STW", M1))   # |b|, flip sign
+    a(("fpm_bp:",))
+    a(("LDI", 0)); a(("STW", MLO)); a(("STW", MHI))
+    a(("LDW", M0)); a(("STW", MCL)); a(("LDI", 0)); a(("STW", MCH))                # multiplicand (64-bit) = a
+    a(("LDW", M1)); a(("STW", MPL))                                               # multiplier = b
+    a(("fpm_loop:",)); a(("LDW", MPL)); a(("JZ", "fpm_done"))
+    a(("LDW", MPL)); a(("ANDI", 1)); a(("JZ", "fpm_noadd"))
+    a(("LDW", MLO)); a(("ADDW", MCL)); a(("STW", MLO)); a(("JNC", "fpm_nc")); a(("LDW", MHI)); a(("ADDI", 1)); a(("STW", MHI)); a(("fpm_nc:",))
+    a(("LDW", MHI)); a(("ADDW", MCH)); a(("STW", MHI))                            # MHI:MLO += MCH:MCL
+    a(("fpm_noadd:",))
+    a(("LDW", MCL)); a(("SHL",)); a(("STW", MCL))                                 # MCH:MCL <<= 1
+    a(("LDI", 0)); a(("STW", FCB)); a(("JNC", "fpm_sc")); a(("LDI", 1)); a(("STW", FCB)); a(("fpm_sc:",))
+    a(("LDW", MCH)); a(("SHL",)); a(("ADDW", FCB)); a(("STW", MCH))
+    a(("LDW", MPL)); a(("SHR",)); a(("STW", MPL)); a(("JMP", "fpm_loop"))
+    a(("fpm_done:",))
+    a(("LDW", MLO)); shr(16); a(("STW", M2)); a(("LDW", MHI)); shl(16); a(("ADDW", M2)); a(("STW", M0))   # (MHI:MLO)>>16
+    a(("LDW", M5)); a(("JZ", "fpm_pos")); a(("LDI", 0)); a(("SUBW", M0)); a(("STW", M0)); a(("fpm_pos:",))
+    a(("RET",))
+
+    # ---- dnumfp: render DNV (signed Q16.16) as a decimal at (GX,GY) in the current ramp ----
+    dw = ADV.get(ord("0"), 9)
+    def emitch(cp, w): a(("LDI", cp)); a(("STW", UCP)); a(("CALL", "blit16")); a(("LDW", GX)); a(("ADDI", w)); a(("STW", GX))
+    a(("dnumfp:",))
+    a(("LDW", DNV)); a(("STW", M0))
+    a(("LDW", M0)); a(("JN", "fp_neg")); a(("JMP", "fp_pos"))
+    a(("fp_neg:",)); emitch(ord("-"), ADV.get(ord("-"), 9)); a(("LDI", 0)); a(("SUBW", M0)); a(("STW", M0))
+    a(("fp_pos:",))
+    a(("LDW", M0)); a(("ANDI", 0xFFFF)); a(("STW", M1))                            # frac (save before dnum16 clobbers DNV/DH)
+    a(("LDW", M0)); shr(16); a(("STW", DNV)); a(("CALL", "dnum16"))                # integer part
+    a(("LDW", M1)); a(("JZ", "fp_ret"))                                            # no fraction -> done
+    for k, reg in enumerate((M2, M3, M4, M5)):                                     # 4 fractional digits
+        a(("LDW", M1)); shl(3); a(("STW", T0)); a(("LDW", M1)); a(("SHL",)); a(("ADDW", T0)); a(("STW", T1))   # T1 = frac*10
+        a(("LDW", T1)); shr(16); a(("STW", reg)); a(("LDW", T1)); a(("ANDI", 0xFFFF)); a(("STW", M1))
+    a(("LDI", 0)); a(("STW", DH))                                                  # DH = number of frac digits to show (trim trailing 0)
+    a(("LDW", M5)); a(("JZ", "fpz4")); a(("LDI", 4)); a(("STW", DH)); a(("JMP", "fpemit")); a(("fpz4:",))
+    a(("LDW", M4)); a(("JZ", "fpz3")); a(("LDI", 3)); a(("STW", DH)); a(("JMP", "fpemit")); a(("fpz3:",))
+    a(("LDW", M3)); a(("JZ", "fpz2")); a(("LDI", 2)); a(("STW", DH)); a(("JMP", "fpemit")); a(("fpz2:",))
+    a(("LDW", M2)); a(("JZ", "fpemit")); a(("LDI", 1)); a(("STW", DH))
+    a(("fpemit:",)); a(("LDW", DH)); a(("JZ", "fp_ret"))                           # all four zero -> integer only
+    emitch(ord("."), ADV.get(ord("."), 6))
+    a(("LDW", M2)); a(("ADDI", 48)); a(("STW", UCP)); a(("CALL", "blit16")); a(("LDW", GX)); a(("ADDI", dw)); a(("STW", GX))
+    a(("LDW", DH)); a(("CMPI", 2)); a(("JNC", "fp_ret"))
+    a(("LDW", M3)); a(("ADDI", 48)); a(("STW", UCP)); a(("CALL", "blit16")); a(("LDW", GX)); a(("ADDI", dw)); a(("STW", GX))
+    a(("LDW", DH)); a(("CMPI", 3)); a(("JNC", "fp_ret"))
+    a(("LDW", M4)); a(("ADDI", 48)); a(("STW", UCP)); a(("CALL", "blit16")); a(("LDW", GX)); a(("ADDI", dw)); a(("STW", GX))
+    a(("LDW", DH)); a(("CMPI", 4)); a(("JNC", "fp_ret"))
+    a(("LDW", M5)); a(("ADDI", 48)); a(("STW", UCP)); a(("CALL", "blit16")); a(("LDW", GX)); a(("ADDI", dw)); a(("STW", GX))
+    a(("fp_ret:",)); a(("RET",))
+
+    # ---- udiv32: (DVH:DVL) / DSR -> quotient in DVL (low 32), remainder in REM.  In-place restoring
+    #      division, 64 shifts: shift REM:DVH:DVL left, subtract DSR from REM when it fits, set quot bit. ----
+    a(("udiv32:",)); a(("LDI", 0)); a(("STW", REM)); a(("LDI", 64)); a(("STW", FCNT))
+    a(("udl:",))
+    a(("LDW", DVL)); a(("SHL",)); a(("STW", DVL)); a(("LDI", 0)); a(("STW", FCB)); a(("JNC", "u1")); a(("LDI", 1)); a(("STW", FCB)); a(("u1:",))
+    a(("LDW", DVH)); a(("SHL",)); a(("STW", DVH)); a(("LDI", 0)); a(("STW", M0)); a(("JNC", "u2")); a(("LDI", 1)); a(("STW", M0)); a(("u2:",)); a(("LDW", DVH)); a(("ADDW", FCB)); a(("STW", DVH))
+    a(("LDW", REM)); a(("SHL",)); a(("ADDW", M0)); a(("STW", REM))
+    a(("LDW", REM)); a(("CMPW", DSR)); a(("JNC", "u3"))
+    a(("LDW", REM)); a(("SUBW", DSR)); a(("STW", REM)); a(("LDW", DVL)); a(("ADDI", 1)); a(("STW", DVL))
+    a(("u3:",)); a(("LDW", FCNT)); a(("SUBI", 1)); a(("STW", FCNT)); a(("JNZ", "udl")); a(("RET",))
+
+    # ---- pow10: DSR = 10^FPLACE ----
+    a(("pow10:",))
+    a(("LDW", FPLACE)); a(("CMPI", 1)); a(("JNZ", "pw2")); a(("LDI", 10)); a(("STW", DSR)); a(("RET",))
+    a(("pw2:",)); a(("CMPI", 2)); a(("JNZ", "pw3")); a(("LDI", 100)); a(("STW", DSR)); a(("RET",))
+    a(("pw3:",)); a(("CMPI", 3)); a(("JNZ", "pw4")); a(("LDI", 1000)); a(("STW", DSR)); a(("RET",))
+    a(("pw4:",)); a(("CMPI", 4)); a(("JNZ", "pw5")); a(("LDI", 10000)); a(("STW", DSR)); a(("RET",))
+    a(("pw5:",)); a(("CMPI", 5)); a(("JNZ", "pw6")); a(("LDI", 100000)); a(("STW", DSR)); a(("RET",))
+    a(("pw6:",)); a(("LDI", 1)); a(("STW", DSR)); a(("RET",))
+
+    # ---- ccommit: CCUR = ±(CMAN<<16) / 10^FPLACE  (exact decimal -> Q16.16) ----
+    a(("ccommit:",))
+    a(("LDW", CMAN)); shr(16); a(("STW", DVH)); a(("LDW", CMAN)); shl(16); a(("STW", DVL))
+    a(("CALL", "pow10")); a(("CALL", "udiv32")); a(("LDW", DVL)); a(("STW", CCUR))
+    a(("LDW", CSGN)); a(("JZ", "cco_p")); a(("LDI", 0)); a(("SUBW", CCUR)); a(("STW", CCUR)); a(("cco_p:",)); a(("RET",))
+
+    # ---- fpdiv: M0 = M0 / M1  (signed Q16.16) — dividend = a<<16, restoring division by b ----
+    a(("fpdiv:",)); a(("LDI", 0)); a(("STW", M5))
+    a(("LDW", M0)); a(("JN", "fpd_an")); a(("JMP", "fpd_ap"))
+    a(("fpd_an:",)); a(("LDI", 1)); a(("STW", M5)); a(("LDI", 0)); a(("SUBW", M0)); a(("STW", M0))
+    a(("fpd_ap:",)); a(("LDW", M1)); a(("JN", "fpd_bn")); a(("JMP", "fpd_bp"))
+    a(("fpd_bn:",)); a(("LDW", M5)); a(("ADDI", 1)); a(("ANDI", 1)); a(("STW", M5)); a(("LDI", 0)); a(("SUBW", M1)); a(("STW", M1))
+    a(("fpd_bp:",)); a(("LDW", M1)); a(("JNZ", "fpd_ok")); a(("LDI", 0x7FFFFFFF)); a(("STW", M0)); a(("RET",))
+    a(("fpd_ok:",)); a(("LDW", M0)); shr(16); a(("STW", DVH)); a(("LDW", M0)); shl(16); a(("STW", DVL)); a(("LDW", M1)); a(("STW", DSR))
+    a(("CALL", "udiv32")); a(("LDW", DVL)); a(("STW", M0))
+    a(("LDW", M5)); a(("JZ", "fpd_pos")); a(("LDI", 0)); a(("SUBW", M0)); a(("STW", M0)); a(("fpd_pos:",)); a(("RET",))
+
+    # ---- cdigit: append the digit in CDIG to the entry mantissa, then commit to CCUR ----
+    a(("cdigit:",))
+    a(("LDW", CFRESH)); a(("JZ", "cd_keep")); a(("LDI", 0)); a(("STW", CMAN)); a(("STW", FPLACE)); a(("STW", CDOT)); a(("STW", CSGN)); a(("STW", CFRESH)); a(("cd_keep:",))
+    a(("LDW", CMAN)); a(("CMPI", 100000000)); a(("JNC", "cd_app")); a(("RET",))                  # 8-digit cap
+    a(("cd_app:",)); a(("LDW", CMAN)); shl(3); a(("STW", T0)); a(("LDW", CMAN)); a(("SHL",)); a(("ADDW", T0)); a(("ADDW", CDIG)); a(("STW", CMAN))   # CMAN = CMAN*10 + d
+    a(("LDW", CDOT)); a(("JZ", "cd_nofp")); a(("LDW", FPLACE)); a(("ADDI", 1)); a(("STW", FPLACE)); a(("cd_nofp:",))
+    a(("CALL", "ccommit")); a(("RET",))
+
     # ============ DESKTOP + WINDOW + APPS ============
     a(("draw:",))
     rect(0, 0, W, H, TEAL)                                   # background
@@ -250,16 +358,16 @@ def program():
     a(("draw_calc:",))
     wrect(12, 22, WW-24, 28, WHT)                  # display
     a(("LDI", RAMP["inkw"] - 1)); a(("STW", GRAMP))
-    a(("LDW", CCUR)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", 18)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 28)); a(("STW", GY)); a(("CALL", "dnum16"))
-    for r in range(4):
-        for c in range(4):
+    a(("LDW", CCUR)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", 18)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 28)); a(("STW", GY)); a(("CALL", "dnumfp"))
+    for r in range(len(CALC_KEYS)):
+        for c in range(len(CALC_KEYS[r])):
             lab = CALC_KEYS[r][c]
             if not lab: continue
-            bx = 18 + c*78; by = 58 + r*52
-            wrect(bx, by, 70, 44, SIL)
-            wrect(bx, by, 70, 1, WHT); wrect(bx, by, 1, 44, WHT)            # raised highlight (top/left)
-            wrect(bx, by+43, 70, 1, GRY); wrect(bx+69, by, 1, 44, GRY)     # shadow (bottom/right)
-            wctr16(bx+35, by+14, lab, "ksil")
+            bx, by, bw, bh = calcrect(r, c)
+            wrect(bx, by, bw, bh, SIL)
+            wrect(bx, by, bw, 1, WHT); wrect(bx, by, 1, bh, WHT)            # raised highlight (top/left)
+            wrect(bx, by+bh-1, bw, 1, GRY); wrect(bx+bw-1, by, 1, bh, GRY)  # shadow (bottom/right)
+            wctr16(bx+bw//2, by+(bh-16)//2, lab, "ksil")
     a(("RET",))
 
     # ---- clock (taskbar, right): "up <seconds> s" ----
@@ -349,31 +457,39 @@ def program():
     a(("RET",))
     # Calc: keypad
     a(("oc_calc:",))
-    for r in range(4):
-        for c in range(4):
+    for r in range(len(CALC_KEYS)):
+        for c in range(len(CALC_KEYS[r])):
             lab = CALC_KEYS[r][c]
             if not lab: continue
-            bx = 18 + c*78; by = 58 + r*52; t = f"ck{r}_{c}"
-            a(("LDW", MRX)); a(("CMPI", bx)); a(("JNC", t)); a(("CMPI", bx+70)); a(("JC", t))
-            a(("LDW", MRY)); a(("CMPI", by)); a(("JNC", t)); a(("CMPI", by+44)); a(("JC", t))
+            bx, by, bw, bh = calcrect(r, c); t = f"ck{r}_{c}"
+            a(("LDW", MRX)); a(("CMPI", bx)); a(("JNC", t)); a(("CMPI", bx+bw)); a(("JC", t))
+            a(("LDW", MRY)); a(("CMPI", by)); a(("JNC", t)); a(("CMPI", by+bh)); a(("JC", t))
             if lab.isdigit():
-                # CCUR = CCUR*10 + d   (10x via *8 + *2)
-                a(("LDW", CFRESH)); a(("JZ", f"cd{r}_{c}")); a(("LDI", 0)); a(("STW", CCUR)); a(("LDI", 0)); a(("STW", CFRESH)); a((f"cd{r}_{c}:",))
-                a(("LDW", CCUR)); shl(3); a(("STW", T0)); a(("LDW", CCUR)); a(("SHL",)); a(("ADDW", T0)); a(("ADDI", int(lab))); a(("STW", CCUR))
+                a(("LDI", int(lab))); a(("STW", CDIG)); a(("CALL", "cdigit"))      # Q16.16 decimal input
+            elif lab == '.':
+                a(("LDW", CFRESH)); a(("JZ", f"dp{r}_{c}")); a(("LDI", 0)); a(("STW", CMAN)); a(("STW", FPLACE)); a(("STW", CSGN)); a(("STW", CCUR)); a(("STW", CFRESH)); a((f"dp{r}_{c}:",))
+                a(("LDI", 1)); a(("STW", CDOT))                                    # enter fractional mode
             elif lab == 'C':
-                a(("LDI", 0)); a(("STW", CCUR)); a(("STW", CACC)); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH))
-            elif lab in '+-x':
+                a(("LDI", 0)); a(("STW", CMAN)); a(("STW", CCUR)); a(("STW", CACC)); a(("STW", COP)); a(("STW", FPLACE)); a(("STW", CDOT)); a(("STW", CSGN)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'CE':
+                a(("LDI", 0)); a(("STW", CMAN)); a(("STW", CCUR)); a(("STW", FPLACE)); a(("STW", CDOT)); a(("STW", CSGN)); a(("STW", CFRESH))
+            elif lab == '±':
+                a(("LDW", CSGN)); a(("ADDI", 1)); a(("ANDI", 1)); a(("STW", CSGN)); a(("LDI", 0)); a(("SUBW", CCUR)); a(("STW", CCUR))
+            elif lab == 'π':
+                a(("LDI", 205887)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))   # π·2^16
+            elif lab in '+-x÷':
                 a(("CALL", "calc_apply"))
-                a(("LDI", {'+':0,'-':1,'x':2}[lab])); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH))
+                a(("LDI", {'+':0,'-':1,'x':2,'÷':3}[lab])); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH)); a(("LDI", 0)); a(("STW", FPLACE)); a(("STW", CDOT))
             elif lab == '=':
-                a(("CALL", "calc_apply")); a(("LDW", CACC)); a(("STW", CCUR)); a(("LDI", 0)); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH))
+                a(("CALL", "calc_apply")); a(("LDW", CACC)); a(("STW", CCUR)); a(("LDI", 0)); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH)); a(("LDI", 0)); a(("STW", FPLACE)); a(("STW", CDOT))
             a(("LDI", 1)); a(("STW", BDIRTY)); a(("RET",)); a((f"{t}:",))
     a(("RET",))
     # calc_apply: fold CCUR into CACC using COP (first op just loads CACC)
     a(("calc_apply:",))
     a(("LDW", COP)); a(("CMPI", 0)); a(("JNZ", "ca_ns")); a(("LDW", CACC)); a(("ADDW", CCUR)); a(("STW", CACC)); a(("RET",))
     a(("ca_ns:",)); a(("CMPI", 1)); a(("JNZ", "ca_nm")); a(("LDW", CACC)); a(("SUBW", CCUR)); a(("STW", CACC)); a(("RET",))
-    a(("ca_nm:",)); a(("CMPI", 2)); a(("JNZ", "ca_load")); a(("CALL", "mul32")); a(("RET",))
+    a(("ca_nm:",)); a(("CMPI", 2)); a(("JNZ", "ca_nd")); a(("LDW", CACC)); a(("STW", M0)); a(("LDW", CCUR)); a(("STW", M1)); a(("CALL", "fpmul")); a(("LDW", M0)); a(("STW", CACC)); a(("RET",))
+    a(("ca_nd:",)); a(("CMPI", 3)); a(("JNZ", "ca_load")); a(("LDW", CACC)); a(("STW", M0)); a(("LDW", CCUR)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CACC)); a(("RET",))
     a(("ca_load:",)); a(("LDW", CCUR)); a(("STW", CACC)); a(("RET",))
 
     # ---- Writer: a text editor (renders TBUF with wrap + caret) ----

@@ -19,7 +19,7 @@ _blob = zlib.decompress(base64.b64decode(_f["b64"]))
 _cps = struct.unpack("<%dH" % (_f["n"]), base64.b64decode(_f["cps_b64"]))
 _w = base64.b64decode(_f["w_b64"])
 _idx = {cp: i for i, cp in enumerate(_cps)}
-SUBSET = list(range(0x20, 0x7F)) + list(range(0xA0, 0x100)) + [0x2014, 0x2026]   # ASCII + Latin-1 + — …
+SUBSET = list(range(0x20, 0x7F)) + list(range(0xA0, 0x100)) + [0x2014, 0x2026, 0x03C0, 0x221A]   # ASCII + Latin-1 + — … π √
 latin_glyphs = {}
 for cp in SUBSET:
     if cp in _idx:
