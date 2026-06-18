@@ -36,9 +36,9 @@ GROUPS = [
         ("glider-lab26.html", "The spoeqi envelope", "The SECURE pact: a vetted AEAD (AES-256-GCM) keyed by the CA — seal/unseal, with the generation discovered by the receiver."),
     ]),
     ("CA-2 — the 32-bit machine", [
-        ("glider-lab22.html", "CA-OS/2", "A 32-bit OS (512×384) on the CA-2 machine — launcher + apps."),
+        ("glider-lab22.html", "CA-OS/2", "A 32-bit OS (512×384) on the CA-2 machine — launcher + apps, draggable windows, a multilingual antialiased Writer, save/load."),
         ("glider-lab23.html", "Wide-word CA computer", "Factorials & RSA via BigInt — integers no host register can hold."),
-        ("glider-lab24.html", "CA-OS/2 dual-pane", "The full 32-bit suite over the encrypted line: metrics, How-it-works, live CA."),
+        ("glider-lab24.html", "CA-OS/2 dual-pane", "The full 32-bit suite shared over a SECURE line — every input delta sealed with AES-256-GCM keyed by the CA; cut/restore, metrics, live CA."),
         ("caos-32-min.html",  "CA-OS/2 (minimal)", "Just the OS and its apps — no prose, no demo tab. Shows how small the bare OS is."),
         ("glider-lab25.html", "CA Unicode Writer", "Type any language — the CA holds the full 16×16 Unifont (Latin/Greek/Cyrillic/CJK/Hangul/kana) in its own memory and blits every glyph."),
     ]),
@@ -81,7 +81,12 @@ def build():
  {''.join(rows)}
  <p class="foot">Each lab is self-contained HTML. The cellular automaton does the computing; the browser blits its
  framebuffer and forwards input. Honest scope notes are inside each lab. (Labs are generated locally by the
- <code>build_lab*.py</code> scripts; a “not generated” card just means that file isn’t built on this machine.)</p>
+ <code>build_lab*.py</code> scripts; a “not generated” card just means that file isn’t built on this machine.)
+ There is also a <b>pact in a binary</b>: <code>build_pactbundle.py</code> + <code>build_pactelf.py</code> emit
+ <code>./notesync</code>, a ~34&nbsp;KB standard Linux ELF that looks like an ordinary note utility but, given the
+ key, regenerates the whole CA-OS from its embedded program and serves it to your browser — and in
+ <code>host</code>/<code>join</code> mode relays AES-256-GCM-sealed input deltas to a second node (the OS is
+ regenerated on both ends; only sealed deltas cross). “Send the entire OS through the pact,” in 64&nbsp;KB.</p>
 </div></body></html>"""
     open(out, "w").write(html)
     print("wrote", out, len(html), "bytes;", n, "labs;",

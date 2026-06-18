@@ -599,6 +599,41 @@ at the tree level, a content-grounded anomaly score.
 Not handled (such terms evaluate to false, with a note): regex strings,
 positional operators (`$a at X`, `$a in (…)`), `uintN(…)` reads, modules.
 
+## The cellular-automaton computer & CA-OS (the `dissemination/` labs)
+
+A separate exploration in this repo, grown from the "fake transformer" thread: build a *computer* — and
+then an *operating system* — out of a hexagonal, 4-state (K=4) cellular automaton, and run it in the
+browser. There are **27 self-contained HTML labs** in `dissemination/` (open `dissemination/index.html`);
+each is generated locally by a `build_*.py` script. The arc:
+
+- **Rule → gates.** The hex K=4 rule and its gliders; a mutual-annihilation **latch** (one bit of
+  memory), a **NAND** gate, an inverter, a self-routing wire, a circulating register — all real CAs
+  running on verified rule tables (labs 1–10).
+- **A computer.** `cacpu.py` wires those primitives into **CA-1**, an 8-bit accumulator machine (latch
+  RAM + a CA-NAND-gate ALU). `ca1sys.py` makes it a **parameterized family** — CA-1/2/3/4 at
+  8/32/128/1024-bit — from one core; the genuine CA ripple-adder is verified bit-for-bit, including at
+  256/512-bit on an HPC run.
+- **An OS.** `caos_ca2.py` is **CA-OS/2**, a 32-bit desktop (Writer/Sheet/Calc/Paint) where the CA draws
+  every pixel and the browser is a dumb terminal: draggable windows, a **multilingual antialiased Writer**
+  (16×16 GNU-Unifont / WenQuanYi held in the CA's own memory — Latin/Greek/Cyrillic/CJK/Hangul/kana),
+  full-keyboard Unicode input, file save/load. The *same* OS source boots on 32/64/128-bit (width-clean).
+- **The pact.** Two nodes share a seed, run **identical** CAs (no data crosses — shared randomness), and
+  communicate only by **AES-256-GCM-sealed input deltas** keyed by the CA state (`SHA-256(domain‖seq‖CA
+  state)`); the receiver brute-forces a small generation window. lab24 shares a live desktop over this
+  line (cut/restore, a zero-trust relay); lab26 is the bare envelope. This mirrors the velour *spoeqi*
+  design (`envelope.py`).
+- **The whole OS in 64 KB.** `build_pactbundle.py` + `build_pactelf.py` emit `./notesync`, a ~34 KB
+  **standard Linux ELF** that looks like an ordinary note utility; given the key it regenerates the
+  entire CA-OS from its embedded program and serves it to your browser, and in `host`/`join` mode relays
+  sealed deltas to a second node — "send the whole OS through the pact," with almost nothing actually sent.
+
+**Honest scope.** The gate/latch/adder *primitives* are genuine CA, verified byte-for-bit; the running
+desktop is **ISA-emulated for speed**, not literally computed by colliding gliders (that would be ~10⁸×
+too slow). The pact's confidentiality/integrity rest on **AES-256-GCM** (a vetted AEAD) — the CA is the
+*key schedule*, not the cipher — and there is **no forward secrecy**; security reduces to seed secrecy.
+This is a **teaching instrument and an art/worldbuilding piece**, not a security product or a competitor
+to silicon. (Run `make test` for the regression suite that locks in these invariants.)
+
 ## Layout
 
 ```
