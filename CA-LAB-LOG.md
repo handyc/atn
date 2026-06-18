@@ -1904,3 +1904,27 @@ nearest-upscale of 1x pixels). Applied to pactbundle, pactbundle_duo, lab22/24/2
 itself (DejaVu 15, 16-level ramp) was fine all along. Also reverted pactbundle_duo to a compact subset:
 printable ASCII + Latin-1 Supplement (accented Latin) + (— …) = 193 glyphs, 148 KB (the full-CJK duo was
 4 MB; CJK is inherently ~2.7 MB of glyphs, no way to keep both small and CJK).
+
+## Sheet → 8×8, and a CORDIC math coprocessor built from the CA gates (2026-06-19)
+User asks: Excel clone with 8 columns × 8 rows; a scientific (floating-point) calculator; a math
+coprocessor; a GPU. Chose (via AskUserQuestion): coprocessor FIRST, built OUT OF THE CA GATES (purest).
+
+Sheet (caos_ca2.py): now an 8×8 grid with column headers A–H + row numbers 1–8 + live Total, cells
+shrunk (39×30) to fit the 340-wide window. Click hit-test is computed (col/row by repeated subtraction
+— no divide op), not 64 unrolled tests. Boot clears all 64 cells; CELLS region (0x0F00, 64×16 B) fits
+below the framebuffer. Verified by rendering the running OS; propagated to all labs + bundle/duo;
+pact ELF 38.2 KB (≤ 64 KB).
+
+Math coprocessor (cafpu.py): the CA-2 has no FPU, so transcendentals must be COMPUTED. CORDIC does it
+with nothing but add/subtract, shift, and a sign test — and here every add/subtract IS cacpu.add_n, the
+ripple of CA NAND-gate full-adders (verify_adder_ca proves that ripple == a real adder at any width).
+Shifts are wire re-indexing (structural, like glider routing); the sign is the MSB wire; the arctangent
+table + gain are a constant ROM. One CORDIC core, two modes: rotation → cos/sin, vectoring → atan2.
+Q4.28 fixed-point, 28 iterations. Two adder back-ends (identical algorithm): native ints (fast, to
+verify the algorithm) and the CA gates (slow — ~10 min for ONE cos at 32-bit, the project's "capability
+scales, speed never"). VERIFIED: algorithm vs math.* over a full turn max|Δcos|=3.7e-8 |Δsin|=3.6e-8
+|Δatan2|=2.0e-8 (= Q4.28 precision). Gate proof: a cos+sin(π/6) is 136 adds; 24/24 sampled operand-pairs
+recomputed on the genuine CA NAND gates are bit-exact vs native — and since CORDIC is ONLY adds and the
+adder is gate-verified at full 32-bit width, the trig is genuinely done by the cellular automaton.
+NEXT: sqrt/ln/exp via hyperbolic CORDIC; ×/÷ are already CA shift-add/shift-sub; then wire the
+coprocessor into a scientific Calc; the GPU is a separate track.

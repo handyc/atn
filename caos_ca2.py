@@ -69,6 +69,10 @@ CURSOR = [0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xE0, 0x40]
 
 # window + taskbar geometry
 WINX, WINY, WW, WH = 86, 38, 340, 306
+# Sheet: 8x8 grid (column headers A-H, row headers 1-8)
+SHX, SHY   = 22, 36     # grid origin: x after the row-number gutter, y after the column-header strip
+SHCW, SHCH = 39, 30     # cell width / height
+SHTOT      = SHY + 8*SHCH + 4    # y of the Total line (= 280)
 TBY = H - 22                                # taskbar top (taller, to fit antialiased labels)
 PSWATCH = [BLK, GRY, WHT, RED, GRN, BLU, NAV, TEAL]                # 8 paint colours
 # calc keypad: (label, kind, value) ; kind: d=digit o=op(0+,1-,2x) e== c=clear
@@ -323,14 +327,18 @@ def program():
     a(("no_grab:",))
     # in-app clicks
     a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "oc_paint")); a(("CMPI", 2)); a(("JZ", "oc_calc")); a(("CMPI", 4)); a(("JZ", "oc_sheet")); a(("RET",))
-    # Sheet: click selects a cell
+    # Sheet: click selects a cell — compute col/row by repeated subtraction (no divide op), SELC=row*8+col
     a(("oc_sheet:",))
-    for idx in range(12):
-        r, c = idx//3, idx%3; cx, cy = 12+c*108, 24+r*42
-        a(("LDW", MRX)); a(("CMPI", cx)); a(("JNC", f"ns{idx}")); a(("CMPI", cx+102)); a(("JC", f"ns{idx}"))
-        a(("LDW", MRY)); a(("CMPI", cy)); a(("JNC", f"ns{idx}")); a(("CMPI", cy+36)); a(("JC", f"ns{idx}"))
-        a(("LDI", idx)); a(("STW", SELC)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("RET",)); a((f"ns{idx}:",))
-    a(("RET",))
+    a(("LDW", MRX)); a(("CMPI", SHX)); a(("JNC", "oc_s_no")); a(("CMPI", SHX+8*SHCW)); a(("JC", "oc_s_no"))
+    a(("LDW", MRY)); a(("CMPI", SHY)); a(("JNC", "oc_s_no")); a(("CMPI", SHY+8*SHCH)); a(("JC", "oc_s_no"))
+    a(("LDW", MRX)); a(("SUBI", SHX)); a(("STW", T2)); a(("LDI", 0)); a(("STW", T0))      # col
+    a(("ocsc:",)); a(("LDW", T2)); a(("CMPI", SHCW)); a(("JNC", "ocsc_d")); a(("SUBI", SHCW)); a(("STW", T2)); a(("LDW", T0)); a(("ADDI", 1)); a(("STW", T0)); a(("JMP", "ocsc"))
+    a(("ocsc_d:",))
+    a(("LDW", MRY)); a(("SUBI", SHY)); a(("STW", T2)); a(("LDI", 0)); a(("STW", T1))      # row
+    a(("ocsr:",)); a(("LDW", T2)); a(("CMPI", SHCH)); a(("JNC", "ocsr_d")); a(("SUBI", SHCH)); a(("STW", T2)); a(("LDW", T1)); a(("ADDI", 1)); a(("STW", T1)); a(("JMP", "ocsr"))
+    a(("ocsr_d:",))
+    a(("LDW", T1)); shl(3); a(("ADDW", T0)); a(("STW", SELC)); a(("LDI", 1)); a(("STW", BDIRTY)); a(("RET",))
+    a(("oc_s_no:",)); a(("RET",))
     # Paint: palette swatches
     a(("oc_paint:",))
     for i, col in enumerate(PSWATCH):
@@ -384,21 +392,25 @@ def program():
     a(("dw_nx:",)); a(("LDW", WI)); a(("ADDI", 1)); a(("STW", WI)); a(("JMP", "dw_l"))
     a(("dw_car:",)); a(("LDW", GX)); a(("STW", AX)); a(("LDW", GY)); a(("STW", AY)); a(("LDI", 2)); a(("STW", AW)); a(("LDI", 16)); a(("STW", AH)); a(("LDI", BLK)); a(("STW", ACOL)); a(("CALL", "fillrect")); a(("RET",))
 
-    # ---- Sheet: 3x4 grid of 32-bit cells + a CA-summed Total ----
+    # ---- Sheet: 8x8 grid of 32-bit cells (A-H x 1-8) + a CA-summed Total ----
     a(("draw_sheet:",))
-    for idx in range(12):
-        r, c = idx//3, idx%3; cx, cy = 12+c*108, 24+r*42
-        wrect(cx, cy, 102, 36, GRY)
+    for c in range(8):                                                     # column headers A-H
+        wctr16(SHX + c*SHCW + SHCW//2, 21, chr(ord("A")+c), "gsil")
+    for r in range(8):                                                     # row headers 1-8
+        wctr16(12, SHY + r*SHCH + (SHCH-16)//2, chr(ord("1")+r), "gsil")
+    for idx in range(64):
+        r, c = idx//8, idx%8; cx, cy = SHX + c*SHCW, SHY + r*SHCH
+        wrect(cx, cy, SHCW, SHCH, GRY)                                     # cell border
         a(("LDW", SELC)); a(("CMPI", idx)); a(("JNZ", f"shw{idx}"))
-        wrect(cx+1, cy+1, 100, 34, LSV); a(("JMP", f"shv{idx}"))
-        a((f"shw{idx}:",)); wrect(cx+1, cy+1, 100, 34, WHT); a((f"shv{idx}:",))
-        a(("LDI", RAMP["inkw"] - 1)); a(("STW", GRAMP)); a(("LDW", CELLS+idx*CSTRIDE)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", cx+8)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", cy+10)); a(("STW", GY)); a(("CALL", "dnum16"))
-    a(("LDW", CELLS))
-    for i in range(1, 12): a(("ADDW", CELLS+i*CSTRIDE))
+        wrect(cx+1, cy+1, SHCW-2, SHCH-2, LSV); a(("JMP", f"shv{idx}"))    # selected cell highlighted
+        a((f"shw{idx}:",)); wrect(cx+1, cy+1, SHCW-2, SHCH-2, WHT); a((f"shv{idx}:",))
+        a(("LDI", RAMP["inkw"] - 1)); a(("STW", GRAMP)); a(("LDW", CELLS+idx*CSTRIDE)); a(("STW", DNV)); a(("LDW", WVX)); a(("ADDI", cx+4)); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", cy+(SHCH-16)//2)); a(("STW", GY)); a(("CALL", "dnum16"))
+    a(("LDW", CELLS))                                                      # Total = sum of all 64 cells
+    for i in range(1, 64): a(("ADDW", CELLS+i*CSTRIDE))
     a(("STW", DNV))
-    wrect(12, 200, 230, 18, SIL)                   # clear the total line (it redraws on every keystroke)
-    wputs16(12, 200, "Total =", "ksil")
-    a(("LDI", RAMP["nsil"] - 1)); a(("STW", GRAMP)); a(("LDW", WVX)); a(("ADDI", 12 + textw("Total = "))); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", 200)); a(("STW", GY)); a(("CALL", "dnum16")); a(("RET",))
+    wrect(8, SHTOT, WW-16, 18, SIL)                                        # clear the total line (redraws each keystroke)
+    wputs16(10, SHTOT, "Total =", "ksil")
+    a(("LDI", RAMP["nsil"] - 1)); a(("STW", GRAMP)); a(("LDW", WVX)); a(("ADDI", 10 + textw("Total = "))); a(("STW", GX)); a(("LDW", WVY)); a(("ADDI", SHTOT)); a(("STW", GY)); a(("CALL", "dnum16")); a(("RET",))
 
     # ---- keyboard input (Writer append/backspace ; Sheet digit -> selected cell) ----
     a(("keyin:",)); a(("LDW", APP)); a(("CMPI", 3)); a(("JZ", "ki_w")); a(("LDW", APP)); a(("CMPI", 4)); a(("JZ", "ki_s")); a(("RET",))
@@ -433,7 +445,7 @@ def program():
     # ============ boot + main ============
     a(("boot:",))
     for v in (MB, MBP, HAVES, CLKF, CSEC, APP, PCOL, CACC, CCUR, COP, TLEN, KEY, SELC, CWV, BDIRTY, PFRESH, DRAG): a(("LDI", 0)); a(("STW", v))
-    for i in range(12): a(("LDI", 0)); a(("STW", CELLS+i*CSTRIDE))   # clear sheet cells (zeros the full VS-byte slot on wide machines)
+    for i in range(64): a(("LDI", 0)); a(("STW", CELLS+i*CSTRIDE))   # clear all 64 sheet cells (full VS-byte slot)
     a(("LDI", 1)); a(("STW", CFRESH)); a(("STW", DIRTY)); a(("LDI", RED)); a(("STW", PCOL))
     a(("LDI", WINX)); a(("STW", WVX)); a(("LDI", WINY)); a(("STW", WVY))    # window starts at the default position
     a(("LDI", W//2)); a(("STW", CX)); a(("STW", OCX)); a(("LDI", H//2)); a(("STW", CY)); a(("STW", OCY))
