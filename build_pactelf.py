@@ -29,6 +29,7 @@ C = r'''/* notesync — a tiny note-sync utility. (Carries a sealed workspace; t
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <sys/un.h>   /* UNIXSOCK test build only: same code paths over AF_UNIX (loopback-firewalled CI) */
 
 static const unsigned char BUNDLE[] = {__BUNDLE__};
 static const int BUNDLE_LEN = __BLEN__;
@@ -54,10 +55,17 @@ static int b64dec(const char*in,int n,unsigned char*out){int o=0,buf=0,bits=0;fo
   if(c>='A'&&c<='Z')d=c-'A';else if(c>='a'&&c<='z')d=c-'a'+26;else if(c>='0'&&c<='9')d=c-'0'+52;else if(c=='+')d=62;else if(c=='/')d=63;else continue;
   buf=(buf<<6)|d;bits+=6;if(bits>=8){bits-=8;out[o++]=(buf>>bits)&0xFF;}}return o;}
 
+#ifdef UNIXSOCK
+/* test transport: AF_UNIX at /tmp/notesync_<port>.sock — identical HTTP/relay logic, real-machine TCP path below */
+static void unix_addr(struct sockaddr_un*a,int port){ memset(a,0,sizeof(*a)); a->sun_family=AF_UNIX; snprintf(a->sun_path,sizeof(a->sun_path),"/tmp/notesync_%d.sock",port); }
+static int listen_on(int port){ int s=socket(AF_UNIX,SOCK_STREAM,0); struct sockaddr_un a; unix_addr(&a,port); unlink(a.sun_path);
+  if(bind(s,(struct sockaddr*)&a,sizeof(a))||listen(s,8)){perror("bind");exit(1);} return s; }
+#else
 static int listen_on(int port){ int s=socket(AF_INET,SOCK_STREAM,0),one=1; setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
   struct sockaddr_in a; memset(&a,0,sizeof(a)); a.sin_family=AF_INET; a.sin_port=htons(port); a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
   if(port>=9000) a.sin_addr.s_addr=htonl(INADDR_ANY);   /* peer port reachable from the other machine */
   if(bind(s,(struct sockaddr*)&a,sizeof(a))||listen(s,8)){perror("bind");exit(1);} return s; }
+#endif
 
 int main(int argc,char**argv){
   if(argc<2||strcmp(argv[1],SECRET)!=0){ srand((unsigned)time(0)^(unsigned)getpid());
@@ -67,11 +75,22 @@ int main(int argc,char**argv){
   if(argc>=3&&!strcmp(argv[2],"host")){ role="host"; if(argc>=4)pport=atoi(argv[3]); }
   else if(argc>=4&&!strcmp(argv[2],"join")){ role="join"; peerip=argv[3]; if(argc>=5)pport=atoi(argv[4]); }
 
-  int httpL=listen_on(BPORT), peerL=-1, peer=-1;
+  int bport=BPORT;
+#ifdef UNIXSOCK
+  { const char*e=getenv("NS_BPORT"); if(e)bport=atoi(e); }   /* test: give the two local nodes distinct sockets */
+#endif
+  int httpL=listen_on(bport), peerL=-1, peer=-1;
   if(!strcmp(role,"host")){ peerL=listen_on(pport); fprintf(stderr,"hosting: peer may connect on tcp/%d\n",pport); }
-  else if(!strcmp(role,"join")){ peer=socket(AF_INET,SOCK_STREAM,0); struct sockaddr_in pa; memset(&pa,0,sizeof(pa));
+  else if(!strcmp(role,"join")){
+#ifdef UNIXSOCK
+    peer=socket(AF_UNIX,SOCK_STREAM,0); struct sockaddr_un pa; unix_addr(&pa,pport);
+    if(connect(peer,(struct sockaddr*)&pa,sizeof(pa))){ perror("connect peer"); peer=-1; } else fprintf(stderr,"joined peer %s\n",pa.sun_path);
+#else
+    peer=socket(AF_INET,SOCK_STREAM,0); struct sockaddr_in pa; memset(&pa,0,sizeof(pa));
     pa.sin_family=AF_INET; pa.sin_port=htons(pport); inet_pton(AF_INET,peerip,&pa.sin_addr);
-    if(connect(peer,(struct sockaddr*)&pa,sizeof(pa))){ perror("connect peer"); peer=-1; } else fprintf(stderr,"joined peer %s:%d\n",peerip,pport); }
+    if(connect(peer,(struct sockaddr*)&pa,sizeof(pa))){ perror("connect peer"); peer=-1; } else fprintf(stderr,"joined peer %s:%d\n",peerip,pport);
+#endif
+  }
   fprintf(stderr,"workspace ready  ->  http://127.0.0.1:%d   (role=%s)\n",BPORT,role);
   if(fork()==0){ char u[64]; snprintf(u,sizeof(u),"http://127.0.0.1:%d",BPORT); execlp("xdg-open","xdg-open",u,(char*)0); _exit(0); }
 
