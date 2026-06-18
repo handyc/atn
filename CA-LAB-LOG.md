@@ -1956,3 +1956,10 @@ A nasty bug found+fixed: in udiv32 the `ADDW FCB` clobbered the carry flag befor
 shifted-out bit for REM — so capture the SHL carry BEFORE any add. VERIFIED via a keypad-driving harness
 (reads CCUR): 2.5, 0.25, 3.14159 entered exactly; 2.5×4=10, 12×12=144, 100−0.25=99.75, 1÷3=0.33333,
 22÷7=3.14285, 10÷4=2.5, π, ±5 — all correct to Q16.16. pact ELF still 38.2 KB.
+
+## Scientific Calc, Stage 2: √, x², 1/x + full 6×5 keypad (2026-06-19, autonomous)
+Keypad expanded to the scientific 6×5 layout: [sin cos tan ln log][√ x² 1/x x^y e^x][7 8 9 × ÷]
+[4 5 6 − ±][1 2 3 + π][C 0 = . CE]. Implemented √ (Newton: x=(x+S/x)/2, 24 iters, reusing fpdiv), x²
+(fpmul), 1/x (fpdiv 1/x). The trig/log/pow keys are drawn but inert until Stages 3–4. VERIFIED:
+√2=1.41420, √144=12, √2.25=1.5, 5²=25, 1.5²=2.25, 1/4=0.25, 1/8=0.125. (Harness gotcha fixed: m.icount
+is cumulative, so reset it per simulated frame or late ops silently stop at max_i.) pact ELF 38.2 KB.

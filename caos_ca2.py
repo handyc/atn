@@ -82,8 +82,13 @@ FXFRAC = 16; FXONE = 1 << FXFRAC
 TBY = H - 22                                # taskbar top (taller, to fit antialiased labels)
 PSWATCH = [BLK, GRY, WHT, RED, GRN, BLU, NAV, TEAL]                # 8 paint colours
 # calc keypad: (label, kind, value) ; kind: d=digit o=op(0+,1-,2x) e== c=clear
-CALC_KEYS = [['7','8','9','x','÷'], ['4','5','6','-','±'], ['1','2','3','+','π'], ['C','0','=','.','CE']]
-def calcrect(r, c): return (10 + c*65, 58 + r*52, 60, 44)   # keypad button rect (shared by draw + hit-test)
+CALC_KEYS = [['sin','cos','tan','ln','log'],
+             ['√','x²','1/x','x^y','e^x'],
+             ['7','8','9','x','÷'],
+             ['4','5','6','-','±'],
+             ['1','2','3','+','π'],
+             ['C','0','=','.','CE']]
+def calcrect(r, c): return (10 + c*65, 54 + r*40, 60, 36)   # keypad button rect (shared by draw + hit-test)
 
 def make():
     return make_machine("CA-2", fb_addr=FB, fb_w=W, fb_h=H, memsize=MEMSIZE)
@@ -279,6 +284,15 @@ def program():
     a(("fpd_ok:",)); a(("LDW", M0)); shr(16); a(("STW", DVH)); a(("LDW", M0)); shl(16); a(("STW", DVL)); a(("LDW", M1)); a(("STW", DSR))
     a(("CALL", "udiv32")); a(("LDW", DVL)); a(("STW", M0))
     a(("LDW", M5)); a(("JZ", "fpd_pos")); a(("LDI", 0)); a(("SUBW", M0)); a(("STW", M0)); a(("fpd_pos:",)); a(("RET",))
+
+    # ---- fpsqrt: M0 = sqrt(M0)  (Q16.16, M0>=0) via Newton:  x = (x + S/x)/2 ----
+    a(("fpsqrt:",)); a(("LDW", M0)); a(("JN", "fps_z")); a(("JNZ", "fps_go")); a(("fps_z:",)); a(("LDI", 0)); a(("STW", M0)); a(("RET",))
+    a(("fps_go:",)); a(("LDW", M0)); a(("STW", M2)); a(("STW", M3)); a(("LDI", 24)); a(("STW", M4))   # S=M2, x=M3=S, 24 iters
+    a(("fps_l:",))
+    a(("LDW", M2)); a(("STW", M0)); a(("LDW", M3)); a(("STW", M1)); a(("CALL", "fpdiv"))             # M0 = S/x
+    a(("LDW", M0)); a(("ADDW", M3)); a(("STW", M0)); a(("LDW", M0)); a(("SHR",)); a(("STW", M3))      # x = (S/x + x)/2
+    a(("LDW", M4)); a(("SUBI", 1)); a(("STW", M4)); a(("JNZ", "fps_l"))
+    a(("LDW", M3)); a(("STW", M0)); a(("RET",))
 
     # ---- cdigit: append the digit in CDIG to the entry mantissa, then commit to CCUR ----
     a(("cdigit:",))
@@ -477,6 +491,12 @@ def program():
                 a(("LDW", CSGN)); a(("ADDI", 1)); a(("ANDI", 1)); a(("STW", CSGN)); a(("LDI", 0)); a(("SUBW", CCUR)); a(("STW", CCUR))
             elif lab == 'π':
                 a(("LDI", 205887)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))   # π·2^16
+            elif lab == '√':
+                a(("LDW", CCUR)); a(("STW", M0)); a(("CALL", "fpsqrt")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'x²':
+                a(("LDW", CCUR)); a(("STW", M0)); a(("STW", M1)); a(("CALL", "fpmul")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == '1/x':
+                a(("LDI", FXONE)); a(("STW", M0)); a(("LDW", CCUR)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
             elif lab in '+-x÷':
                 a(("CALL", "calc_apply"))
                 a(("LDI", {'+':0,'-':1,'x':2,'÷':3}[lab])); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH)); a(("LDI", 0)); a(("STW", FPLACE)); a(("STW", CDOT))
