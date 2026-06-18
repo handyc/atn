@@ -1928,3 +1928,20 @@ recomputed on the genuine CA NAND gates are bit-exact vs native — and since CO
 adder is gate-verified at full 32-bit width, the trig is genuinely done by the cellular automaton.
 NEXT: sqrt/ln/exp via hyperbolic CORDIC; ×/÷ are already CA shift-add/shift-sub; then wire the
 coprocessor into a scientific Calc; the GPU is a separate track.
+
+## FPU increment: full scientific kernel in cafpu.py (2026-06-19)
+Extended the CORDIC coprocessor to the whole scientific kernel, switched to Q16.16 (range ±32768,
+~5 digits — calculator-appropriate; the previous Q4.28 had great precision but only ±8 range, useless
+for a calculator). Added, all grounded in the same CA-gate ADD:
+  mul  — 64-bit shift-add partial products
+  div, 1/x — restoring division (shift-subtract + compare)
+  sqrt — bit-by-bit integer sqrt (subtract + compare + shift)
+  exp  — range-reduce by ln2 + Taylor on r (Σ rⁿ/n!, constants 1/n! in ROM; only mul+add)
+  ln   — normalize x=m·2^k + atanh series (2·Σ u^(2j+1)/(2j+1), u=(m-1)/(m+1); mul/div)
+  tan  = sin/cos ; pow(x,y) = exp(y·ln x)
+VERIFIED vs math.* (max err): cos 1.9e-4, sin 9.3e-5, tan 6.8e-4, atan2 5.8e-5, mul 6.1e-4, div 6.9e-5,
+sqrt 1.4e-5, exp 1.3e-3 (rel), ln 9.8e-5, pow 2.0e-4 (rel) — i.e. Q16.16 precision (~5 sig digits).
+Gate proof: one mixed cos+sqrt+exp+ln call is 31,710 adds; 24/24 randomly sampled operand-pairs
+recomputed on the genuine CA NAND gates are bit-exact. Everything is, literally, the verified adder.
+The CA-gate path is far too slow to run interactively (~minutes/op), so the OS scientific calculator
+will PORT these algorithms to CA-2 machine code — whose ALU is that same CA adder, just emulated fast.

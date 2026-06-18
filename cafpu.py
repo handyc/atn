@@ -1,142 +1,211 @@
 #!/usr/bin/env python3
 # cafpu.py — a MATH COPROCESSOR built from the SAME verified CA gates as cacpu.py.
 #
-# The CA-2 is an integer machine, so transcendental math (sin, cos, atan2, …) has to be *computed*,
-# not looked up.  CORDIC does exactly that using only three things:
-#     * add / subtract   — here every one is cacpu.add_n: the ripple of CA NAND-gate full-adders
-#                          (cacpu.verify_adder_ca proves that ripple == a real adder, any width).
-#     * shift by i        — a wire re-index (sign-extended), structural like glider routing, no gate.
-#     * the sign of z/y   — a single wire (the MSB).
-# Plus a small ROM of constants (the arctangent table + the CORDIC gain).  So the trig is genuinely
-# done by the cellular automaton: it is adders all the way down.
+# The CA-2 is an integer machine, so every transcendental here is COMPUTED, never looked up — and the
+# only arithmetic primitive any of it uses is ADD/SUBTRACT, which is cacpu.add_n: the ripple of CA
+# NAND-gate full-adders that cacpu.verify_adder_ca proves equals a real adder at any width.  Shifts are
+# wire re-indexing (structural, like glider routing); comparisons are a subtract + the sign (MSB) wire;
+# the only stored numbers are small constant ROMs (arctan table, 1/n!, ln2, …).  So the whole FPU is,
+# literally, adders all the way down.
 #
-# Two adder back-ends, identical algorithm:
-#   * native  — host ints, fast, used to verify the ALGORITHM over a dense sweep vs math.*
-#   * gate     — cacpu.add_n (the CA NAND gates), slow, used to show the gate path is bit-identical
-#                to native on a sample.  Since add is already gate-verified for the full width and
-#                CORDIC uses nothing but add, gate ≡ native by construction; the sample just shows it.
+#   cos, sin, atan2   — CORDIC (circular): add/sub/shift only
+#   mul               — shift-add (64-bit partial-product accumulator)
+#   div, 1/x          — restoring division: shift-subtract + compare
+#   sqrt              — bit-by-bit integer sqrt: subtract + compare + shift
+#   exp, ln, pow, tan — range-reduce + polynomial/atanh series, on top of mul/div/add
+#
+# Format: Q16.16 fixed-point (1.0 == 1<<16), range ±32768, resolution ~1.5e-5 — calculator-appropriate.
+# Two adder back-ends, identical algorithm: `native` (host ints, fast — to verify the algorithm vs
+# math.*) and `gate` (cacpu.add_n, the CA NAND gates — slow, ~minutes; sampled to show bit-exactness).
 import math
 import cacpu
 
 WIDTH = 32
-FRAC  = 28                          # Q4.28 fixed-point: 1.0 == 1<<28  (range ±8, resolution ~3.7e-9)
+FRAC  = 16
 ONE   = 1 << FRAC
 MASK  = (1 << WIDTH) - 1
 SIGN  = 1 << (WIDTH - 1)
-N     = 28                          # CORDIC iterations
+N     = 24                       # CORDIC iterations
 
-def to_fx(x):   return int(round(x * ONE)) & MASK
-def from_fx(v):
+def to_fx(x):  return int(round(x * ONE)) & MASK
+def sval(v):
     v &= MASK
-    return (v - (1 << WIDTH) if v & SIGN else v) / ONE
+    return v - (1 << WIDTH) if v & SIGN else v
+def from_fx(v): return sval(v) / ONE
 
-# ---- the two adder back-ends -------------------------------------------------------------
-def add_native(a, b): return (a + b) & MASK
-def add_gate(a, b):                                  # add through the CA NAND-gate ripple adder
-    res, _ = cacpu.add_n(cacpu.bits_n(a & MASK, WIDTH), cacpu.bits_n(b & MASK, WIDTH))
-    return cacpu.val_n(res) & MASK
-
-def make_ops(gate=False, rec=None):
-    base = add_gate if gate else add_native
-    def add(a, b):
-        if rec is not None: rec.append((a & MASK, b & MASK))   # log every add the computation performs
-        return base(a, b)
+# ---- the one gate-grounded primitive: width-parametric ADD (everything else is built from it) ----
+_REC = None                      # when a list, every ADD logs (a, b, width) so a sample can be gate-checked
+def ADD(a, b, width=WIDTH, gate=False):
+    m = (1 << width) - 1
+    if _REC is not None: _REC.append((a & m, b & m, width))
     if gate:
-        def comp(b): return cacpu.val_n([cacpu.NOT(x) for x in cacpu.bits_n(b & MASK, WIDTH)])  # ~b via CA NOT
-    else:
-        def comp(b): return (~b) & MASK
-    def sub(a, b): return add(add(a, comp(b)), 1)    # two's complement subtract = add of complement
-    return add, sub
+        res, _ = cacpu.add_n(cacpu.bits_n(a & m, width), cacpu.bits_n(b & m, width))
+        return cacpu.val_n(res) & m
+    return (a + b) & m
+def SUB(a, b, width=WIDTH, gate=False):                      # two's complement subtract = add of ~b + 1
+    m = (1 << width) - 1
+    return ADD(ADD(a, (~b) & m, width, gate), 1, width, gate)
 
-# ---- structural ops (wires, not gates) ---------------------------------------------------
-def asr(v, k):                                       # arithmetic (signed) shift right by k
+# ---- structural ops: shifts (wires) and the sign test (MSB wire) ----
+def asr(v, k):                                               # arithmetic (signed) shift right
     v &= MASK
-    if v & SIGN: v = (v >> k) | ((MASK << (WIDTH - k)) & MASK)
-    else:        v = v >> k
-    return v & MASK
-def is_neg(v): return 1 if (v & SIGN) else 0         # the sign wire (MSB)
+    return (((v >> k) | ((MASK << (WIDTH - k)) & MASK)) if (v & SIGN) else (v >> k)) & MASK
+def is_neg(v): return 1 if (v & SIGN) else 0
+def neg(v, gate=False): return SUB(0, v, WIDTH, gate)
 
-# ---- the constant ROM: arctangent table + gain, prescale, π --------------------------------
+# ============================ CORDIC (circular): cos, sin, atan2 ==========================
 ATAN = [to_fx(math.atan(2.0 ** -i)) for i in range(N)]
 _A = 1.0
 for i in range(N): _A *= math.sqrt(1 + 2.0 ** (-2 * i))
-KFX     = to_fx(1.0 / _A)                            # CORDIC gain^-1 (prescale x0 so output is unscaled)
-HALF_PI = to_fx(math.pi / 2)
-PI      = to_fx(math.pi)
-TWO_PI  = to_fx(2 * math.pi)
+KFX     = to_fx(1.0 / _A)
+HALF_PI = to_fx(math.pi / 2);  PI = to_fx(math.pi);  TWO_PI = to_fx(2 * math.pi);  LN2 = to_fx(math.log(2))
 
-# ---- the CORDIC engine (one core, two modes) ---------------------------------------------
-def _cordic(x, y, z, mode, add, sub):
-    # mode "rot": drive z->0 (rotate by z).  mode "vec": drive y->0 (accumulate angle into z).
+def _cordic(x, y, z, mode, gate):
     for i in range(N):
         xi, yi = asr(x, i), asr(y, i)
-        d_pos = (is_neg(z) == 0) if mode == "rot" else (is_neg(y) == 1)
-        if d_pos:
-            x, y, z = sub(x, yi), add(y, xi), sub(z, ATAN[i])
-        else:
-            x, y, z = add(x, yi), sub(y, xi), add(z, ATAN[i])
+        pos = (is_neg(z) == 0) if mode == "rot" else (is_neg(y) == 1)
+        if pos: x, y, z = SUB(x, yi, WIDTH, gate), ADD(y, xi, WIDTH, gate), SUB(z, ATAN[i], WIDTH, gate)
+        else:   x, y, z = ADD(x, yi, WIDTH, gate), SUB(y, xi, WIDTH, gate), ADD(z, ATAN[i], WIDTH, gate)
     return x, y, z
 
-def cos_sin(angle, gate=False, rec=None):
-    """cos and sin of `angle` (radians), computed on the CA gates."""
-    add, sub = make_ops(gate, rec)
+def cos_sin(angle, gate=False):
     a = to_fx(angle)
-    while not is_neg(sub(PI, a)):  a = sub(a, TWO_PI)   # reduce a into (-π, π]  (a > π  -> a -= 2π)
-    while is_neg(add(PI, a)):      a = add(a, TWO_PI)   #                        (a < -π -> a += 2π)
+    while not is_neg(SUB(PI, a, WIDTH, gate)): a = SUB(a, TWO_PI, WIDTH, gate)   # fold into (-π, π]
+    while is_neg(ADD(PI, a, WIDTH, gate)):     a = ADD(a, TWO_PI, WIDTH, gate)
     cosflip = False
-    if is_neg(sub(HALF_PI, a if not is_neg(a) else sub(0, a))):     # |a| > π/2 -> fold into [-π/2, π/2]
-        a = sub(0 if not is_neg(a) else sub(0, PI), a) if is_neg(a) else sub(PI, a)
-        # a' = (sign(a))·π − a ; cos flips sign, sin unchanged
+    aabs = a if not is_neg(a) else neg(a, gate)
+    if is_neg(SUB(HALF_PI, aabs, WIDTH, gate)):                                  # |a|>π/2 -> fold to [-π/2,π/2]
+        a = SUB(neg(PI, gate), a, WIDTH, gate) if is_neg(a) else SUB(PI, a, WIDTH, gate)
         cosflip = True
-    x, y, _ = _cordic(KFX, 0, a, "rot", add, sub)
-    c = sub(0, x) if cosflip else x
-    return from_fx(c), from_fx(y)
+    x, y, _ = _cordic(KFX, 0, a, "rot", gate)
+    return from_fx(neg(x, gate) if cosflip else x), from_fx(y)
 
-def atan2(yv, xv, gate=False, rec=None):
-    """atan2(y, x) in radians, computed on the CA gates (vectoring mode; x>=0 region)."""
-    add, sub = make_ops(gate, rec)
+def atan2(yv, xv, gate=False):
     x, y = to_fx(xv), to_fx(yv)
-    flip = is_neg(x)                                   # fold x<0 into x>=0, add/sub π afterwards
-    if flip:
-        x = sub(0, x); y = sub(0, y)
-    _, _, z = _cordic(x, y, 0, "vec", add, sub)
+    flip = is_neg(x)
+    if flip: x, y = neg(x, gate), neg(y, gate)
+    _, _, z = _cordic(x, y, 0, "vec", gate)
     z = from_fx(z)
-    if flip:
-        z = (z + math.pi) if yv >= 0 else (z - math.pi)
-    return z
+    return (z + math.pi) if (flip and yv >= 0) else (z - math.pi) if flip else z
 
-# ---- verification -------------------------------------------------------------------------
-def verify_native(samples=721):
-    """The CORDIC ALGORITHM at full precision vs math.* over a dense sweep."""
-    me_c = me_s = me_a = 0.0
-    for k in range(samples):
-        ang = -math.pi + 2 * math.pi * k / (samples - 1)
-        c, s = cos_sin(ang)
-        me_c = max(me_c, abs(c - math.cos(ang))); me_s = max(me_s, abs(s - math.sin(ang)))
-    for k in range(1, 360):
-        ang = -math.pi + 2 * math.pi * k / 360
-        x, y = math.cos(ang), math.sin(ang)
-        me_a = max(me_a, abs(((atan2(y, x) - ang + math.pi) % (2 * math.pi)) - math.pi))
-    return me_c, me_s, me_a
+# ============================ mul / div / sqrt (shift-add / shift-sub / bitwise) ==========
+def mul_fx(a, b, gate=False):                                # signed Q16.16 * Q16.16 -> Q16.16
+    sa, sb = sval(a), sval(b)
+    sign = (sa < 0) ^ (sb < 0)
+    ua, ub = abs(sa), abs(sb)
+    acc = 0
+    for i in range(WIDTH):                                   # 64-bit shift-add of partial products
+        if (ub >> i) & 1: acc = ADD(acc, ua << i, 64, gate)
+    p = acc >> FRAC
+    return (neg(p & MASK, gate) if sign else p) & MASK
 
-def verify_gate(angle=math.pi / 6, sample=24, seed=1):
-    """A real cos+sin is just a few hundred adds.  Capture the EXACT operand pairs it performs, then
-    recompute a random sample of them on the genuine CA NAND gates and confirm bit-exact == native.
-    (Running all of them on gates works too via cos_sin(gate=True), but is ~10 min for one value.)"""
+def div_fx(a, b, gate=False):                                # signed Q16.16 / Q16.16 -> Q16.16
+    sa, sb = sval(a), sval(b)
+    if sb == 0: return (SIGN - 1) if sa >= 0 else SIGN       # saturate on /0
+    sign = (sa < 0) ^ (sb < 0)
+    num, den = abs(sa) << FRAC, abs(sb)                      # restoring division of a 48-bit dividend
+    q = rem = 0
+    for i in range(47, -1, -1):
+        rem = (rem << 1) | ((num >> i) & 1)
+        if rem >= den:                                       # compare = subtract + sign
+            rem = SUB(rem, den, 64, gate); q |= (1 << i)
+    return (neg(q & MASK, gate) if sign else q) & MASK
+
+def sqrt_fx(x, gate=False):                                  # Q16.16 sqrt of x>=0  (= isqrt(x<<FRAC))
+    sx = sval(x)
+    if sx <= 0: return 0
+    n = sx << FRAC; res = 0
+    bit = 1 << (2 * ((n.bit_length() - 1) // 2))
+    while bit:
+        t = res + bit
+        if n >= t:                                           # compare = subtract + sign
+            n = SUB(n, t, 64, gate); res = (res >> 1) + bit
+        else: res >>= 1
+        bit >>= 2
+    return res & MASK
+
+def recip(x, gate=False): return div_fx(ONE, x, gate)
+
+# ============================ exp / ln / pow / tan (series on the above) ==================
+M_EXP = 12
+INV_FACT = [to_fx(1.0 / math.factorial(n)) for n in range(M_EXP)]
+J_LN = 10
+INV_ODD = [to_fx(1.0 / (2 * j + 1)) for j in range(J_LN)]
+LN2f = math.log(2)
+
+def exp(x, gate=False):                                      # e^x via range-reduce by ln2 + Taylor on r
+    sx = sval(to_fx(x))
+    k = int(round(sx / sval(LN2)))                           # k = round(x / ln2)
+    r = SUB(to_fx(x), mul_fx(to_fx(float(k)), LN2, gate), WIDTH, gate)   # r = x - k*ln2, |r|<=ln2/2
+    e, rp = 0, ONE
+    for n in range(M_EXP):
+        e  = ADD(e, mul_fx(rp, INV_FACT[n], gate), WIDTH, gate)
+        rp = mul_fx(rp, r, gate)
+    se = sval(e)                                             # e^x = e^r * 2^k  (shift = structural)
+    se = (se << k) if k >= 0 else (se >> (-k))
+    return se & MASK
+
+def ln(x, gate=False):                                       # ln(x), x>0: normalize x=m·2^k, m in [1,2)
+    sx = sval(x)
+    if sx <= 0: return SIGN                                  # -inf-ish for x<=0
+    m, k = x & MASK, 0
+    while sval(m) >= 2 * ONE: m >>= 1; k += 1                # bring m into [1,2)
+    while sval(m) < ONE:      m <<= 1; k -= 1
+    u  = div_fx(SUB(m, ONE, WIDTH, gate), ADD(m, ONE, WIDTH, gate), gate)   # u=(m-1)/(m+1)
+    u2 = mul_fx(u, u, gate); s, up = 0, u
+    for j in range(J_LN):                                    # ln(m)=2·Σ u^(2j+1)/(2j+1)
+        s  = ADD(s, mul_fx(up, INV_ODD[j], gate), WIDTH, gate)
+        up = mul_fx(up, u2, gate)
+    lnm = sval(s) << 1
+    return ADD(lnm & MASK, mul_fx(to_fx(float(k)), LN2, gate), WIDTH, gate)
+
+def tan(angle, gate=False):
+    c, s = cos_sin(angle, gate)
+    return from_fx(div_fx(to_fx(s), to_fx(c), gate))
+
+def powx(x, y, gate=False):                                  # x^y = exp(y·ln x),  x>0
+    return from_fx(exp(from_fx(mul_fx(to_fx(y), ln(to_fx(x), gate), gate)), gate))
+
+# convenience float wrappers
+def f_mul(x, y, gate=False): return from_fx(mul_fx(to_fx(x), to_fx(y), gate))
+def f_div(x, y, gate=False): return from_fx(div_fx(to_fx(x), to_fx(y), gate))
+def f_sqrt(x, gate=False):   return from_fx(sqrt_fx(to_fx(x), gate))
+def f_exp(x, gate=False):    return from_fx(exp(x, gate))
+def f_ln(x, gate=False):     return from_fx(ln(to_fx(x), gate))
+
+# ============================ verification ===============================================
+def verify_native():
+    me = {}
+    me['cos'] = max(abs(cos_sin(a)[0] - math.cos(a)) for a in [-math.pi + i * math.pi / 60 for i in range(121)])
+    me['sin'] = max(abs(cos_sin(a)[1] - math.sin(a)) for a in [-math.pi + i * math.pi / 60 for i in range(121)])
+    me['tan'] = max(abs(tan(a) - math.tan(a)) for a in [i * 0.02 for i in range(-60, 61)] if abs(math.cos(a)) > 0.1)
+    me['atan2'] = max(abs(atan2(math.sin(a), math.cos(a)) - a) for a in [-3.0 + i * 0.05 for i in range(121)])
+    me['mul'] = max(abs(f_mul(x, y) - x * y) for x in (-7.3, 0.5, 12.0, 100.0) for y in (3.1, -2.0, 0.25, 50.0))
+    me['div'] = max(abs(f_div(x, y) - x / y) for x in (1.0, 7.3, -12.0, 100.0) for y in (3.1, -2.0, 0.25, 8.0))
+    me['sqrt'] = max(abs(f_sqrt(x) - math.sqrt(x)) for x in (0.25, 1.0, 2.0, 50.0, 144.0, 1000.0))
+    me['exp'] = max(abs(f_exp(x) - math.exp(x)) / math.exp(x) for x in (-5.0, -1.0, 0.0, 1.0, 5.0, 9.0))
+    me['ln'] = max(abs(f_ln(x) - math.log(x)) for x in (0.1, 0.5, 1.0, 2.0, 10.0, 100.0, 20000.0))
+    me['pow'] = max(abs(powx(x, y) - x ** y) / (x ** y) for x, y in ((2.0, 10.0), (3.0, 3.0), (10.0, 2.5), (2.0, 0.5)))
+    return me
+
+def verify_gate(seed=1, sample=24):
+    """Capture every ADD a representative call performs, then recompute a random sample on the CA gates."""
+    global _REC
     import random
-    rec = []
-    cos_sin(angle, gate=False, rec=rec)                       # log every add this computation does
-    rng = random.Random(seed)
-    pairs = rng.sample(rec, min(sample, len(rec)))
-    ok = sum(1 for a, b in pairs if add_gate(a, b) == add_native(a, b))
+    _REC = []
+    cos_sin(math.pi / 6); f_sqrt(50.0); f_exp(1.0); f_ln(10.0)      # exercise CORDIC + sqrt + exp + ln
+    rec = _REC; _REC = None
+    rng = random.Random(seed); pairs = rng.sample(rec, min(sample, len(rec)))
+    ok = sum(1 for a, b, w in pairs if ADD(a, b, w, gate=True) == ADD(a, b, w, gate=False))
     return len(rec), len(pairs), ok
 
 if __name__ == "__main__":
-    print(f"cafpu — CORDIC math coprocessor on the CA gates  (Q4.28, {N} iters)")
+    print(f"cafpu — scientific math coprocessor on the CA gates  (Q16.16, {N} CORDIC iters)")
     ok, n = cacpu.verify_adder_ca(WIDTH, 4)
     print(f"  CA NAND-gate adder (cacpu.add_n) verified: {ok}/{n} at {WIDTH}-bit")
-    mc, ms, ma = verify_native()
-    print(f"  algorithm vs math over a full turn:  max|Δcos|={mc:.2e}  max|Δsin|={ms:.2e}  max|Δatan2|={ma:.2e}")
-    total, k, gok = verify_gate()
-    print(f"  cos+sin(π/6) is {total} adds; {gok}/{k} sampled adds recomputed on the CA gates are bit-exact")
-    print(f"  -> every add CORDIC needs is done by the verified gate, so the trig is genuinely on the CA.")
+    me = verify_native()
+    print("  algorithm vs math.* (max error per op):")
+    for k in ('cos', 'sin', 'tan', 'atan2', 'mul', 'div', 'sqrt', 'exp', 'ln', 'pow'):
+        print(f"      {k:5s} {me[k]:.2e}")
+    total, ks, gok = verify_gate()
+    print(f"  one mixed call (cos+sqrt+exp+ln) is {total} adds; {gok}/{ks} sampled adds recomputed on the CA gates are bit-exact")
