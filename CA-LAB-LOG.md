@@ -2183,3 +2183,13 @@ verify_adder_ca(32)=3/3 and (64)=3/3. Measured 3.97x faster on verify_alu(10) (1
 run now ~6.5s. So every gate primitive in the repo (shared gatecell/caregen + the CPU's private ca_nand) is
 now right-sized. Remaining optimization axes: the storage Reg settle (HOLD=12, already modest) and
 gate-count minimization in calayout's SOP synthesis. Updates [[atn-ca-optimization]].
+
+## Optimization: storage Reg geometry (cacpu) (2026-06-19)
+The CA-latch register (cacpu.Reg) was the most over-provisioned of all — regopt.py found the roundtrip stays
+100% exact down to HOLD=2, H=16, cell=20px (37.5x at the floor). Reason: on a fresh write each bit's column
+has only ONE populated layer (A xor B), so there's NO mutual-annihilation contention to settle out — the
+latch's hold-without-decay property (the thing that genuinely needs the latch) is verified SEPARATELY in
+register.py/memcap over 600 steps, not exercised by a write->read. Shipped with margin (HOLD 12->4, H 40->24,
+cell 50->30px = C24/GAP6/PS16), ~8x cheaper per write, 5.18x measured on the 16-byte roundtrip. Re-verified:
+cacpu storage 16/16, add8/sub8 10/10, 7*6=42 program correct. (Storage isn't the CPU bottleneck — the ALU
+NANDs dominate — but the win is real for storage-heavy programs.) Updates [[atn-ca-optimization]].

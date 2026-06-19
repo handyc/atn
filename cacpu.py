@@ -33,7 +33,10 @@ G = best_genome(); LO = newton_lut(*G["A"]); LZ = newton_lut(*G["B"])
 def stepf(b, lut, W, H): return lut[rulehub.hex_key(b.astype(np.int64))].astype(np.uint8)
 
 # ============================ STORAGE: a CA-latch register ===============================
-C, GAP, H, PS, HOLD = 40, 10, 40, 24, 12
+# Geometry was 40/10/40/24/12; roundtrip stays exact down to 16/4/16/10/2 (regopt.py) — on a fresh write
+# each bit's column has only ONE populated layer, so there's no annihilation contention to settle (the
+# latch's hold-without-decay is verified separately in register.py/memcap). Shipped with margin, ~8x cheaper.
+C, GAP, H, PS, HOLD = 24, 6, 24, 16, 4
 class Reg:
     """n bits, each a mutual-annihilation latch cell on a shared board (verified mechanism)."""
     def __init__(self, n, seed=0):
