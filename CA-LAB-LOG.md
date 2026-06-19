@@ -2172,3 +2172,14 @@ verify (1.25s->0.35s), on top of the cached-gather hex_key win (~2.5-4.65x) — 
 on gate-level circuits, zero accuracy loss. cacpu's CPU has its own identical-but-separate ca_nand
 (S=60,GHOLD=60) — the same easy win remains there (needs its program tests re-run). Optimization axes left:
 that cacpu gate budget; gate-count minimization in calayout's SOP synthesis.
+
+## Optimization: cacpu's CPU ALU gate (the same over-provisioning) (2026-06-19)
+cacpu.py's self-contained ca_nand (the CPU's ALU gate) carried the same stale S=60/GHOLD=60. It's the
+identical latch (same flipflopga-v1 genome, bias 18 / insz 14) as the gatecell gate just swept, so the
+proven 100% floor (side 40 / hold 10) transfers — shipped at 48/20 (~2x margin). Re-verified on cacpu's OWN
+deeper-composed tests (add8 = ~104 NANDs each): storage 16/16 latch-RAM roundtrip PASS, add8 10/10, sub8
+10/10, zero-flag ok, the 7*6=42 multiply program CORRECT (50 instr, CA-decided branch), wide CA adder
+verify_adder_ca(32)=3/3 and (64)=3/3. Measured 3.97x faster on verify_alu(10) (14.15s->3.57s); full cacpu.py
+run now ~6.5s. So every gate primitive in the repo (shared gatecell/caregen + the CPU's private ca_nand) is
+now right-sized. Remaining optimization axes: the storage Reg settle (HOLD=12, already modest) and
+gate-count minimization in calayout's SOP synthesis. Updates [[atn-ca-optimization]].

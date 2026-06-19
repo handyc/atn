@@ -57,7 +57,9 @@ class Reg:
         return out
 
 # ============================ ALU: the verified CA NAND gate =============================
-S, BIAS, INSZ, GHOLD = 60, 18, 14, 60
+# S/GHOLD were 60/60; the same latch (same genome, bias 18 / insz 14) decides 100% held-out at side 40 /
+# hold 10 (caregen_opt.py), so 48/20 keeps ~2x margin and runs the CPU's arithmetic ~3.5x faster.
+S, BIAS, INSZ, GHOLD = 48, 18, 14, 20
 _grng = np.random.default_rng(0)
 def ca_nand(a, b):
     O = np.zeros((S, S), np.uint8); Z = np.zeros((S, S), np.uint8)
