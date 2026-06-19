@@ -25,9 +25,9 @@ def best_genome():
     R.sort(key=lambda r: -r["fitness"]); return R[0]["genome"]
 
 G = best_genome(); LO = newton_lut(*G["A"]); LZ = newton_lut(*G["B"])
-S = 60  # cell board
+S = 48  # cell board (was 60; the latch decides 100% held-out at 48 — see caregen_opt.py)
 
-def decide(A, B, bias, insz, hold=60, seed=0):
+def decide(A, B, bias, insz, hold=20, seed=0):    # hold was 60; 100% held-out at 20 (caregen_opt.py)
     rng = np.random.default_rng(seed)
     O = np.zeros((S, S), np.uint8); Z = np.zeros((S, S), np.uint8)
     def patch(arr, r, c, sz): arr[r-sz//2:r-sz//2+sz, c-sz//2:c-sz//2+sz] = rng.integers(1, 4, (sz, sz))

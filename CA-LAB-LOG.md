@@ -2156,3 +2156,19 @@ benefit most. Verified no behaviour change: catick still period=2×circumference
 adder still 100% held-out, caregen gates still 100%. Only the top-level rulehub.py is touched; the alice/*
 vendored copies are frozen job snapshots. Optimization axes left: logic/area (caregen hold=40 ticks/gate is
 generous; gate-count minimization) and clock rate (faster glider / smaller torus).
+
+## Optimization: gate hold-time + board size were 4-13x over-provisioned (2026-06-19)
+The two CA gate primitives that dominate every datapath were running far longer / larger than needed. A
+held-out sweep (caregen_opt.py, 40 fresh seeds) found the real 100% floors:
+  * caregen.inverter (NOT): 100% held-out down to hold=4 (was 40) and side=32 (was 64) — 11x cheaper at the
+    floor. Shipped with 2x margin: hold=10, side=48.
+  * gatecell.decide (NAND/NOR latch): 100% down to hold=10 (was 60) and side=40 (was 60) — 13.5x at floor.
+    Shipped at hold=20, side=48.
+The old budgets assumed the mutual-annihilation latch needed many ticks to settle; it actually locks almost
+immediately (100% at every swept hold from 40 down to 4). Re-verified at the shipped settings, all 100%
+held-out: gatecell (NOR+NAND, 4 configs), compose (NOT/AND/OR/XOR/half-adder), caregen (NOT/AND/OR),
+caclock (XOR + 1-bit full adder), catickdrive (self-timed counter). Measured 3.54x faster on the full-adder
+verify (1.25s->0.35s), on top of the cached-gather hex_key win (~2.5-4.65x) — together ~an order of magnitude
+on gate-level circuits, zero accuracy loss. cacpu's CPU has its own identical-but-separate ca_nand
+(S=60,GHOLD=60) — the same easy win remains there (needs its program tests re-run). Optimization axes left:
+that cacpu gate budget; gate-count minimization in calayout's SOP synthesis.

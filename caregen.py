@@ -24,10 +24,10 @@ def newton_lut(cx, cy, span, it=160, side=128):
     if l[0] != 0: l = l.copy(); l[0] = 0
     return l
 L = newton_lut(-0.255, -0.077, 0.270)                # the write-once latch territory rule
-SIDE = 64
+SIDE = 48                                             # was 64; NOT is 100% held-out at 48 (caregen_opt.py)
 NB, NI = 18, 14                                       # NAND-tuned bias/input (gatecell.py / compose.py)
 
-def inverter(inval, pullA=False, seed=1, hold=40):
+def inverter(inval, pullA=False, seed=1, hold=10):    # hold was 40; 100% held-out at 10 (caregen_opt.py)
     """Regenerating NOT.  input=1 -> RESET writes first -> latch locks "0"; input=0 -> pull-up writes late
     -> "1".  Returns the held latch value (= pull-up species dominant)."""
     rng = np.random.default_rng(seed)
