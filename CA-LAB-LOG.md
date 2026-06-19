@@ -2025,3 +2025,13 @@ hit-test extended to 6 buttons. VERIFIED by rendering the running OS: a correct 
 X-tilt, animating as ANGLE advances. So the full set is done — the CA computer now has a math coprocessor
 (cafpu), a scientific calculator, and a GPU (cagpu standalone + this in-OS 3D demo), all grounded in the
 verified CA NAND-gate adder. pact ELF 42.2 KB.
+
+## Fix: lab24 startup glitch — text blank until first click (2026-06-19)
+User: lab24 (Alice & Bob dual view) showed most elements only after a mouse click. Cause: tick() (the
+dual-VM loop) was NOT gated on `ready`, unlike every other lab's frame loop. So reset() booted the VMs
+and started tick() BEFORE the async loadFont() finished → the OS did its one-time boot draw with an EMPTY
+font table → all text (titles, About panel, taskbar labels = "most elements") rendered blank; the font
+arrived a moment later but DIRTY was already cleared, so nothing redrew until a click set DIRTY again.
+Fix (one line, matching lab22/25/min): `if(!ready){raf=requestAnimationFrame(tick);return;}` at the top
+of tick() — wait for the font before the first full draw. Verified in a real browser: both desktops boot
+fully rendered, no click needed.

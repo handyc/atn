@@ -387,6 +387,7 @@ function reset(){if(raf)cancelAnimationFrame(raf);pact=buildPact($("seed").value
  $("sent").textContent=0;$("ndelta").textContent=0;$("wire").textContent="idle";drawGrids();renderServer();stats();renderMetrics();raf=requestAnimationFrame(tick);}
 let fc=0;
 function tick(){
+ if(!ready){raf=requestAnimationFrame(tick);return;}   // wait for the font before the OS's first (only) full draw
  if(pendKey===0&&keyq.length)pendKey=keyq.shift();   // feed one queued key per frame (lossless typing)
  // ALICE: drive locally (always — a cut line never stops her own machine)
  wr32(aliceVM,OS.MX,mx);wr32(aliceVM,OS.MY,my);wr32(aliceVM,OS.MB,mb);wr32(aliceVM,OS.KEY,pendKey);const ipf=aliceVM.run(OS.prog);ipfTotal+=ipf;blit(ctxA,imA,octA,ocA,aliceVM);
