@@ -2094,3 +2094,17 @@ latches values between stages is orchestrated, exactly like CA-1's control unit 
 CAPABILITY gap is closed — NOT + NAND compose any boolean, and with the latch (memory) any sequential
 circuit; what remains is integration engineering (a P&R that places NAND-chambers + inverter-latches +
 clocking for an arbitrary netlist). Updates [[atn-ca-memory-computation]].
+
+## Integrated P&R + clocked CA evaluation: caclock.py (bar #1) (2026-06-19)
+Unified the two halves into one tool: an arbitrary NAND/NOT netlist -> auto-placed on one CA board (caplace
+placer, by logic depth) -> EVALUATED level-by-level, each gate a genuine CA run (the gatecell NAND latch +
+the caregen regenerating-inverter latch). The inter-stage "clock" is a topological sweep that latches each
+gate's bit and feeds the next — orchestrated, exactly like CA-1's control unit. VERIFIED clocked CA eval,
+100% held-out: XOR (4 NANDs) and a 1-bit FULL ADDER (9 NANDs, all 8 combos correct sum+carry) — the heart
+of the CPU's ALU, laid out + computed by the cellular automaton. The full adder's wiring is auto-routed too
+(thin connectivity wires via caplace.lee_route): 9 gate-regions placed, 12/18 wires routed. HONEST ROUTER
+LIMIT: the basic greedy maze router walls off high-degree gates (a 4-incident-net node) after its first
+nets — the classic no-rip-up failure; rip-up-and-retry is the standard fix, a router-quality issue, NOT a
+CA limitation (placement + the CA computation are general). Also improved caplace.route (per-source fan-out
+staggering for ports+chambers, shortest-first order); its NOR3/NOR4 demos still 100%. So bar #1 is met: a
+self-laid-out, CA-computed, clocked arbitrary datapath; the only loose end is a production router.

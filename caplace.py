@@ -99,15 +99,20 @@ def route(net, pos, ports):
     seeds = {}
     bias = {c: (pos[c][1], pos[c][0]) for c in net.chambers}
     fanin = {c: sum(1 for s, d in net.nets if d == c) for c in net.chambers}
+    fanout = {}; outcount = {}                                        # per-SOURCE fan-out (ports + chambers)
+    for s, d in net.nets: fanout[s] = fanout.get(s, 0) + 1; outcount[s] = 0
     incount = {c: 0 for c in net.chambers}
-    for s, d in net.nets:
+    def stagger(centre, count, total):                                # spread N entry/exit cells across an edge
+        return centre + int(round((count - (total-1)/2) * (2*(CH_HALF-1)) / max(1, total-1)))
+    order = sorted(net.nets, key=lambda sd: abs(pos[sd[1]][0] - (ports[sd[0]][0] if sd[0] in ports else pos[sd[0]][0])))
+    for s, d in order:
         cxd, cyd = pos[d]; k = incount[d]; incount[d] += 1
-        f = fanin[d]; off = int(round((k - (f-1)/2) * (2*(CH_HALF-1)) / max(1, f-1)))
-        dst = (cyd + off, cxd - CH_HALF - 1)                          # spread entries on the chamber's left edge
+        dst = (stagger(cyd, k, fanin[d]), cxd - CH_HALF - 1)          # spread entries on the dest's left edge
+        ko = outcount[s]; outcount[s] += 1
         if s in ports:
-            src = (ports[s][1], ports[s][0])
+            src = (stagger(ports[s][1], ko, fanout[s]), ports[s][0])  # spread exits from the input port
         else:
-            cxs, cys = pos[s]; src = (cys, cxs + CH_HALF + 1)         # leave the source chamber on its right edge
+            cxs, cys = pos[s]; src = (stagger(cys, ko, fanout[s]), cxs + CH_HALF + 1)   # ... or the source chamber's right edge
         occupied[src] = False; occupied[dst] = False
         path = lee_route(occupied, src, dst)
         if path is None: raise RuntimeError(f"route failed {s}->{d}")
