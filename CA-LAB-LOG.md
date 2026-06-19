@@ -2223,3 +2223,18 @@ CA-steps (=2×circumference), counter cycles cleanly; headless Chromium boot is 
 passes, OS renders both panes, panel 6 present). NOTE: nearly clobbered the existing build_lab26.py (the
 spoeqi-envelope lab) — caught it, restored from git, and renumbered the new lab to 27. Hub updated (28 labs).
 dissemination/*.html stay local/gitignored; build_lab27.py + build_hub.py committed.
+
+## Fixes: production router (rip-up-and-retry) + fast castep propagated (2026-06-19)
+Two "what else needs fixing" items after the optimization session:
+1. ROUTER (the real one): caclock.layout — the thin connectivity-diagram router — got only 12/18 wires on the
+   full adder and the code flagged "rip-up-and-retry is the standard fix." Done: (a) every net now enters/
+   leaves a chamber at a STAGGERED EDGE cell (the old router aimed all of a gate's wires at its single centre,
+   so they boxed each other in), and (b) failed nets are re-prioritised to the FRONT of the next pass
+   (rip-up-and-retry), keeping the best pass; (c) dropped the 1-cell wire margin (a diagram's wires may run
+   adjacent, they just can't overlap). Result: full adder 18/18 wires routed — the datapath is now fully
+   auto-laid-out. (evaluate() was already 100%; this completes the floorplan, the honest 12/18 caveat is gone.)
+2. SPEED WIN PROPAGATED: the cached-gather castep (the hex_key optimization in JS) added to build_lab24 (the
+   showcase) and build_lab26 (spoeqi envelope) — both rebuilt + headless-boot verified error-free. NOT applied
+   to labs 16-21: they load a /tmp/caos3_export.json artifact that no tracked script regenerates, so they
+   can't be rebuilt here to verify — left on the old (correct, slower) step rather than ship untested. Updates
+   [[atn-ca-optimization]], [[atn-ca-memory-computation]].
