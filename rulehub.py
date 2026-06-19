@@ -72,13 +72,33 @@ def gen_lut(fam, rng, it=200, side=128):
     return _posterise(e, it), (cx, cy, sp)
 
 # ---------- 2D hex step + classify ----------
-def _em(H): return (np.arange(H) % 2 == 0).reshape(H, 1)
+# The 6 hex neighbours of every cell are a FIXED toroidal permutation, so precompute the gather indices
+# once per board size and cache them: each step is then 6 flat gathers instead of 8 np.roll + 4 np.where on
+# int64.  Bit-exact with the old roll/where version for the int64 boards every caller feeds in (verified in
+# bench_hexkey.py); ~2.6-3.3x faster, and it gates EVERY sim (gates, CPU, clock, the ALICE wide-word runs).
+_NIDX = {}
+def _nidx(H, W):
+    k = (H, W)
+    hit = _NIDX.get(k)
+    if hit is not None: return hit
+    R, C = np.meshgrid(np.arange(H), np.arange(W), indexing="ij")
+    even = (R % 2 == 0)
+    def flat(rr, cc): return ((rr % H) * W + (cc % W)).ravel().astype(np.intp)
+    idx = (flat(R-1, np.where(even, C-1, C)),          # nw
+           flat(R-1, np.where(even, C,   C+1)),        # ne
+           flat(R,   C+1),                             # rg (east)
+           flat(R+1, np.where(even, C,   C+1)),        # se
+           flat(R+1, np.where(even, C-1, C)),          # sw
+           flat(R,   C-1))                             # l  (west)
+    _NIDX[k] = idx; return idx
+
 def hex_key(b):
-    H = b.shape[0]; em = _em(H)
-    up = np.roll(b, 1, 0); dn = np.roll(b, -1, 0); l = np.roll(b, 1, 1); rg = np.roll(b, -1, 1)
-    nw = np.where(em, np.roll(up, 1, 1), up); ne = np.where(em, up, np.roll(up, -1, 1))
-    sw = np.where(em, np.roll(dn, 1, 1), dn); se = np.where(em, dn, np.roll(dn, -1, 1))
-    return (b << 12) | (nw << 10) | (ne << 8) | (rg << 6) | (se << 4) | (sw << 2) | l
+    H, W = b.shape
+    nw, ne, rg, se, sw, l = _nidx(H, W)
+    bf = b.reshape(-1).astype(np.uint16)               # 2-bit states packed into a 14-bit key (overflow-safe)
+    key = ((bf << 12) | (bf[nw] << 10) | (bf[ne] << 8) | (bf[rg] << 6)
+           | (bf[se] << 4) | (bf[sw] << 2) | bf[l])
+    return key.reshape(H, W)
 def cls_of(act):
     return 1 if act < 0.02 else 2 if act < 0.08 else 3 if act > 0.55 else 4
 def classify_hex(rule, side=80, ticks=14, seed=0):

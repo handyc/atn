@@ -2142,3 +2142,17 @@ by its consumer. So bar #2 is closed: a CA sequential circuit whose tempo is the
 time, no host step-counter. (The orchestrated piece that remains in caclock — its inter-LEVEL topological
 sweep latching combinational gates — could now be paced by this same glider tick; that's a wiring swap, the
 self-timing primitive itself is proven here.) Updates [[atn-ca-memory-computation]].
+
+## Optimization: cached-gather hex_key — the universal hot loop (2026-06-19)
+hex_key (self + 6 hex neighbours -> 14-bit LUT key) is the inner loop of EVERYTHING — every gate, the CPU,
+the clock, the ALICE wide-word adders. The old version did 8 np.roll + 4 np.where on int64 arrays every
+step, recomputing the same fixed toroidal neighbour permutation each time. On a fixed board the 6 neighbours
+are constant, so rulehub.py now precomputes the gather indices ONCE per board size (cached by (H,W)) and each
+step is 6 flat gathers on a uint16-packed board instead of 8 rolls + 4 where on int64. BIT-EXACT vs the
+original on the int64 boards every caller feeds in (bench_hexkey.py regression test; uint8 N/A — the old code
+overflowed on `b<<12` and nothing used it). Speedup 2.5x (60×60) to 4.65x (128×128) — bigger boards win more
+(int64 roll/where is memory-bandwidth-bound; the uint16 gather is lighter), so the wide-word ALICE runs
+benefit most. Verified no behaviour change: catick still period=2×circumference (corr +1.000), caclock full
+adder still 100% held-out, caregen gates still 100%. Only the top-level rulehub.py is touched; the alice/*
+vendored copies are frozen job snapshots. Optimization axes left: logic/area (caregen hold=40 ticks/gate is
+generous; gate-count minimization) and clock rate (faster glider / smaller torus).
