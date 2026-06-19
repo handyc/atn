@@ -2079,3 +2079,18 @@ opposite the neighbour the table most copies), honest prior-art (novel vs Wuensc
 direction, vs evolutionary glider search, vs anisotropy-as-artifact; substrate=Wuensche/DDLab, framing=ReCA),
 and limitations (uneven heading coverage; first-order tails; anisotropy blocks collision logic -> the
 computer uses the latch). Companion to FINDINGS.md (reservoir) + LITERATURE.md (novelty map).
+
+## Active regeneration: the latch-inverter closes multi-level logic (caregen.py) (2026-06-19)
+The honest frontier from caplace — pure carrier-flow composes only routed multi-input NOR, because a gate
+whose output is "1" emits no downstream carrier (and the symmetric mutual-annihilation gives no way to
+invert). Closed it with an ACTIVE element: the mutual-annihilation LATCH as a REGENERATING INVERTER.
+Mechanism = write-once timing: the newton latch is first-writer-wins (flipflop.py: SET holds, RESET can't
+overpower), so make input=1 write the RESET species FIRST (locks "0") and the pull-up write LATE (sets "1"
+only if nothing locked it) -> NOT. The latch then HOLDS and owns its territory = a restored, regenerated
+output, not an attenuated carrier. VERIFIED 100% held-out: NOT (0->1,1->0); and clocked TWO-LEVEL
+AND = NOT(NAND(a,b)) and OR = NAND(NOT a, NOT b) — functions NO single carrier-flow chamber can produce.
+Per-gate computation is the CA (the gatecell NAND latch + the inverter latch); the inter-stage clock that
+latches values between stages is orchestrated, exactly like CA-1's control unit (compose.py). So the last
+CAPABILITY gap is closed — NOT + NAND compose any boolean, and with the latch (memory) any sequential
+circuit; what remains is integration engineering (a P&R that places NAND-chambers + inverter-latches +
+clocking for an arbitrary netlist). Updates [[atn-ca-memory-computation]].
