@@ -2053,3 +2053,15 @@ FRONTIER: this composes routed multi-input NOR (and NOR is universal), but multi
 needs active carrier REGENERATION between stages — an inverter that re-floods on O-dominance — because a
 gate whose output is "1" emits no carrier downstream. So: place-and-route DONE; active regeneration is
 the next real step toward an arbitrary self-wired datapath. Updates [[atn-ca-memory-computation]].
+
+## #2 Legible showcase: the hub now tells the arc + an honest "is it real?" box (2026-06-19)
+build_hub.py (dissemination/index.html) gained a top section before the lab grids: an 8-step ARC narrative
+(rule → NAND gate → any-width adder → CA-1 CPU → self-wiring place-and-route → CA-OS/2 → CORDIC
+coprocessor + GPU → the pact) and a credibility box "Is it real?" splitting the work three ways —
+(1) genuinely on the gates, verified gate-by-gate (NAND, ripple adder, logic composition, latch→register,
+place-and-route); (2) computed by the CA datapath but run at speed (OS, scientific calculator, GPU — same
+verified adder, emulated fast since gate-true is ~minutes/op, with sampled adds re-checked on real gates);
+(3) host-provided, not the CA (browser blits the framebuffer + forwards input; font decompressed by host
+then stored in CA memory). Honest verdict stated: a teaching instrument demonstrating universality +
+capability from one CA rule, not a speed competitor. Also refreshed the CA-2 app blurbs (scientific calc,
+8×8 sheet, 3D GPU). 27 labs, all present. (dissemination/ is gitignored; build_hub.py is the source.)
