@@ -2193,3 +2193,19 @@ register.py/memcap over 600 steps, not exercised by a write->read. Shipped with 
 cell 50->30px = C24/GAP6/PS16), ~8x cheaper per write, 5.18x measured on the 16-byte roundtrip. Re-verified:
 cacpu storage 16/16, add8/sub8 10/10, 7*6=42 program correct. (Storage isn't the CPU bottleneck — the ALU
 NANDs dominate — but the win is real for storage-heavy programs.) Updates [[atn-ca-optimization]].
+
+## Optimization: calayout synthesis — QM minimization + CSE + XOR-extraction (2026-06-19)
+calayout.py's place-and-route compiler had a naive sum-of-products synthesizer (a gate per literal per
+minterm, NO sharing) AND the same stale ca_nand budget (S=60/GHOLD=60). Both fixed:
+  * GATE BUDGET: ca_nand -> 48/20 (the identical latch; proven floor 40/10, see caregen_opt.py).
+  * GATE COUNT: replaced naive SOP with (a) Quine-McCluskey minimal prime-implicant cover (fewer, wider
+    product terms), (b) common-subexpression elimination in Netlist.add (memo on sorted args — NAND is
+    commutative — so a repeated gate like NOT(input0) is built once and shared), (c) XOR-extraction: parity
+    functions are SOP-INCOMPRESSIBLE, so detect parity-of-all-inputs and emit a balanced tree of classic
+    4-NAND XOR gates instead.
+RESULTS (all still 100% over every input x held-out seeds): XOR 9->4, MUX 29->8 (3.6x), ADD.sum 31->8 (3.9x,
+the XOR-tree win), ADD.carry 28->12 (2.3x). Total 97->32 gates = 3.0x fewer CA runs. End-to-end calayout
+12.4x faster (16.72s->1.35s) = gate-count 3.0x x per-gate budget ~3.5x. So the compute-fabric compiler now
+emits far smaller circuits AND runs each gate cheaper. Updates [[atn-ca-optimization]]. Optimization axes
+remaining: the gate board-size floors weren't fully taken (shipped 48, floor ~40); a production rip-up router
+for dense layouts (orthogonal to speed).
