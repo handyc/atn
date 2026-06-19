@@ -1998,3 +1998,17 @@ so NOTHING is half-built — clean state). Plan, in increments:
      Speed will be glacial on true gates (capability scales, speed never) — so the OS/browser runs the
      fast CA-2 bytecode port, with a cafpu-style gate-sample proof.
 Start at cacpu.py (gate primitives) + caos_ca2 fillrect (already a software rasterizer on the CA).
+
+## GPU: cagpu.py — a triangle rasteriser built from the CA gates (2026-06-19, autonomous)
+A GPU = rasterise triangles + do many pixels at once.  Both come from the EDGE FUNCTION: each edge is an
+affine form E_i(x,y)=A_i·x+B_i·y+C_i, a pixel is inside when all three E_i share the area's sign, and
+stepping one pixel just ADDS A_i (x) or B_i (y) — so rasterisation is, at heart, adds, and every add is
+cacpu.add_n (the verified CA NAND-gate adder).  PARALLELISM: the edge functions are evaluated over the
+triangle's bounding box as numpy arrays — each lane = one fragment = one more tiled copy of the gate
+adder (like the CA-network/GA-brain tiling).  Features: barycentric Gouraud interpolation, z-buffer,
+back-face cull, perspective projection.  The 3D demo is driven by the cafpu coprocessor (sin/cos to
+rotate, divide to project) — so the WHOLE pipeline, transform → pixels, is on the cellular automaton.
+VERIFIED: rasteriser shades 1173 fragments of a test triangle with 0 outside it; 24/24 of a triangle's
+recorded edge-step adds recomputed on the genuine CA gates are bit-exact; rendered cagpu_demo.png — a
+spinning colour cube + a Gouraud triangle (13,972 fragments).  Standalone like cafpu; an in-OS 3D demo
+app (porting the raster loop to CA-2 assembly) is the natural next showpiece.

@@ -98,3 +98,7 @@ pactbundle.html.gz
 # dual-screen pact (regenerate with build_pactbundle_duo.py)
 pactbundle_duo.html
 pactbundle_duo.html.z
+
+# GPU demo render (regenerate with cagpu.py)
+cagpu_demo.png
+cagpu_*.png
