@@ -89,6 +89,9 @@ for _i in range(CORDN): _Ag *= _math.sqrt(1 + 2.0**(-2*_i))
 KFX16  = round((1.0/_Ag) * FXONE)       # CORDIC gain^-1 (prescale x0)
 ATAN16 = [round(_math.atan(2.0**-_i) * FXONE) for _i in range(CORDN)]
 LN2_16 = round(_math.log(2) * FXONE)
+LN10_16 = round(_math.log(10) * FXONE)
+M_EXP = 10; INV_FACT = [round(FXONE / _math.factorial(n)) for n in range(M_EXP)]   # exp Taylor: 1/n!
+J_LN = 8;   INV_ODD = [round(FXONE / (2*j + 1)) for j in range(J_LN)]              # ln atanh series: 1/(2j+1)
 TBY = H - 22                                # taskbar top (taller, to fit antialiased labels)
 PSWATCH = [BLK, GRY, WHT, RED, GRN, BLU, NAV, TEAL]                # 8 paint colours
 # calc keypad: (label, kind, value) ; kind: d=digit o=op(0+,1-,2x) e== c=clear
@@ -276,7 +279,9 @@ def program():
     a(("pw3:",)); a(("CMPI", 3)); a(("JNZ", "pw4")); a(("LDI", 1000)); a(("STW", DSR)); a(("RET",))
     a(("pw4:",)); a(("CMPI", 4)); a(("JNZ", "pw5")); a(("LDI", 10000)); a(("STW", DSR)); a(("RET",))
     a(("pw5:",)); a(("CMPI", 5)); a(("JNZ", "pw6")); a(("LDI", 100000)); a(("STW", DSR)); a(("RET",))
-    a(("pw6:",)); a(("LDI", 1)); a(("STW", DSR)); a(("RET",))
+    a(("pw6:",)); a(("CMPI", 6)); a(("JNZ", "pw7")); a(("LDI", 1000000)); a(("STW", DSR)); a(("RET",))
+    a(("pw7:",)); a(("CMPI", 7)); a(("JNZ", "pw0")); a(("LDI", 10000000)); a(("STW", DSR)); a(("RET",))
+    a(("pw0:",)); a(("LDI", 1)); a(("STW", DSR)); a(("RET",))
 
     # ---- ccommit: CCUR = ±(CMAN<<16) / 10^FPLACE  (exact decimal -> Q16.16) ----
     a(("ccommit:",))
@@ -330,6 +335,43 @@ def program():
         a((f"cor_d{i}:",))
     a(("LDW", CFLIP)); a(("JZ", "cr_noflip")); a(("LDI", 0)); a(("SUBW", M2)); a(("STW", M2)); a(("cr_noflip:",))   # cos sign
     a(("RET",))
+
+    # ---- fpexp: M0 = exp(M0)  (Q16.16).  Range-reduce by ln2 (k=round(x/ln2)), Taylor on r, *2^k. ----
+    a(("fpexp:",))
+    a(("LDW", M0)); a(("STW", T3))                                              # T3 = x
+    a(("LDI", LN2_16)); a(("STW", M1)); a(("CALL", "fpdiv"))                     # M0 = x/ln2
+    a(("LDW", M0)); a(("ADDI", FXONE // 2)); a(("STW", M2)); asr_to(M2, 16, T2)  # k = floor(q + 0.5)
+    a(("LDW", T2)); shl(16); a(("STW", M0)); a(("LDI", LN2_16)); a(("STW", M1)); a(("CALL", "fpmul"))   # k*ln2
+    a(("LDW", T3)); a(("SUBW", M0)); a(("STW", M3))                             # r = x - k*ln2
+    a(("LDI", 0)); a(("STW", M4)); a(("LDI", FXONE)); a(("STW", T1))            # e=0, rp=1
+    for n in range(M_EXP):
+        a(("LDW", T1)); a(("STW", M0)); a(("LDI", INV_FACT[n])); a(("STW", M1)); a(("CALL", "fpmul"))   # rp/n!
+        a(("LDW", M4)); a(("ADDW", M0)); a(("STW", M4))
+        if n < M_EXP - 1:
+            a(("LDW", T1)); a(("STW", M0)); a(("LDW", M3)); a(("STW", M1)); a(("CALL", "fpmul")); a(("LDW", M0)); a(("STW", T1))   # rp *= r
+    a(("LDW", T2)); a(("JN", "fpe_kn"))                                         # e * 2^k  (k>=0: shift left)
+    a(("LDW", T2)); a(("STW", T3))
+    a(("fpe_sl:",)); a(("LDW", T3)); a(("JZ", "fpe_dn")); a(("LDW", M4)); a(("SHL",)); a(("STW", M4)); a(("LDW", T3)); a(("SUBI", 1)); a(("STW", T3)); a(("JMP", "fpe_sl"))
+    a(("fpe_kn:",)); a(("LDI", 0)); a(("SUBW", T2)); a(("STW", T3))             # k<0: shift right -k (e>0)
+    a(("fpe_sr:",)); a(("LDW", T3)); a(("JZ", "fpe_dn")); a(("LDW", M4)); a(("SHR",)); a(("STW", M4)); a(("LDW", T3)); a(("SUBI", 1)); a(("STW", T3)); a(("JMP", "fpe_sr"))
+    a(("fpe_dn:",)); a(("LDW", M4)); a(("STW", M0)); a(("RET",))
+
+    # ---- fpln: M0 = ln(M0), M0>0.  Normalize x=m·2^k (m in [1,2)), atanh series + k·ln2. ----
+    a(("fpln:",)); a(("LDW", M0)); a(("JN", "fpln_e")); a(("JNZ", "fpln_g")); a(("fpln_e:",)); a(("LDI", 0)); a(("STW", M0)); a(("RET",))
+    a(("fpln_g:",)); a(("LDW", M0)); a(("STW", M3)); a(("LDI", 0)); a(("STW", T3))   # m=M3, k=T3
+    a(("fpln_up:",)); a(("LDW", M3)); a(("CMPI", 2*FXONE)); a(("JNC", "fpln_ud")); a(("LDW", M3)); a(("SHR",)); a(("STW", M3)); a(("LDW", T3)); a(("ADDI", 1)); a(("STW", T3)); a(("JMP", "fpln_up")); a(("fpln_ud:",))
+    a(("fpln_dn:",)); a(("LDW", M3)); a(("CMPI", FXONE)); a(("JC", "fpln_dd")); a(("LDW", M3)); a(("SHL",)); a(("STW", M3)); a(("LDW", T3)); a(("SUBI", 1)); a(("STW", T3)); a(("JMP", "fpln_dn")); a(("fpln_dd:",))
+    a(("LDW", M3)); a(("SUBI", FXONE)); a(("STW", M0)); a(("LDW", M3)); a(("ADDI", FXONE)); a(("STW", M1)); a(("CALL", "fpdiv"))   # u=(m-1)/(m+1)
+    a(("LDW", M0)); a(("STW", M4)); a(("STW", M0)); a(("STW", M1)); a(("CALL", "fpmul")); a(("LDW", M0)); a(("STW", T1))   # u (M4), u² (T1)
+    a(("LDI", 0)); a(("STW", T0)); a(("LDW", M4)); a(("STW", T2))               # s=0, up=u
+    for j in range(J_LN):
+        a(("LDW", T2)); a(("STW", M0)); a(("LDI", INV_ODD[j])); a(("STW", M1)); a(("CALL", "fpmul"))   # up/(2j+1)
+        a(("LDW", T0)); a(("ADDW", M0)); a(("STW", T0))
+        if j < J_LN - 1:
+            a(("LDW", T2)); a(("STW", M0)); a(("LDW", T1)); a(("STW", M1)); a(("CALL", "fpmul")); a(("LDW", M0)); a(("STW", T2))   # up *= u²
+    a(("LDW", T0)); a(("SHL",)); a(("STW", T0))                                 # ln(m) = 2·s
+    a(("LDW", T3)); shl(16); a(("STW", M0)); a(("LDI", LN2_16)); a(("STW", M1)); a(("CALL", "fpmul"))   # k·ln2
+    a(("LDW", T0)); a(("ADDW", M0)); a(("STW", M0)); a(("RET",))
 
     # ---- cdigit: append the digit in CDIG to the entry mantissa, then commit to CCUR ----
     a(("cdigit:",))
@@ -540,6 +582,14 @@ def program():
                 a(("CALL", "cordic_cs")); a(("LDW", M2)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
             elif lab == 'tan':
                 a(("CALL", "cordic_cs")); a(("LDW", M3)); a(("STW", M0)); a(("LDW", M2)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'ln':
+                a(("LDW", CCUR)); a(("STW", M0)); a(("CALL", "fpln")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'log':
+                a(("LDW", CCUR)); a(("STW", M0)); a(("CALL", "fpln")); a(("LDI", LN10_16)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'e^x':
+                a(("LDW", CCUR)); a(("STW", M0)); a(("CALL", "fpexp")); a(("LDW", M0)); a(("STW", CCUR)); a(("LDI", 1)); a(("STW", CFRESH))
+            elif lab == 'x^y':
+                a(("CALL", "calc_apply")); a(("LDI", 4)); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH)); a(("LDI", 0)); a(("STW", FPLACE)); a(("STW", CDOT))
             elif lab in '+-x÷':
                 a(("CALL", "calc_apply"))
                 a(("LDI", {'+':0,'-':1,'x':2,'÷':3}[lab])); a(("STW", COP)); a(("LDI", 1)); a(("STW", CFRESH)); a(("LDI", 0)); a(("STW", FPLACE)); a(("STW", CDOT))
@@ -552,7 +602,9 @@ def program():
     a(("LDW", COP)); a(("CMPI", 0)); a(("JNZ", "ca_ns")); a(("LDW", CACC)); a(("ADDW", CCUR)); a(("STW", CACC)); a(("RET",))
     a(("ca_ns:",)); a(("CMPI", 1)); a(("JNZ", "ca_nm")); a(("LDW", CACC)); a(("SUBW", CCUR)); a(("STW", CACC)); a(("RET",))
     a(("ca_nm:",)); a(("CMPI", 2)); a(("JNZ", "ca_nd")); a(("LDW", CACC)); a(("STW", M0)); a(("LDW", CCUR)); a(("STW", M1)); a(("CALL", "fpmul")); a(("LDW", M0)); a(("STW", CACC)); a(("RET",))
-    a(("ca_nd:",)); a(("CMPI", 3)); a(("JNZ", "ca_load")); a(("LDW", CACC)); a(("STW", M0)); a(("LDW", CCUR)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CACC)); a(("RET",))
+    a(("ca_nd:",)); a(("CMPI", 3)); a(("JNZ", "ca_np")); a(("LDW", CACC)); a(("STW", M0)); a(("LDW", CCUR)); a(("STW", M1)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", CACC)); a(("RET",))
+    a(("ca_np:",)); a(("CMPI", 4)); a(("JNZ", "ca_load"))                       # pow: CACC = CACC ^ CCUR = exp(CCUR·ln CACC)
+    a(("LDW", CACC)); a(("STW", M0)); a(("CALL", "fpln")); a(("LDW", M0)); a(("STW", M1)); a(("LDW", CCUR)); a(("STW", M0)); a(("CALL", "fpmul")); a(("CALL", "fpexp")); a(("LDW", M0)); a(("STW", CACC)); a(("RET",))
     a(("ca_load:",)); a(("LDW", CCUR)); a(("STW", CACC)); a(("RET",))
 
     # ---- Writer: a text editor (renders TBUF with wrap + caret) ----

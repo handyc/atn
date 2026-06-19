@@ -1974,3 +1974,13 @@ near π/2 the X coordinate dips slightly negative mid-iteration -> garbage; fixe
 both X and Y. VERIFIED (radians): sin0=0, cos0=1, sin(π/6)=0.50002, cos(π/3)=0.50002, sin(π/2)=1.0,
 sin(π/4)=0.70711, tan(π/4)=0.99997, cos(2)=-0.41614, sin(3)=0.14111, sin(-2)=-0.90929 — all to ~1e-4.
 pact ELF still 38.2 KB.
+
+## Scientific Calc, Stage 4: ln/log/exp/pow — calculator COMPLETE (2026-06-19, autonomous)
+fpexp: e^x via range-reduce by ln2 (k=round(x/ln2)) + Taylor on r (Σ rⁿ/n!, 1/n! ROM) then ·2^k (a
+runtime shift loop). fpln: ln(x) by normalizing x=m·2^k (m in [1,2) via shifts) + atanh series
+(2·Σ u^(2j+1)/(2j+1), u=(m-1)/(m+1)) + k·ln2. log = ln/ln10. x^y is a binary op (COP=4): exp(y·ln x).
+All on fpmul/fpdiv/add — i.e. the CA adder. Extended pow10 to 10^7 (6+ decimal entry). VERIFIED:
+exp(1)=2.71823, exp(2)=7.38904, exp(-1)=0.36787, ln(10)=2.30252, ln(e)=0.99991, ln(0.5)=-0.69315,
+log(1000)=3.0, log(100)=2.0, 2^10=1024, 3^3=26.995, 2^0.5=1.41421. THE SCIENTIFIC CALCULATOR IS DONE:
+sin cos tan, ln log e^x x^y, √ x² 1/x, + − × ÷, π ± . CE, exact decimal I/O — all in CA-2 machine code
+on the verified CA adder. pact ELF 38.2 KB. NEXT (not started): the GPU.
