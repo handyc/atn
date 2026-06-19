@@ -2129,3 +2129,16 @@ automaton itself, no orchestration. HONEST SCOPE: this is the clock SOURCE (an a
 a stable, board-tunable period). Wiring that pulse to GATE the staged datapath (replace caclock's host sweep
 with this tick) is the remaining integration step — a routing job, not a missing CA capability. Updates
 [[atn-ca-memory-computation]].
+
+## Self-timed CA counter: catickdrive.py (bar #2 CLOSED) (2026-06-19)
+catick gave the clock SOURCE; this drives STATE with it. The glider-clock pulse train (column tripwire,
+debounced to one even tick per lap — the 2-phase glider fires a double-pulse per crossing) clocks a 2-bit
+ripple counter: each tick toggles bit0 via a GENUINE CA inverter latch (caregen.NOT), carry ripples to bit1.
+On a 60×60 torus: 16 ticks, lap = 120±0 steps (exactly catick's period), bit0 period 2 (÷2), bit1 period 4
+(÷4), count cycles 1→2→3→0 mod 4 cleanly. HONEST split of CA-vs-host: WHEN a tick happens = the CA (glider
+crossing, not a host counter); the STATE TRANSITION = the CA (mutual-annihilation inverter latch); the host
+only SAMPLES the readout + holds the bit between edges — exactly as any flip-flop's clock input is sampled
+by its consumer. So bar #2 is closed: a CA sequential circuit whose tempo is the automaton's own circulation
+time, no host step-counter. (The orchestrated piece that remains in caclock — its inter-LEVEL topological
+sweep latching combinational gates — could now be paced by this same glider tick; that's a wiring swap, the
+self-timing primitive itself is proven here.) Updates [[atn-ca-memory-computation]].
