@@ -2035,3 +2035,21 @@ arrived a moment later but DIRTY was already cleared, so nothing redrew until a 
 Fix (one line, matching lab22/25/min): `if(!ready){raf=requestAnimationFrame(tick);return;}` at the top
 of tick() — wait for the font before the first full draw. Verified in a real browser: both desktops boot
 fully rendered, no click needed.
+
+## #1 Self-wiring datapath: place-and-route on the CA (caplace.py) (2026-06-19)
+The last gap to "a computer made of cellular automata" was the LAYOUT algorithm — every CA capability
+(gate, confined wire, routing depth, fan-out) was verified, but the datapath was still hand-placed.
+caplace.py closes it: a netlist in -> a placer (chambers on a column grid by logic depth) + a Lee/BFS
+maze router (channels snake through free space, kept >=2 cells apart, entering each chamber at staggered
+edge points) -> ONE CA configuration (chambers + channels carved into a wall field) that the CA RUNS to
+compute the netlist, with NO hand coordinates.
+First settled the crux the autowire series never reached — do two logic gates COMPOSE in one run? Yes:
+two chambers joined by a flowable channel compute a clean 3-input NOR ~(A|B|C) (channels OR-merge
+carriers; the chamber NORs them), 100% held-out. Then the auto-P&R: routed NOR3 (2 chambers, 4 nets) =
+100% held-out; a 4-input NOR TREE (3 chambers, 6 nets, two same-column gates feeding a third) = 100%
+held-out. Tuning that mattered: 3-cell-wide channels (a 1-wide channel can't sustain the spreading
+carrier), chambers >=15px, T=340 for the longer auto-routes, staggered multi-input entries. HONEST
+FRONTIER: this composes routed multi-input NOR (and NOR is universal), but multi-LEVEL logic (NOR of NOR)
+needs active carrier REGENERATION between stages — an inverter that re-floods on O-dominance — because a
+gate whose output is "1" emits no carrier downstream. So: place-and-route DONE; active regeneration is
+the next real step toward an arbitrary self-wired datapath. Updates [[atn-ca-memory-computation]].
