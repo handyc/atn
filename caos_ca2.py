@@ -56,7 +56,8 @@ _VARS = ("AX AY AW AH ACOL GX GY GCH GCOL T0 T1 T2 T3 MX MY MB MBP "
          "WVX WVY DRAG DGX DGY MRX MRY "
          "UCP UGA UROW UCW GRAMP "
          "M0 M1 M2 M3 M4 M5 MHI MLO MCH MCL MPL FCB FPLACE CDIG "
-         "CMAN CDOT CSGN DVH DVL DSR QUO REM FCNT CFLIP").split()   # + glyph blitter regs + Q16.16 FPU scratch
+         "CMAN CDOT CSGN DVH DVL DSR QUO REM FCNT CFLIP "
+         "ANGLE COSY SINY TX1 TY2 TZ1 TZ2 TSS LX0 LY0 LX1 LY1 LC LDX LDY LSX LSY LERR LE2").split()   # + FPU + 3D scratch
 for _i, _n in enumerate(_VARS): globals()[_n] = _i * VS   # AX=0, AY=VS, ... laid out contiguously
 CURBUF  = 0x0380          # cursor 8x8 save-under (byte-addressed -> width-independent)
 CELLS   = 0x0F00          # sheet cells (12 x VS-byte words)
@@ -92,6 +93,12 @@ LN2_16 = round(_math.log(2) * FXONE)
 LN10_16 = round(_math.log(10) * FXONE)
 M_EXP = 10; INV_FACT = [round(FXONE / _math.factorial(n)) for n in range(M_EXP)]   # exp Taylor: 1/n!
 J_LN = 8;   INV_ODD = [round(FXONE / (2*j + 1)) for j in range(J_LN)]              # ln atanh series: 1/(2j+1)
+# ---- 3D demo (the GPU showpiece): a spinning wireframe cube, transformed + projected on the CA-2 ----
+CT16 = round(_math.cos(0.5) * FXONE); ST16 = round(_math.sin(0.5) * FXONE)         # fixed X tilt (~28°)
+DIST16 = round(4.2 * FXONE); PROJ16 = round(135 * FXONE)                            # camera distance, focal·pixels
+VSX = 0x0700; VSY = 0x0720                                                          # 8 projected vertex x / y (words)
+CUBEV = [(sx, sy, sz) for sz in (-1, 1) for sy in (-1, 1) for sx in (-1, 1)]        # 8 corners, sign per axis
+CUBEE = [(0,1),(1,3),(3,2),(2,0),(4,5),(5,7),(7,6),(6,4),(0,4),(1,5),(3,7),(2,6)]   # 12 edges
 TBY = H - 22                                # taskbar top (taller, to fit antialiased labels)
 PSWATCH = [BLK, GRY, WHT, RED, GRN, BLU, NAV, TEAL]                # 8 paint colours
 # calc keypad: (label, kind, value) ; kind: d=digit o=op(0+,1-,2x) e== c=clear
@@ -373,6 +380,58 @@ def program():
     a(("LDW", T3)); shl(16); a(("STW", M0)); a(("LDI", LN2_16)); a(("STW", M1)); a(("CALL", "fpmul"))   # k·ln2
     a(("LDW", T0)); a(("ADDW", M0)); a(("STW", M0)); a(("RET",))
 
+    # ---- drawline: Bresenham line (LX0,LY0)->(LX1,LY1) in colour LC, clipped.  Pure adds + sign tests. ----
+    a(("dl_pixel:",))
+    a(("LDW", LX0)); a(("JN", "dl_pno")); a(("LDW", LX0)); a(("CMPI", W)); a(("JC", "dl_pno"))
+    a(("LDW", LY0)); a(("JN", "dl_pno")); a(("LDW", LY0)); a(("CMPI", H)); a(("JC", "dl_pno"))
+    a(("LDW", LY0)); shl(9); a(("ADDW", LX0)); a(("TAX",)); a(("LDW", LC)); a(("STAX", FB))
+    a(("dl_pno:",)); a(("RET",))
+    a(("drawline:",))
+    a(("LDW", LX1)); a(("SUBW", LX0)); a(("STW", T0))                                   # dx
+    a(("LDW", T0)); a(("JN", "dl_xn")); a(("LDI", 1)); a(("STW", LSX)); a(("LDW", T0)); a(("STW", LDX)); a(("JMP", "dl_xd"))
+    a(("dl_xn:",)); a(("LDI", 0)); a(("SUBI", 1)); a(("STW", LSX)); a(("LDI", 0)); a(("SUBW", T0)); a(("STW", LDX)); a(("dl_xd:",))
+    a(("LDW", LY1)); a(("SUBW", LY0)); a(("STW", T0))                                   # dy
+    a(("LDW", T0)); a(("JN", "dl_yn")); a(("LDI", 1)); a(("STW", LSY)); a(("LDI", 0)); a(("SUBW", T0)); a(("STW", LDY)); a(("JMP", "dl_yd"))
+    a(("dl_yn:",)); a(("LDI", 0)); a(("SUBI", 1)); a(("STW", LSY)); a(("LDW", T0)); a(("STW", LDY)); a(("dl_yd:",))
+    a(("LDW", LDX)); a(("ADDW", LDY)); a(("STW", LERR))                                 # err = dx + (-dy)
+    a(("dl_loop:",)); a(("CALL", "dl_pixel"))
+    a(("LDW", LX0)); a(("CMPW", LX1)); a(("JNZ", "dl_cont")); a(("LDW", LY0)); a(("CMPW", LY1)); a(("JZ", "dl_done")); a(("dl_cont:",))
+    a(("LDW", LERR)); a(("SHL",)); a(("STW", LE2))                                      # e2 = 2·err
+    a(("LDW", LE2)); a(("SUBW", LDY)); a(("JN", "dl_skx")); a(("LDW", LERR)); a(("ADDW", LDY)); a(("STW", LERR)); a(("LDW", LX0)); a(("ADDW", LSX)); a(("STW", LX0)); a(("dl_skx:",))
+    a(("LDW", LE2)); a(("SUBW", LDX)); a(("JN", "dl_doy")); a(("JZ", "dl_doy")); a(("JMP", "dl_sky")); a(("dl_doy:",)); a(("LDW", LERR)); a(("ADDW", LDX)); a(("STW", LERR)); a(("LDW", LY0)); a(("ADDW", LSY)); a(("STW", LY0)); a(("dl_sky:",))
+    a(("JMP", "dl_loop")); a(("dl_done:",)); a(("RET",))
+
+    # ---- draw_3d: the GPU showpiece.  Rotate the cube (cordic_cs), project (fpmul/fpdiv), wire it up. ----
+    CXb = WW // 2; CYb = (18 + WH) // 2
+    a(("draw_3d:",))
+    wrect(2, 16, WW-4, WH-18, BLK)                                                      # dark backdrop (clears trails)
+    a(("LDW", ANGLE)); a(("STW", CCUR)); a(("CALL", "cordic_cs")); a(("LDW", M2)); a(("STW", COSY)); a(("LDW", M3)); a(("STW", SINY))
+    for i, (sx, sy, sz) in enumerate(CUBEV):
+        # x1 = sx·cosY + sz·sinY  (verts are ±1 -> just signed adds, no multiply)
+        a(("LDW", COSY)) if sx > 0 else (a(("LDI", 0)), a(("SUBW", COSY)))
+        a(("ADDW", SINY)) if sz > 0 else a(("SUBW", SINY))
+        a(("STW", TX1))
+        # z1 = sz·cosY - sx·sinY
+        a(("LDW", COSY)) if sz > 0 else (a(("LDI", 0)), a(("SUBW", COSY)))
+        a(("SUBW", SINY)) if sx > 0 else a(("ADDW", SINY))
+        a(("STW", TZ1))
+        # y2 = sy·CT - z1·ST ;  z2 = sy·ST + z1·CT  (fixed X tilt)
+        a(("LDW", TZ1)); a(("STW", M0)); a(("LDI", ST16)); a(("STW", M1)); a(("CALL", "fpmul"))
+        a(("LDI", CT16 if sy > 0 else (-CT16) & 0xFFFFFFFF)); a(("SUBW", M0)); a(("STW", TY2))
+        a(("LDW", TZ1)); a(("STW", M0)); a(("LDI", CT16)); a(("STW", M1)); a(("CALL", "fpmul"))
+        a(("LDI", ST16 if sy > 0 else (-ST16) & 0xFFFFFFFF)); a(("ADDW", M0)); a(("STW", TZ2))
+        # project: s = PROJ / (z2 + DIST)
+        a(("LDW", TZ2)); a(("ADDI", DIST16)); a(("STW", M1)); a(("LDI", PROJ16)); a(("STW", M0)); a(("CALL", "fpdiv")); a(("LDW", M0)); a(("STW", TSS))
+        a(("LDW", TX1)); a(("STW", M0)); a(("LDW", TSS)); a(("STW", M1)); a(("CALL", "fpmul")); asr_to(M0, 16, T0)
+        a(("LDW", WVX)); a(("ADDI", CXb)); a(("ADDW", T0)); a(("STW", VSX + i*4))
+        a(("LDW", TY2)); a(("STW", M0)); a(("LDW", TSS)); a(("STW", M1)); a(("CALL", "fpmul")); asr_to(M0, 16, T0)
+        a(("LDW", WVY)); a(("ADDI", CYb)); a(("SUBW", T0)); a(("STW", VSY + i*4))
+    for (i, j) in CUBEE:
+        a(("LDW", VSX + i*4)); a(("STW", LX0)); a(("LDW", VSY + i*4)); a(("STW", LY0))
+        a(("LDW", VSX + j*4)); a(("STW", LX1)); a(("LDW", VSY + j*4)); a(("STW", LY1))
+        a(("LDI", BLU)); a(("STW", LC)); a(("CALL", "drawline"))
+    a(("RET",))
+
     # ---- cdigit: append the digit in CDIG to the entry mantissa, then commit to CCUR ----
     a(("cdigit:",))
     a(("LDW", CFRESH)); a(("JZ", "cd_keep")); a(("LDI", 0)); a(("STW", CMAN)); a(("STW", FPLACE)); a(("STW", CDOT)); a(("STW", CSGN)); a(("STW", CFRESH)); a(("cd_keep:",))
@@ -386,7 +445,7 @@ def program():
     rect(0, 0, W, H, TEAL)                                   # background
     rect(0, TBY, W, 22, SIL); rect(0, TBY-1, W, 1, WHT)      # taskbar
     # launcher buttons (index == APP id); active button -> navy fill + white label
-    for i, name in enumerate(["About", "Paint", "Calc", "Writer", "Sheet"]):
+    for i, name in enumerate(["About", "Paint", "Calc", "Writer", "Sheet", "3D"]):
         bx = 4 + i*54
         rect(bx, TBY+3, 50, 16, SIL)
         a(("LDI", bx)); a(("STW", AX)); a(("LDI", TBY+3)); a(("STW", AY)); a(("LDI", 50)); a(("STW", AW)); a(("LDI", 16)); a(("STW", AH))
@@ -397,29 +456,32 @@ def program():
     # window frame + title
     wrect(0, 0, WW, WH, SIL)
     wrect(0, 0, WW, 18, NAV)
-    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "ti_p")); a(("CMPI", 2)); a(("JZ", "ti_c")); a(("CMPI", 3)); a(("JZ", "ti_w")); a(("CMPI", 4)); a(("JZ", "ti_s"))
+    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "ti_p")); a(("CMPI", 2)); a(("JZ", "ti_c")); a(("CMPI", 3)); a(("JZ", "ti_w")); a(("CMPI", 4)); a(("JZ", "ti_s")); a(("CMPI", 5)); a(("JZ", "ti_3d"))
     wputs16(8, 1, "About CA-OS/2", "wnav"); a(("JMP", "ti_d"))
     a(("ti_p:",)); wputs16(8, 1, "Paint", "wnav"); a(("JMP", "ti_d"))
     a(("ti_c:",)); wputs16(8, 1, "Calc — 32-bit", "wnav"); a(("JMP", "ti_d"))
     a(("ti_w:",)); wputs16(8, 1, "Writer", "wnav"); a(("JMP", "ti_d"))
-    a(("ti_s:",)); wputs16(8, 1, "Sheet — 32-bit cells", "wnav")
+    a(("ti_s:",)); wputs16(8, 1, "Sheet — 32-bit cells", "wnav"); a(("JMP", "ti_d"))
+    a(("ti_3d:",)); wputs16(8, 1, "3D — a CA-rendered cube", "wnav")
     a(("ti_d:",))
     # body by app
-    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "body_p")); a(("CMPI", 2)); a(("JZ", "body_c")); a(("CMPI", 3)); a(("JZ", "body_w")); a(("CMPI", 4)); a(("JZ", "body_s"))
+    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "body_p")); a(("CMPI", 2)); a(("JZ", "body_c")); a(("CMPI", 3)); a(("JZ", "body_w")); a(("CMPI", 4)); a(("JZ", "body_s")); a(("CMPI", 5)); a(("JZ", "body_3d"))
     a(("CALL", "draw_about")); a(("JMP", "draw_d"))
     a(("body_p:",)); a(("CALL", "draw_paint")); a(("JMP", "draw_d"))
     a(("body_c:",)); a(("CALL", "draw_calc")); a(("JMP", "draw_d"))
     a(("body_w:",)); a(("CALL", "draw_writer")); a(("JMP", "draw_d"))
-    a(("body_s:",)); a(("CALL", "draw_sheet"))
+    a(("body_s:",)); a(("CALL", "draw_sheet")); a(("JMP", "draw_d"))
+    a(("body_3d:",)); a(("CALL", "draw_3d"))
     a(("draw_d:",)); a(("CALL", "drawclock")); a(("RET",))
     # body-only redraw: just the active app's window interior (skips the 196608-px desktop fill)
     a(("drawbody:",))
-    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "db_p")); a(("CMPI", 2)); a(("JZ", "db_c")); a(("CMPI", 3)); a(("JZ", "db_w")); a(("CMPI", 4)); a(("JZ", "db_s"))
+    a(("LDW", APP)); a(("CMPI", 1)); a(("JZ", "db_p")); a(("CMPI", 2)); a(("JZ", "db_c")); a(("CMPI", 3)); a(("JZ", "db_w")); a(("CMPI", 4)); a(("JZ", "db_s")); a(("CMPI", 5)); a(("JZ", "db_3d"))
     a(("CALL", "draw_about")); a(("RET",))
     a(("db_p:",)); a(("CALL", "draw_paint")); a(("RET",))
     a(("db_c:",)); a(("CALL", "draw_calc")); a(("RET",))
     a(("db_w:",)); a(("CALL", "draw_writer")); a(("RET",))
     a(("db_s:",)); a(("CALL", "draw_sheet")); a(("RET",))
+    a(("db_3d:",)); a(("CALL", "draw_3d")); a(("RET",))
 
     # ---- About app ----
     a(("draw_about:",))
@@ -514,8 +576,8 @@ def program():
     a(("onclick:",))
     a(("LDW", MX)); a(("SUBW", WVX)); a(("STW", MRX))     # mouse position relative to the window origin
     a(("LDW", MY)); a(("SUBW", WVY)); a(("STW", MRY))
-    # launcher buttons (taskbar): About/Paint/Calc/Writer/Sheet
-    for i in range(5):
+    # launcher buttons (taskbar): About/Paint/Calc/Writer/Sheet/3D
+    for i in range(6):
         bx = 4 + i*54
         a(("LDW", MX)); a(("CMPI", bx)); a(("JNC", f"nl{i}")); a(("CMPI", bx+50)); a(("JC", f"nl{i}"))
         a(("LDW", MY)); a(("CMPI", TBY+3)); a(("JNC", f"nl{i}")); a(("CMPI", TBY+19)); a(("JC", f"nl{i}"))
@@ -714,6 +776,11 @@ def program():
     a(("LDI", 0)); a(("STW", CLKF)); a(("LDW", CSEC)); a(("ADDI", 1)); a(("STW", T0)); a(("LDW", T0)); a(("CMPI", 1000)); a(("JNC", "csok")); a(("LDI", 0)); a(("STW", T0)); a(("csok:",)); a(("LDW", T0)); a(("STW", CSEC))
     a(("LDW", HAVES)); a(("JZ", "ck_nr")); a(("CALL", "restun")); a(("ck_nr:",)); a(("CALL", "drawclock")); a(("LDI", 0)); a(("STW", HAVES))
     a(("noclk:",))
+    # 3D: spin the cube every frame (sets BDIRTY -> the body redraws)
+    a(("LDW", APP)); a(("CMPI", 5)); a(("JNZ", "no3danim"))
+    a(("LDW", ANGLE)); a(("ADDI", 2200)); a(("STW", ANGLE)); a(("CMPI", TWOPI16)); a(("JNC", "anglok")); a(("LDW", ANGLE)); a(("SUBI", TWOPI16)); a(("STW", ANGLE)); a(("anglok:",))
+    a(("LDI", 1)); a(("STW", BDIRTY))
+    a(("no3danim:",))
     # cursor: restore old, save new, draw
     a(("LDW", HAVES)); a(("JZ", "norest")); a(("CALL", "restun")); a(("norest:",))
     a(("CALL", "saveun")); a(("LDI", 1)); a(("STW", HAVES)); a(("LDW", CX)); a(("STW", OCX)); a(("LDW", CY)); a(("STW", OCY)); a(("CALL", "drawcur"))

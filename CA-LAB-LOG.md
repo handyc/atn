@@ -2012,3 +2012,16 @@ VERIFIED: rasteriser shades 1173 fragments of a test triangle with 0 outside it;
 recorded edge-step adds recomputed on the genuine CA gates are bit-exact; rendered cagpu_demo.png — a
 spinning colour cube + a Gouraud triangle (13,972 fragments).  Standalone like cafpu; an in-OS 3D demo
 app (porting the raster loop to CA-2 assembly) is the natural next showpiece.
+
+## GPU in the OS: a CA-rendered spinning 3D cube (2026-06-19, autonomous)
+Wired the GPU into CA-OS as a 6th app, "3D" — the showpiece: the cellular-automaton computer renders a
+rotating wireframe cube in its own desktop (and the browser), entirely in CA-2 machine code on the CA
+adder. Pipeline per frame: cordic_cs gives cos/sin of ANGLE (the calculator's trig, reused); each of the
+8 cube vertices (coords ±1, so the Y-rotation is just signed adds — no multiply) is tilted on X (fpmul),
+projected with a perspective divide (fpdiv), and the 12 edges drawn by a new Bresenham routine (drawline:
+pure adds + sign tests, clipped). The main loop spins ANGLE +0.034 rad/frame and flags BDIRTY so the body
+redraws — so it animates. New app plumbing: launcher button, title/body/drawbody dispatch (APP=5), click
+hit-test extended to 6 buttons. VERIFIED by rendering the running OS: a correct perspective cube with the
+X-tilt, animating as ANGLE advances. So the full set is done — the CA computer now has a math coprocessor
+(cafpu), a scientific calculator, and a GPU (cagpu standalone + this in-OS 3D demo), all grounded in the
+verified CA NAND-gate adder. pact ELF 42.2 KB.
