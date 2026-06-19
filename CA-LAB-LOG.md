@@ -1984,3 +1984,17 @@ exp(1)=2.71823, exp(2)=7.38904, exp(-1)=0.36787, ln(10)=2.30252, ln(e)=0.99991, 
 log(1000)=3.0, log(100)=2.0, 2^10=1024, 3^3=26.995, 2^0.5=1.41421. THE SCIENTIFIC CALCULATOR IS DONE:
 sin cos tan, ln log e^x x^y, √ x² 1/x, + − × ÷, π ± . CE, exact decimal I/O — all in CA-2 machine code
 on the verified CA adder. pact ELF 38.2 KB. NEXT (not started): the GPU.
+
+## GPU — design note (next session, not yet started) (2026-06-19)
+The honest "out of CA gates" GPU track, scoped for when work resumes (lid closed before starting code,
+so NOTHING is half-built — clean state). Plan, in increments:
+  1. A CA-gate BLITTER: a unit that copies/fills rectangles in the framebuffer. The address math
+     (y·W+x) and the per-pixel write are already CA-2 ops (= the CA adder); "GPU" = make it a
+     command-list peripheral the OS submits to, with the inner loop demonstrably the verified gate.
+  2. PARALLELISM is the real GPU idea: tile N independent CA blit/raster lanes (like the GA brain
+     network / the CA-network labs) so many pixels are computed at once — N copies of the verified
+     gate fabric, not one new gate. Show a triangle/line rasterizer fanned across lanes.
+  3. Honesty bar (same as cafpu): every arithmetic op = cacpu.add_n; sample-verify on real gates.
+     Speed will be glacial on true gates (capability scales, speed never) — so the OS/browser runs the
+     fast CA-2 bytecode port, with a cafpu-style gate-sample proof.
+Start at cacpu.py (gate primitives) + caos_ca2 fillrect (already a software rasterizer on the CA).
