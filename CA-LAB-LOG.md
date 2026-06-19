@@ -2209,3 +2209,17 @@ the XOR-tree win), ADD.carry 28->12 (2.3x). Total 97->32 gates = 3.0x fewer CA r
 emits far smaller circuits AND runs each gate cheaper. Updates [[atn-ca-optimization]]. Optimization axes
 remaining: the gate board-size floors weren't fully taken (shipped 48, floor ~40); a production rip-up router
 for dense layouts (orthogonal to speed).
+
+## Lab: glider-lab27 — dual-pane CA-OS/2 + a LIVE on-board CA clock (2026-06-19)
+A new dual-pane Alice & Bob 32-bit CA-OS/2 lab (built from lab24's stack) that demonstrates this session's
+work in the browser. TWO additions: (1) the cached-gather CA step (castep) — the 6 hex neighbours are a fixed
+toroidal permutation, so the gather indices are precomputed once per board, bit-identical to the old
+roll-style step (the same rulehub.hex_key optimization, ported to JS); that headroom is what lets (2) a NEW
+live panel 6 — the on-board CA clock — run smoothly: a real 5-cell glider (the exact catick rule, newton
+cx=-0.105, packed into the page) circles a 64×64 torus by the rule alone, crosses a dim tripwire column once
+per lap (green flash), and each debounced tick drives a ÷2/÷4 self-timed counter showing the count cycle
+1→2→3→0. VERIFIED: the panel's exact JS logic replayed in Python gives 16 ticks, lap period exactly 128
+CA-steps (=2×circumference), counter cycles cleanly; headless Chromium boot is error-free (SHA-256 self-test
+passes, OS renders both panes, panel 6 present). NOTE: nearly clobbered the existing build_lab26.py (the
+spoeqi-envelope lab) — caught it, restored from git, and renumbered the new lab to 27. Hub updated (28 labs).
+dissemination/*.html stay local/gitignored; build_lab27.py + build_hub.py committed.

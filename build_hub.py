@@ -41,6 +41,7 @@ GROUPS = [
         ("glider-lab24.html", "CA-OS/2 dual-pane", "The full suite shared over a SECURE line — every input delta sealed with AES-256-GCM keyed by the CA; cut/restore, live metrics, live CA panels."),
         ("caos-32-min.html",  "CA-OS/2 (minimal)", "Just the OS and its apps — calculator, sheet, writer, paint, 3D — no prose. Shows how small the bare OS is."),
         ("glider-lab25.html", "CA Unicode Writer", "Type any language — the CA holds the full 16×16 antialiased font (Latin/Greek/Cyrillic/CJK/Hangul/kana) in its own memory and blits every glyph."),
+        ("glider-lab27.html", "Dual-pane + on-board CA clock", "The dual-pane suite plus a live on-board CLOCK: a glider circles a torus by the rule alone, crossing a tripwire once per lap to drive a ÷2/÷4 self-timed counter. The live panels run a cached-gather CA step — the same hot-loop optimization (2.5–4.6×) just applied to the engine."),
     ]),
 ]
 # The honest chain, told once, as the credibility anchor of the whole project.
