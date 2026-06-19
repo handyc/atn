@@ -2065,3 +2065,17 @@ verified adder, emulated fast since gate-true is ~minutes/op, with sampled adds 
 then stored in CA memory). Honest verdict stated: a teaching instrument demonstrating universality +
 capability from one CA rule, not a speed competitor. Also refreshed the CA-2 app blurbs (scientific calc,
 8×8 sheet, 3D GPU). 27 labs, all present. (dissemination/ is gitignored; build_hub.py is the source.)
+
+## #3 Wrote up the real novelty: GLIDER-STEERING.md (2026-06-19)
+Consolidated the genuinely-novel, paper-worthy result (scattered across mechanism.py / fractal_dir_deep.py /
+fractal_steer.py and only mentioned in LITERATURE.md's checkpoint) into a proper research note,
+GLIDER-STEERING.md, with a figure (figs_glider.py -> fig-glider-steering.png). RE-RAN the experiments to
+ground every number firsthand: the closed-form single-neighbour direction law (heading = angle(F)+180°)
+verified per family on held-out rules — newton +0.95/5°, julia +0.86/18°, mandelbrot +0.98/7°, burning
++0.92/6°, ≥95% within 45° (mechanism_general.py); the fractal-coordinate dial cx→heading corr 0.97 over a
+~70° swing, R=0.88, and rotation-equivariance falsified at -0.19 (fractal_dir_deep.py). Paper covers: the
+law, the dial, span≈orthogonal speed knob + inverse steering, the one-sentence mechanism (a glider moves
+opposite the neighbour the table most copies), honest prior-art (novel vs Wuensche's Z = likelihood-not-
+direction, vs evolutionary glider search, vs anisotropy-as-artifact; substrate=Wuensche/DDLab, framing=ReCA),
+and limitations (uneven heading coverage; first-order tails; anisotropy blocks collision logic -> the
+computer uses the latch). Companion to FINDINGS.md (reservoir) + LITERATURE.md (novelty map).
